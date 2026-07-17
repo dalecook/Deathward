@@ -338,6 +338,25 @@ def draw_world(surf, world, codex, cam, t):
                          border_radius=4)
         surf.blit(shell, topleft(p.x, p.y))
 
+    # --- active-effect pips ----------------------------------------------
+    # one small pip per lasting effect, at the tile corners in fill order
+    # (top-left, top-right, bottom-right, bottom-left). Four corners is the cap;
+    # the HUD carries the full list. A pip blinks through its final three turns;
+    # untimed effects (the Phoenix) hold steady.
+    effects = p.active_effects()
+    if effects:
+        tlx, tly = topleft(p.x, p.y)
+        r = max(3, T // 9)
+        m = r + 1
+        corners = [(tlx + m, tly + m), (tlx + T - m, tly + m),
+                   (tlx + T - m, tly + T - m), (tlx + m, tly + T - m)]
+        blink_on = math.sin(t * 12) > 0
+        for (_lbl, color, rem), (pcx, pcy) in zip(effects, corners):
+            if rem is not None and rem <= 3 and not blink_on:
+                continue
+            pygame.draw.circle(surf, (10, 12, 18), (pcx, pcy), r + 1)
+            pygame.draw.circle(surf, color, (pcx, pcy), r)
+
     # --- fire ------------------------------------------------------------
     # drawn last, over everything, because the point is that you cannot miss it
     for f in world.fx:
