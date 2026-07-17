@@ -3738,6 +3738,7 @@ class TestFireIsVisible(unittest.TestCase):
     def test_the_firestorm_sets_light_to_everything_it_can_see(self):
         codex = FakeSave()
         codex.known.append("id.vorn")
+        codex.world_seed = 3          # pin the stone: the room size must not be random
         w = World(codex, seed=3)
         w.level.monsters = []
         w.player.hp = 99
@@ -3748,11 +3749,12 @@ class TestFireIsVisible(unittest.TestCase):
         burning = [f for f in w.fx if f["kind"] == "burning"]
         self.assertTrue(burning)
         tiles = set(burning[0]["tiles"])
-        self.assertGreater(len(tiles), 20, "VORN burns the whole room")
-        for (x, y) in tiles:
-            self.assertTrue(w.level.visible[y][x],
-                            "it can only burn what you can see -- that IS its range")
-            self.assertTrue(w.walkable(x, y), "walls do not burn")
+        # Firestorm's range IS your field of view: it lights every visible walkable tile
+        # and only those. Assert that EXACT set, so the test does not depend on how big a
+        # room the seed happened to deal -- which was the old source of flakiness.
+        self.assertEqual(tiles, set(w.visible_floor()),
+                         "VORN burns exactly what you can see -- no walls, nothing unseen")
+        self.assertTrue(tiles, "and there is something in view to burn")
 
     def test_the_escape_scroll_shows_you_where_you_went(self):
         """UUL cuts the camera to a strange room. Without a mark on the tile you left
