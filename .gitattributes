@@ -1,0 +1,4 @@
+# Normalize line endings: store everything as LF in the repo and check it out
+# as LF on every platform. Keeps a cross-platform Python project deterministic
+# and silences Git's CRLF conversion warnings on Windows.
+* text=auto eol=lf
