@@ -347,137 +347,136 @@ FACT_LIST = [
 
     # --- ITEM IDENTITIES -------------------------------------------------
     _f("id.ochre", "item", "identity", "THE OCHRE POTION IS HEALING",
-       "Whatever else you find down here, the ochre one closes wounds. It always has "
-       "-- and every run you carried one without knowing, you were carrying the cure "
-       "and did not spend it. Ochre is healing. Forever."),
+       "This one closes wounds -- a clean bite of health back in a single swallow, the "
+       "simplest good flask in a place with very few of them. Drink it when a fight has "
+       "already drawn blood and you need that blood back, not before."),
     _f("id.azure", "item", "identity", "THE AZURE POTION IS SWIFTNESS",
-       "Azure is speed -- twenty turns of moving like the rats do. Drink it to escape, "
+       "This one is speed -- twenty turns of moving like the rats do. Drink it to escape, "
        "not to fight."),
     _f("id.viscous", "item", "identity", "THE VISCOUS POTION IS VENOM",
-       "Viscous green is not medicine. Drinking it in a panic has ended more runs than "
-       "any monster on the first three floors. But now that you know what it is, you "
-       "will never drink it again -- you will WIPE IT DOWN YOUR BLADE, and the next "
-       "thing you hit will take it instead of you. One coat, one strike, and it is "
-       "gone. The flask did not change. You did. That is the entire dungeon, in one "
-       "bottle."),
+       "This one is not medicine. Drunk in a panic it has ended more runs than any "
+       "monster on the first three floors. But now that you know what it is, you will "
+       "never drink it again -- you will WIPE IT DOWN YOUR BLADE, and the next thing "
+       "you hit will take it instead of you. One coat, one strike, and it is gone. The "
+       "flask did not change. You did. That is the entire dungeon, in one bottle."),
     _f("id.black", "item", "identity", "THE BUBBLING BLACK POTION IS MIGHT",
-       "Black is fury: twenty turns of hitting appreciably harder. It is the potion you "
-       "should be saving for the bottom of the dungeon."),
+       "This one is fury: twenty turns of hitting appreciably harder. It is the potion "
+       "you should be saving for the bottom of the dungeon."),
     _f("id.kesh", "item", "identity", "THE SCROLL 'KESH' MAPS THE FLOOR",
-       "KESH unrolls the whole level in your head -- every room, every corridor, the "
-       "way down. And that is ALL it does. It is a map of the stone. It will not show "
+       "This scroll unrolls the whole level in your head -- every room, every corridor, "
+       "the way down. And that is ALL it does. It is a map of the stone. It will not show "
        "you the gold, it will not show you which chest is a mimic, it will not show "
        "you a single trap, and it will not show you what is walking about in there. "
        "It tells you where you can go. It tells you nothing about what it costs."),
     _f("id.vorn", "item", "identity", "THE SCROLL 'VORN' IS FIRE",
-       "VORN sets fire to everything you can currently see. Everything you can see. "
-       "Check what is standing next to you before you read it."),
+       "This scroll sets fire to everything you can currently see. Everything you can "
+       "see. Check what is standing next to you before you read it."),
     _f("id.uul", "item", "identity", "THE SCROLL 'UUL' IS ESCAPE",
-       "UUL throws you somewhere else on the floor, at random. It is not a good escape. "
-       "It is, sometimes, the only one."),
+       "This scroll throws you somewhere else on the floor, at random. It is not a good "
+       "escape. It is, sometimes, the only one."),
     _f("id.gramm", "item", "identity", "THE SCROLL 'GRAMM' IS A MISTAKE",
-       "GRAMM summons. It has never once summoned anything that was pleased to see you. "
-       "Read it only if you want the floor to come to you."),
+       "This scroll summons. It has never once summoned anything that was pleased to see "
+       "you. Read it only if you want the floor to come to you."),
 
     # --- WAVE 1 consumables ----------------------------------------------
     _f("id.grey", "item", "identity", "THE CLOUDY GREY POTION IS STONESKIN",
-       "Grey hardens your hide for a while -- blows that would have opened you slide "
+       "This one hardens your hide for a while -- blows that would have opened you slide "
        "off instead. Drink it before you wade into a crowd, not after."),
     _f("id.crimson", "item", "identity", "THE CRIMSON POTION IS REGENERATION",
-       "Crimson does two things at once. It washes out whatever ails you -- poison, "
+       "This one does two things at once. It washes out whatever ails you -- poison, "
        "sapped strength, a swimming head -- and then it knits you closed a little at a "
        "time, turn after turn. It is not a panic heal; it is worth the most drunk "
        "EARLY, before a long fight, so the mending runs the whole way through it -- "
-       "and it is your answer to a green flask you drank by mistake."),
+       "and it is your answer to a bad flask you drank by mistake."),
     _f("id.sallow", "item", "identity", "THE SALLOW YELLOW POTION IS WEAKNESS",
-       "Sallow saps the strength out of whoever drinks it -- their blows land soft for "
+       "This one saps the strength out of whoever drinks it -- their blows land soft for "
        "a good while. Drunk in ignorance it is a punishment. But now that you know it, "
        "you never drink it again: you WIPE IT DOWN YOUR BLADE, exactly like venom, and "
        "the next thing you cut has ITS strength sapped instead of yours. Save it for "
        "the heavy hitter you would rather not trade blows with."),
     _f("id.silver", "item", "identity", "THE SILVERY POTION IS VIGOR",
-       "Silver lays a reserve of strength over your own -- temporary vitality that "
+       "This one lays a reserve of strength over your own -- temporary vitality that "
        "takes the next blows before your real health is ever touched. Drink it BEFORE "
        "you wade in, not after: it is a shield you raise, not a wound you close, and "
        "it fades if you dawdle instead of fighting."),
     _f("id.morn", "item", "identity", "THE SCROLL 'MORN' IDENTIFIES",
-       "MORN spells out the true name of the mystery you are carrying the most of. In "
+       "This scroll spells out the true name of the mystery you are carrying the most of. In "
        "a dungeon where every unknown flask is a coin-flip between a cure and a "
        "poison, a scroll that just TELLS you is worth saving for the thing you are "
        "most afraid to drink."),
     _f("id.yris", "item", "identity", "THE SCROLL 'YRIS' IS LIGHT",
-       "YRIS floods light out around you: the nearby stone, anything lurking in it, "
+       "This scroll floods light out around you: the nearby stone, anything lurking in it, "
        "and -- this is the point -- the traps. Read it walking blind into a new "
        "stretch of floor, and the pressure plates light up before your foot does."),
     _f("id.ghask", "item", "identity", "THE SCROLL 'GHASK' IS AGGRAVATION",
-       "GHASK wakes the entire floor and points it at you. There is no good reason to "
-       "read it on purpose. Learn the rune, and never read it again -- unless you have "
+       "This scroll wakes the entire floor and points it at you. There is no good reason "
+       "to read it on purpose. Learn what it is, and never read it again -- unless you have "
        "a very particular plan and a very fast pair of boots."),
     _f("id.vosh", "item", "identity", "THE SCROLL 'VOSH' DETECTS TREASURE",
-       "VOSH lights up every hoard on the floor at once -- chests, dropped gear, loose "
+       "This scroll lights up every hoard on the floor at once -- chests, dropped gear, loose "
        "coin. It shows you WHERE the treasure is and nothing about what is sitting on "
        "it, so a chest it reveals may still be a mimic. It pairs well with the way "
        "down: sweep the floor for loot, then leave."),
 
     # --- WAVE 2 consumables ----------------------------------------------
     _f("id.rose", "item", "identity", "THE ROSE-GOLD POTION IS GREATER HEALING",
-       "Rose-gold does not just close a wound -- it closes ALL of them. From a sliver "
+       "This one does not just close a wound -- it closes ALL of them. From a sliver "
        "of health to full, in a single swallow. It is the flask you save for the "
        "moment a fight has gone completely wrong, not the one you sip to top up."),
     _f("id.vermilion", "item", "identity", "THE VERMILION POTION IS RAGE",
-       "Vermilion is fury in a bottle: for a good while you hit markedly harder and "
+       "This one is fury in a bottle: for a good while you hit markedly harder and "
        "move faster. The price is written in the same breath -- you stop guarding "
        "yourself, and every blow that lands on you bites deeper. Drink it to END a "
        "fight fast, never to survive a losing one."),
     _f("id.teal", "item", "identity", "THE TEAL POTION IS WARDING",
-       "Teal halves everything that hits you for a while -- steel, fang, fire, a "
+       "This one halves everything that hits you for a while -- steel, fang, fire, a "
        "beholder's ray, all of it, cut in two. It is the potion for walking THROUGH "
        "something you cannot walk around."),
     _f("id.sky", "item", "identity", "THE SKY-BLUE POTION IS LEVITATION",
-       "Sky-blue lifts your feet clear of the floor. Pressure plates do not click, "
+       "This one lifts your feet clear of the floor. Pressure plates do not click, "
        "pits do not open, and a spike pit you are already stuck in simply lets you "
        "float out. It does nothing about gas or fire in the air -- only what is "
        "underfoot."),
     _f("id.krav", "item", "identity", "THE SCROLL 'KRAV' ENCHANTS A WEAPON",
-       "KRAV pours a permanent edge into the weapon in your hand -- +1 damage, and it "
+       "This scroll pours a permanent edge into the weapon in your hand -- +1 damage, and it "
        "stays. Read it over your BEST weapon, and read it again over the same one: it "
        "stacks. The enchantment lives on the weapon, so keep the weapon."),
     _f("id.dwen", "item", "identity", "THE SCROLL 'DWEN' ENCHANTS ARMOUR",
-       "DWEN hardens the armour you are wearing by a permanent +1 defence, and it "
+       "This scroll hardens the armour you are wearing by a permanent +1 defence, and it "
        "stacks with itself. Flat defence is a swarm answer -- every point you add is "
        "subtracted from EVERY blow -- so a stack of these turns a mob of small teeth "
        "into a nuisance."),
     _f("id.violet", "item", "identity", "THE VIOLET POTION IS INVISIBILITY",
-       "Violet bends the light around you: for a while, NOTHING on the floor can find "
+       "This one bends the light around you: for a while, NOTHING on the floor can find "
        "you. Not the orcs' eyes, not the beholder's gaze, not a thing. You can walk "
        "straight through a room you could never have fought your way out of. It ends "
        "the instant you swing a weapon -- you cannot kill from hiding -- and it thins "
        "away on its own. "
        "This is not a fighting tool. It is an escape, a scout, a way PAST."),
     _f("id.vesh", "item", "identity", "THE SCROLL 'VESH' IS INVISIBILITY",
-       "VESH does exactly what the violet potion does -- wraps you in unseeing for a "
+       "This scroll does exactly what the invisibility potion does -- wraps you in unseeing for a "
        "while -- and having it as a scroll as well is not a mistake. Down in the deep "
        "floors, being unseen is worth carrying twice. Read it to slip a pack, cross a "
        "killing floor, or reach the stairs alive. It breaks the moment you attack."),
     _f("id.puce", "item", "identity", "THE MUDDY PUCE POTION IS CONFUSION",
-       "Puce is the third bad flask, and it obeys the same rule as venom and weakness: "
+       "This one is the third bad flask, and it obeys the same rule as venom and weakness: "
        "drunk in ignorance it turns on YOU -- the floor swims and your feet stop going "
        "where you point them. But now that you know it, you never drink it. You WIPE "
        "IT ON THE BLADE, and the next thing you cut staggers off at random instead. "
        "Coat it onto the heavy hitter and walk away while it blunders into a wall."),
     _f("id.skarn", "item", "identity", "THE SCROLL 'SKARN' IS FEAR",
-       "SKARN rolls dread out around you, and everything close enough turns and flees. "
+       "This scroll rolls dread out around you, and everything close enough turns and flees. "
        "It does not kill anything -- it BUYS you a stretch of floor. Read it when you "
        "are surrounded and need the room to breathe, to drink, or to run for the "
        "stairs. They come back once it fades, so spend the gap well."),
     _f("id.gorm", "item", "identity", "THE SCROLL 'GORM' IS HOLD MONSTER",
-       "GORM snags time itself: everything near you locks rigid for a good ten turns, "
+       "This scroll snags time itself: everything near you locks rigid for a good ten turns, "
        "unable to move or strike. That is a real escape window -- long enough to walk "
        "clear of a mob in a hallway, land free blows on things that cannot answer, "
-       "drink, or just leave. The beholder does this to YOU; GORM hands the trick "
+       "drink, or just leave. The beholder does this to YOU; this scroll hands the trick "
        "back, and holds longer."),
     _f("id.zeph", "item", "identity", "THE SCROLL 'ZEPH' IS TELEPORT",
-       "ZEPH is the aimed cousin of the Escape scroll. Instead of throwing you "
+       "This scroll is the aimed cousin of the Escape scroll. Instead of throwing you "
        "somewhere at random, it opens a cursor and lets you CHOOSE -- any open tile "
        "you have already seen, anywhere on the floor. Jump to the stairs, out of a "
        "corner, or across a chasm you cannot walk. It only knows places you have been, "
@@ -485,41 +484,41 @@ FACT_LIST = [
 
     # --- WAVE 3 consumables (rare) ---------------------------------------
     _f("id.vital", "item", "identity", "THE SCARLET POTION IS VITALITY",
-       "Scarlet does not heal you -- it makes you BIGGER. Your maximum life climbs, "
+       "This one does not heal you -- it makes you BIGGER. Your maximum life climbs, "
        "permanently, and stays climbed through every death after. It is the only "
        "potion whose worth outlives the run you drink it in, so never leave one on the "
        "floor."),
     _f("id.radiant", "item", "identity", "THE GOLDEN POTION IS HEROISM",
-       "Golden is every good potion at once, for a while: a heal, harder blows, more "
+       "This one is every good potion at once, for a while: a heal, harder blows, more "
        "speed, and a tougher hide, all together. It is the flask you break open at the "
        "top of the fight you have to win -- a mini-boss, the Warden, a room that has "
        "gone wrong. Do not waste it topping up."),
     _f("id.luminous", "item", "identity", "THE LUMINOUS POTION IS INSIGHT",
-       "Luminous hands you a whole lesson for nothing -- one Codex entry you had not "
+       "This one hands you a whole lesson for nothing -- one Codex entry you had not "
        "yet earned, learned in a swallow instead of a death. In a game where knowledge "
        "is the only thing you truly keep, a potion that just GIVES you some is worth "
        "more than it looks."),
     _f("id.ember", "item", "identity", "THE SMOULDERING POTION IS THE PHOENIX",
-       "The smouldering one sets an ember behind your ribs. The next time something "
-       "would kill you -- a swarm, a trap, the Warden's fist -- death is refused, and "
+       "This one sets an ember behind your ribs. The next time something would end you "
+       "-- a swarm, a trap, the Warden's fist -- death is refused, and "
        "you come back on your feet with half your life. Once. It is the closest this "
        "dungeon comes to a second chance; carry it into the fights you are not sure "
        "you walk out of."),
     _f("id.ossk", "item", "identity", "THE SCROLL 'OSSK' IS BANISHMENT",
-       "OSSK unmakes an entire kind at once: whatever there is most of on the floor "
+       "This scroll unmakes an entire kind at once: whatever there is most of on the floor "
        "simply ceases to be there. No corpses, no loot -- you did not kill them, you "
        "erased them. Read it when a pack has you outnumbered and you would rather the "
        "pack was just... gone."),
     _f("id.vrom", "item", "identity", "THE SCROLL 'VROM' IS DESCENT",
-       "VROM drops you straight onto the way down, wherever the stairs are hiding. It "
+       "This scroll drops you straight onto the way down, wherever the stairs are hiding. It "
        "does not take you down -- it puts you ON them -- so you choose the moment. The "
        "fastest exit from a floor that has turned against you, short of dying."),
     _f("id.dract", "item", "identity", "THE SCROLL 'DRACT' IS THUNDERCLAP",
-       "DRACT is a single, flat crack of force through everything you can see. Real "
+       "This scroll is a single, flat crack of force through everything you can see. Real "
        "damage, to every monster in sight at once, and -- unlike Firestorm -- it does "
        "not touch YOU. The scroll for a room that is too full to fight one at a time."),
     _f("id.ulm", "item", "identity", "THE SCROLL 'ULM' IS SANCTUARY",
-       "ULM wraps a stillness around you. For a while nothing can land a blow -- not a "
+       "This scroll wraps a stillness around you. For a while nothing can land a blow -- not a "
        "fist, not a ray, not the beholder's gaze. They can still come, you can still "
        "act, but you cannot be touched. Read it to walk out through a crowd, revive a "
        "plan, or stand on the stairs unhurried."),
@@ -564,6 +563,22 @@ def facts_in(category):
     """The static facts belonging to one tab, in Kodex order."""
     return [f for f in FACT_LIST if category_of(f) == category]
 
+
+def fact_title(fact, codex):
+    """The title to SHOW for a fact. For an item-identity fact this names the look the
+    potion or scroll wears THIS game -- which colour/rune an effect hides behind is
+    shuffled per game, so the stored title (which bakes in one fixed look) must not be
+    shown verbatim. Every other fact just uses its stored title."""
+    if fact.subject == "item" and fact.key.startswith("id."):
+        from .items import CONSUMABLES
+        flavor = fact.key.split(".", 1)[1]
+        c = CONSUMABLES.get(flavor)
+        if c:
+            look = CONSUMABLES[codex.look(flavor)]
+            effect = c.true_name.split(" of ", 1)[-1]      # "Regeneration", "Mapping"
+            return "THE %s IS %s" % (look.unknown_name.upper(), effect.upper())
+    return fact.title
+
 # --- learning by killing -------------------------------------------------
 # A corpse can be read. Standing over the thing you just killed teaches you what it
 # WAS -- and, if you have killed enough of them, how it moved and how it dies.
@@ -603,6 +618,11 @@ class Codex:
     def __init__(self):
         self.known = []
         self.gear_seen = []     # gear keys you have picked up or worn -- the Gear tab
+        # THE LOOK OF THE UNKNOWN. Which colour/rune each effect hides behind is dealt
+        # fresh every NEW GAME and kept for the whole game (across respawns). identity
+        # flavor -> the flavor whose look (unknown name + colour) it wears. Display
+        # only: it never touches what a potion DOES, only what it looks like unidentified.
+        self.appearance = {}
         self.telemetry = []
         # the running message log for the WHOLE game -- it survives death and respawn
         # (the codex does), and is wiped only by a new game (wipe() re-runs __init__).
@@ -660,6 +680,7 @@ class Codex:
             return
         self.known = [k for k in data.get("known", []) if k in FACTS]
         self.gear_seen = data.get("gear_seen", [])
+        self.appearance = data.get("appearance", {})
         self.telemetry = data.get("telemetry", [])
         self.deaths = data.get("deaths", 0)
         self.best_depth = data.get("best_depth", 0)
@@ -682,6 +703,7 @@ class Codex:
     def save(self):
         data = {
             "known": self.known, "gear_seen": self.gear_seen,
+            "appearance": self.appearance,
             "telemetry": self.telemetry, "deaths": self.deaths,
             "best_depth": self.best_depth, "runs": self.runs, "wins": self.wins,
             "corpses": self.corpses, "gifts": self.gifts, "maps": self.maps,
@@ -811,6 +833,28 @@ class Codex:
             else:
                 break
         return n
+
+    def roll_appearances(self, seed):
+        """Deal each effect the look it will wear this game. Within a kind (potions
+        among potions, scrolls among scrolls) the looks are a random permutation over
+        the effects, across all tiers -- a common-looking flask may be a rare potion.
+        Seeded off the game's seed on its OWN rng, so it is reproducible for the game
+        and cannot nudge the dungeon's stone."""
+        import random as _random
+        from .items import CONSUMABLES
+        rng = _random.Random("appearance:%s" % seed)
+        self.appearance = {}
+        for kind in ("potion", "scroll"):
+            flavors = [f for f, c in CONSUMABLES.items() if c.kind == kind]
+            looks = flavors[:]
+            rng.shuffle(looks)
+            for ident, look in zip(flavors, looks):
+                self.appearance[ident] = look
+
+    def look(self, flavor):
+        """The flavor whose look (unknown name + colour) `flavor` wears this game.
+        Falls back to itself if appearances have not been dealt yet."""
+        return self.appearance.get(flavor, flavor)
 
     def identified(self, flavor):
         return "id.%s" % flavor in self.known

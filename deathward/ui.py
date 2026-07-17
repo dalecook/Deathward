@@ -20,7 +20,7 @@ import math
 import pygame
 
 from . import config
-from .codex import CAUSE_NAME, FACT_LIST, KODEX_TABS, TOTAL_FACTS, facts_in
+from .codex import CAUSE_NAME, FACT_LIST, KODEX_TABS, TOTAL_FACTS, fact_title, facts_in
 from .items import CONSUMABLES, gear_catalog
 from .render import font, glyph
 
@@ -483,7 +483,7 @@ def draw_learned_banner(surf, fact, age, codex):
     known, total = codex.progress()
     text(card, "KODEX  +1", (16, 5), 13, config.GOLD, bold=True)
     text(card, "%d/%d" % (known, total), (w - 16, 12), 12, config.DIM, right=True)
-    text(card, fact.title, (16, 34), 19, config.INK, bold=True)
+    text(card, fact_title(fact, codex), (16, 34), 19, config.INK, bold=True)
     text(card, "move on when you have read it", (16, h - 22), 12, config.FAINT)
     yy = 60
     for ln in lines:
@@ -657,7 +657,8 @@ def draw_autopsy(surf, world, codex, fact, cause, reveal_t):
     text(surf, "%d/%d" % (known, total), (card.right - 16, card.top + 13), 13,
          config.DIM, right=True)
 
-    text(surf, fact.title, (card.left + 22, card.top + 46), 23, config.INK, bold=True)
+    text(surf, fact_title(fact, codex), (card.left + 22, card.top + 46), 23,
+         config.INK, bold=True)
     body = fact.text
     n = int(min(len(body), reveal_t * 95))
     y = card.top + 90
@@ -749,7 +750,7 @@ def draw_codex(surf, codex, scroll, t, tab=0):
     else:
         for f in facts_in(cat):
             if codex.knows(f.key):
-                line(f.title, 16, config.INK, bold=True)
+                line(fact_title(f, codex), 16, config.INK, bold=True)
                 for ln in wrap(f.text, 14, config.W - 150):
                     line(ln, 14, config.DIM, indent=18)
             else:
@@ -899,7 +900,7 @@ def draw_banish(surf, types, codex, t):
          config.FAINT, center=True)
 
 
-def draw_consumable_cheat(surf, flavors, kind, t):
+def draw_consumable_cheat(surf, flavors, kind, t, codex):
     """CTRL+67 (scrolls) / CTRL+76 (potions) picker: any uncommon or rare one, grouped
     by tier and numbered 1-9 then 0. The chosen one goes straight into the pack."""
     from .items import CONSUMABLES
@@ -928,7 +929,7 @@ def draw_consumable_cheat(surf, flavors, kind, t):
         pygame.draw.rect(surf, (16, 19, 26), row, border_radius=6)
         pygame.draw.rect(surf, config.GOLD, row, 1, border_radius=6)
         text(surf, num, (cx - 284, y + 8), 20, config.GOLD, bold=True)
-        icon = sprites.potion(f) if kind == "potion" else sprites.scroll()
+        icon = sprites.potion(codex.look(f)) if kind == "potion" else sprites.scroll()
         surf.blit(pygame.transform.scale(icon, (28, 28)), (cx - 250, y + 4))
         text(surf, c.true_name, (cx - 210, y + 9), 16, config.INK, bold=True)
         y += 40

@@ -191,7 +191,7 @@ def draw_world(surf, world, codex, cam, t):
             img = sprites.gear(d.payload, dim=dim)   # one look per item, not per slot
         else:
             c = CONSUMABLES[d.payload]
-            img = (sprites.potion(d.payload, dim=dim) if c.kind == "potion"
+            img = (sprites.potion(codex.look(d.payload), dim=dim) if c.kind == "potion"
                    else sprites.scroll(dim=dim))
         surf.blit(img, topleft(d.x, d.y))
 

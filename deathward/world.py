@@ -32,7 +32,7 @@ KNOWLEDGE IS INFORMATION, NEVER POWER
 import random
 
 from . import config
-from .codex import CAUSE_NAME
+from .codex import CAUSE_NAME, fact_title
 from .dungeon import Chest, Corpse, Drop, Level, Slain
 from .items import ALL_GEAR, CONSUMABLES, roll_loot, roll_monster_loot
 from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier
@@ -73,6 +73,11 @@ class World:
         # property of the GAME, not of whichever run happened to open it.
         if codex.world_seed is None:
             codex.world_seed = random.randrange(1 << 30)
+        # deal the looks of the unidentified for this game, if they have not been dealt
+        # yet -- kept across respawns (the codex persists), re-rolled only on a new game.
+        # generated on its own rng inside the codex, so it cannot perturb the stone above.
+        if not codex.appearance:
+            codex.roll_appearances(codex.world_seed)
         self.player = Player()
         self.tick = 0
         self.dead = False
@@ -580,7 +585,7 @@ class World:
         fact = self.codex.reveal_on_kill(m.key)
         if fact:
             self.learned = fact
-            self.log("You crouch over the body. [%s]" % fact.title, config.GOLD)
+            self.log("You crouch over the body. [%s]" % fact_title(fact, self.codex), config.GOLD)
             self.codex.save()
 
         if loot:
@@ -1226,7 +1231,7 @@ class World:
             fact = self.codex.identify(flavor)
             if fact:
                 self.learned = fact
-                self.log("So THAT is what it was. [%s]" % fact.title, config.GOLD)
+                self.log("So THAT is what it was. [%s]" % fact_title(fact, self.codex), config.GOLD)
         if self.aiming:
             self.aiming_flavor = flavor   # remembered in case the mode is cancelled
             return True          # a targeting mode opened; the turn ends on confirm
@@ -1445,7 +1450,7 @@ class World:
             fact = self.codex.reveal_random(self.rng)
             if fact:
                 self.learned = fact
-                self.log("Understanding arrives whole, unearned. [%s]" % fact.title,
+                self.log("Understanding arrives whole, unearned. [%s]" % fact_title(fact, self.codex),
                          config.GOLD)
                 self.codex.save()
             else:
@@ -1745,7 +1750,7 @@ class World:
         fact = self.codex.reveal_on_trap(key)
         if fact:
             self.learned = fact
-            self.log("So that is what that was. [%s]" % fact.title, config.GOLD)
+            self.log("So that is what that was. [%s]" % fact_title(fact, self.codex), config.GOLD)
             self.codex.save()
 
     def on_monster_moved(self, m):

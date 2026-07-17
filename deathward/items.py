@@ -23,10 +23,12 @@ The gear triad is deliberately not three flavours of "+1 number":
                                          costs you turns)
     BOOTS   change how you move         (speed IS turns; turns are the real resource)
 
-Consumables have FIXED identities across every run of every game. A murky ochre
-potion is always healing. You simply do not know that yet -- and until you do, the
-game shows you a colour and nothing else. Identity is learned by drinking it, or
-by dying with it unopened in your pack.
+A consumable's identity (what it does) holds for the whole game, but the LOOK it
+wears while unidentified -- a potion's colour, a scroll's rune -- is dealt fresh
+every new game (see Codex.roll_appearances). So the murky ochre potion that healed
+you last game may be something else entirely in this one. Until you identify it the
+game shows you only that look, and identity is learned by drinking it, or by dying
+with it unopened in your pack.
 """
 
 import random
@@ -152,7 +154,10 @@ class Consumable:
         self.tier = tier              # "common" | "uncommon" | "rare" -- spawn rarity
 
     def name(self, codex):
-        return self.true_name if codex.identified(self.flavor) else self.unknown_name
+        if codex.identified(self.flavor):
+            return self.true_name
+        # unidentified: shown as the look it wears this game, not its own fixed look
+        return CONSUMABLES[codex.look(self.flavor)].unknown_name
 
     def known(self, codex):
         return codex.identified(self.flavor)

@@ -30,9 +30,11 @@ and nothing else outside the standard library.
 - A monster you have never been killed by is drawn as a **`?`** — no name, no
   health bar, no readable intent. It still hits exactly as hard.
 - A trap you have never triggered is drawn as **clean floor**. It still fires.
-- A potion you have never identified is **a colour**. Crimson is always
-  regeneration and viscous green is always venom — you simply do not know that yet,
-  and the day you learn it is the day one of them kills you.
+- A potion you have never identified is **a colour**. This game a deep crimson
+  flask might be regeneration and a viscous green one venom — but the looks are
+  **dealt fresh every new game**, so what you learned last time is no map to this
+  time. You simply do not know yet, and the day you learn it is the day one of
+  them kills you.
 
 **Every death performs an autopsy and writes one true thing into your Kodex**, and
 it is never a thing you already knew. The reveal ladder runs: what death itself
@@ -93,9 +95,12 @@ tiers. **Common** ones turn up from the first floor; **uncommon** ones start see
 in around the mid floors; **rare** ones only surface deep. So the shape of what you
 can find is itself a depth gauge.
 
-A consumable's identity is fixed for the whole game but **unknown until you learn it** —
-a scroll is a colour of wax, a potion is a colour of liquid, and the way you find out
-what one does is to use it or to die holding it. Some potions are gifts (healing,
+A consumable's identity holds for the whole game but is **unknown until you learn it** —
+a scroll is a rune of wax, a potion is a colour of liquid — and the way you find out
+what one does is to use it or to die holding it. **Which look hides which effect is
+shuffled every new game**, so the crimson flask that healed you last game may be the
+one that poisons you in this one; identifying is work you redo each run. Some potions
+are gifts (healing,
 regeneration, vigor, heroism) and some are traps (poison, weakness, confusion). Once
 you have identified a *bad* potion, you can stop drinking it and start **coating your
 blade with it** — a venom potion you would never swallow becomes poison on every swing.
@@ -193,7 +198,7 @@ deathward/
   dungeon.py           generation, hoards, boss arena, field of view
   monsters.py          thirteen monsters, each built around one tactic
   traps.py             five traps; invisible until YOU spring that one
-  items.py             the gear triad, and the 36 fixed-identity consumables
+  items.py             the gear triad, and the 36 consumables (looks shuffled per game)
   player.py            the hero, buffs, blade-coating, enchantments
   vendor.py            the deep-floor merchant
   codex.py             the Kodex: knowledge tree + every-death-teaches guarantee
