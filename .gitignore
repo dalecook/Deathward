@@ -1,0 +1,6 @@
+# runtime save file -- the player's own game, not source
+deathward/deathward_save.json
+
+# python
+__pycache__/
+*.pyc

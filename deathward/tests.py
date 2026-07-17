@@ -1,0 +1,5541 @@
+"""Proofs of the claims DEATHWARD is built on.
+
+    py -3.13 -m deathward.tests
+
+Claim 1: every death teaches something new. Not usually -- every time.
+Claim 2: knowledge is information, never power. The dungeon simulates identically
+         for an ignorant hero and an omniscient one.
+Claim 3: the dungeon is always completable -- stairs always reachable, no floor
+         can strand you.
+Claim 4: boots buy turns. That is not flavour text, it is the turn economy.
+"""
+
+import os
+import random
+import unittest
+from collections import defaultdict, deque
+
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
+import pygame  # noqa: E402
+
+from . import config  # noqa: E402
+from .codex import FACTS, TOTAL_FACTS, Codex  # noqa: E402
+from .items import ALL_GEAR, BOOTS, CONSUMABLES  # noqa: E402
+from .world import World  # noqa: E402
+
+
+class FakeSave(Codex):
+    """A Codex that never touches disk, so tests cannot clobber a real save."""
+
+    def load(self):
+        pass
+
+    def save(self):
+        pass
+
+
+def _assert_solid_hits(case, key, lo=3, hi=5):
+    """A high-end weapon should need `lo`..`hi` SOLID blows to drop this monster.
+
+    A 'solid blow' is an average hit from the weapon in question. We check the
+    player's own reference weapon (the Vampiric Kris) lands in the window, and that
+    even the single hardest-hitting weapon in the game cannot one- or two-shot it --
+    that is the whole point of the durability bump.
+    """
+    import math
+    from .monsters import TEMPLATES
+    from .items import WEAPONS
+    hp = TEMPLATES[key].hp
+    kris = WEAPONS["kris"]
+    hits = math.ceil(hp / ((kris.lo + kris.hi) / 2))
+    case.assertGreaterEqual(hits, lo, "%s folds too fast to the Kris (%d hits)"
+                            % (key, hits))
+    case.assertLessEqual(hits, hi, "%s is a damage sponge to the Kris (%d hits)"
+                         % (key, hits))
+    best = max(WEAPONS.values(), key=lambda w: (w.lo + w.hi))
+    best_hits = math.ceil(hp / ((best.lo + best.hi) / 2))
+    case.assertGreaterEqual(best_hits, 3,
+                            "even the %s should need 3+ solid hits on a %s"
+                            % (best.name, key))
+
+
+CAUSES = ["rat", "kobold", "spitter", "brute", "wraith", "mimic", "warden",
+          "dart", "spike", "gas", "alarm", "glyph", "poison"]
+SUBJECTS = ["rat", "kobold", "spitter", "brute", "wraith", "mimic", "dart",
+            "spike", "gas", "alarm", "glyph"]
+FLAVORS = list(CONSUMABLES)
+
+
+class TestEveryDeathTeaches(unittest.TestCase):
+    def test_500_deaths_never_repeat_a_lesson(self):
+        rng = random.Random(20260713)
+        codex = FakeSave()
+        seen = set()
+        for i in range(500):
+            cause = rng.choice(CAUSES)
+            floor = rng.sample(SUBJECTS, rng.randint(1, 5))
+            carried = rng.sample(FLAVORS, rng.randint(0, 3))
+            codex.record_death(cause)
+            codex.runs = i // 3 + 1
+            codex.best_depth = min(8, 1 + i // 40)
+            fact = codex.reveal_on_death(cause, floor, carried)
+
+            self.assertIsNotNone(fact, "death %d taught nothing" % i)
+            ident = fact.title + fact.text
+            self.assertNotIn(ident, seen,
+                             "death %d repeated a lesson: %r" % (i, fact.title))
+            seen.add(ident)
+        self.assertEqual(len(seen), 500)
+
+    def test_first_death_explains_death(self):
+        codex = FakeSave()
+        codex.record_death("rat")
+        f = codex.reveal_on_death("rat", ["rat"], [])
+        self.assertEqual(f.key, "self.corpse")
+
+    def test_the_killer_is_explained_before_anything_else(self):
+        codex = FakeSave()
+        codex.known.append("self.corpse")
+        codex.record_death("brute")
+        f = codex.reveal_on_death("brute", ["rat", "brute", "gas"], ["ochre"])
+        self.assertEqual(f.key, "brute.rule")
+
+    def test_dying_with_an_unknown_potion_can_name_it(self):
+        codex = FakeSave()
+        # know everything about the world, but nothing about what is in the pack
+        for k in FACTS:
+            if not k.startswith("id."):
+                codex.known.append(k)
+        codex.record_death("rat")
+        f = codex.reveal_on_death("rat", ["rat"], ["ochre"])
+        self.assertEqual(f.key, "id.ochre")
+
+    def test_the_whole_codex_is_reachable_by_dying(self):
+        codex = FakeSave()
+        for _ in range(TOTAL_FACTS):
+            codex.record_death("rat")
+            codex.reveal_on_death("rat", SUBJECTS, FLAVORS)
+        self.assertEqual(len(codex.known), TOTAL_FACTS)
+        self.assertEqual(set(codex.known), set(FACTS))
+
+    def test_telemetry_is_inexhaustible(self):
+        codex = FakeSave()
+        codex.known = list(FACTS)          # nothing fixed left to learn
+        seen = set()
+        for i in range(120):
+            codex.record_death("rat")
+            f = codex.reveal_on_death("rat", ["rat"], [])
+            ident = f.title + f.text
+            self.assertNotIn(ident, seen, "telemetry repeated after %d deaths" % i)
+            seen.add(ident)
+
+
+class TestLearningByKilling(unittest.TestCase):
+    """A corpse can be read -- but it is the slow road. Dying is the fast one."""
+
+    def _kill(self, world, key):
+        from .monsters import Monster
+        m = Monster(key, world.player.x + 2, world.player.y)
+        world.level.monsters.append(m)
+        world.kill_monster(m)
+        return world.learned
+
+    def test_the_first_kill_names_the_thing(self):
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        self.assertEqual(codex.tier("kobold"), 0)
+        fact = self._kill(w, "kobold")
+        self.assertIsNotNone(fact, "killing something must teach you what it was")
+        self.assertEqual(fact.key, "kobold.rule")
+        self.assertEqual(codex.tier("kobold"), 1, "it should no longer be a '?'")
+
+    def test_a_kill_will_not_hand_you_the_tell_or_the_counter(self):
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        self._kill(w, "brute")                       # 1st: the rule
+        w.learned = None
+        self.assertIsNone(self._kill(w, "brute"),
+                          "the 2nd kill is not enough to earn the tell")
+        self.assertFalse(codex.knows("brute.tell"))
+
+    def test_enough_corpses_eventually_teach_the_tell_and_the_counter(self):
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        learned = []
+        for i in range(8):
+            w.learned = None
+            f = self._kill(w, "rat")
+            if f:
+                learned.append((i + 1, f.key))
+        self.assertIn((1, "rat.rule"), learned, "1 kill should name it")
+        self.assertIn((3, "rat.tell"), learned, "3 kills should earn the tell")
+        self.assertIn((8, "rat.counter"), learned, "8 kills should earn the counter")
+
+    def test_a_monster_that_dies_to_a_trap_is_NOT_your_kill(self):
+        """The bug: a monster that blunders onto a trap used to credit you with the
+        kill and hand you its Kodex lesson. You did not make that corpse."""
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        w.level.monsters = []
+        m = Monster("kobold", w.player.x + 2, w.player.y)
+        m.hp = 1
+        w.level.monsters.append(m)
+        w.learned = None
+        kills0 = codex.stats["kills"]
+
+        w.hurt_monster(m, 5, source="spike")          # it stepped on a spike pit
+
+        self.assertNotIn(m, w.level.monsters, "the kobold is dead")
+        self.assertIsNone(w.learned, "a trap kill teaches you nothing")
+        self.assertEqual(codex.tier("kobold"), 0, "it is still a '?' to you")
+        self.assertEqual(codex.stats["kills"], kills0, "and it does not count as yours")
+        self.assertEqual(codex.stats["kills_by"].get("kobold", 0), 0)
+        # but the body is still there to loot -- the trap took the monster, not its coins
+        self.assertTrue([s for s in w.level.slain if (s.x, s.y) == (m.x, m.y)],
+                        "the body still lies where it fell")
+
+    def test_every_trap_source_is_excluded_from_credit(self):
+        from .monsters import Monster
+        for src in ("dart", "spike", "gas", "alarm", "glyph"):
+            codex = FakeSave()
+            w = World(codex, seed=4)
+            w.level.monsters = []
+            m = Monster("rat", w.player.x + 2, w.player.y)
+            m.hp = 1
+            w.level.monsters.append(m)
+            w.learned = None
+            w.hurt_monster(m, 5, source=src)
+            self.assertIsNone(w.learned, "%s is a trap, not your kill" % src)
+            self.assertEqual(codex.tier("rat"), 0, "%s must not teach the rat" % src)
+
+    def test_your_own_fire_still_counts_as_your_kill(self):
+        """Burning a thing down with a Firestorm or a Flame Brand IS your kill -- the
+        fire reveal is how you learn what steel cannot teach (e.g. the stone golem)."""
+        from .monsters import Monster
+        for src in ("scroll", "burn", "thorns"):
+            codex = FakeSave()
+            w = World(codex, seed=4)
+            w.level.monsters = []
+            m = Monster("rat", w.player.x + 2, w.player.y)
+            m.hp = 1
+            w.level.monsters.append(m)
+            w.learned = None
+            w.hurt_monster(m, 5, source=src)
+            self.assertIsNotNone(w.learned, "%s is your own doing -- still your kill" % src)
+            self.assertEqual(codex.tier("rat"), 1)
+
+    def test_dying_is_faster_than_killing(self):
+        """The point of the whole game, as a number."""
+        from .codex import KILL_THRESHOLD
+        killer = FakeSave()
+        dier = FakeSave()
+        w = World(killer, seed=4)
+
+        # the dier dies twice to a brute
+        dier.known.append("self.corpse")
+        for _ in range(2):
+            dier.record_death("brute")
+            dier.reveal_on_death("brute", ["brute"], [])
+        self.assertTrue(dier.knows("brute.rule"))
+        self.assertTrue(dier.knows("brute.tell"),
+                        "two deaths should have bought the tell")
+
+        # the killer has to kill three to get the same distance
+        for _ in range(2):
+            w.learned = None
+            self._kill(w, "brute")
+        self.assertFalse(killer.knows("brute.tell"),
+                         "two kills must NOT equal two deaths")
+        self.assertEqual(KILL_THRESHOLD["tell"], 3)
+
+    def test_kills_until_next_lesson_reports_honestly(self):
+        codex = FakeSave()
+        self.assertEqual(codex.kills_until_next_lesson("spitter"), 1)
+        codex.stats["kills_by"]["spitter"] = 1
+        codex.known.append("spitter.rule")
+        self.assertEqual(codex.kills_until_next_lesson("spitter"), 2)
+        for k in ("spitter.rule", "spitter.tell", "spitter.counter"):
+            if k not in codex.known:
+                codex.known.append(k)
+        self.assertIsNone(codex.kills_until_next_lesson("spitter"),
+                          "nothing left to learn from killing them")
+
+    def test_kill_and_item_facts_do_not_presume_you_died(self):
+        """A fact you can earn by killing a thing, or by drinking a thing, must read
+        correctly in that context. 'and it still killed you' is fine on an autopsy
+        screen and nonsense when you are standing over its corpse."""
+        from .codex import FACT_LIST, TIER_ORDER
+
+        banned = ["killed you", "you died", "died holding", "so you died",
+                  "your corpse", "when you died"]
+        for f in FACT_LIST:
+            reachable_alive = (f.tier in TIER_ORDER) or f.tier == "identity"
+            if not reachable_alive:
+                continue          # self.corpse etc. are death-only, and may say so
+            low = f.text.lower()
+            for phrase in banned:
+                self.assertNotIn(
+                    phrase, low,
+                    "%r can be learned while alive (by a kill or a sip) but its text "
+                    "assumes the reader died: %r" % (f.key, phrase))
+
+    def test_killing_never_breaks_the_every_death_teaches_guarantee(self):
+        """Kills fill in the Codex, so a death must still find something NEW."""
+        rng = random.Random(3)
+        codex = FakeSave()
+        seen = set()
+        for i in range(300):
+            # grind some kills in between deaths
+            for _ in range(rng.randint(0, 3)):
+                subj = rng.choice(SUBJECTS)
+                codex.stats["kills_by"][subj] = codex.stats["kills_by"].get(subj, 0) + 1
+                f = codex.reveal_on_kill(subj)
+                if f:
+                    seen.add(f.title + f.text)
+            cause = rng.choice(CAUSES)
+            codex.record_death(cause)
+            fact = codex.reveal_on_death(cause, rng.sample(SUBJECTS, 4),
+                                         rng.sample(FLAVORS, 2))
+            ident = fact.title + fact.text
+            self.assertNotIn(ident, seen,
+                             "death %d taught something already known from a kill" % i)
+            seen.add(ident)
+
+
+class TestKnowledgeIsNotPower(unittest.TestCase):
+    """The heart of the design. Same seed, same keystrokes, one blind hero and one
+    omniscient one -- the dungeons must be bit-identical."""
+
+    def _trace(self, codex, seed):
+        script = random.Random(1234)
+        # both heroes must walk the same dungeon, or we are comparing two different
+        # maps instead of two different amounts of knowledge
+        codex.world_seed = seed * 7919
+        w = World(codex, seed=seed)
+        trace = []
+        for step in range(400):
+            if w.dead or w.won:
+                break
+            r = script.random()
+            if r < 0.72:
+                dx, dy = script.choice([(0, -1), (0, 1), (-1, 0), (1, 0),
+                                        (1, 1), (-1, -1), (1, -1), (-1, 1)])
+                w.player_move(dx, dy)
+            elif r < 0.82:
+                w.player_pickup()
+            elif r < 0.90:
+                w.use_item(0)
+            elif r < 0.95:
+                w.player_wait()
+            else:
+                w.descend()
+            p = w.player
+            trace.append((
+                p.x, p.y, p.hp, p.gold, p.poison, p.haste, p.might, p.energy,
+                w.depth, w.tick, w.dead, w.death_cause,
+                tuple(sorted((m.key, m.x, m.y, m.hp, m.stunned, str(m.intent))
+                             for m in w.level.monsters)),
+                tuple(sorted((t.key, t.x, t.y, t.sprung) for t in w.level.traps)),
+            ))
+        return trace
+
+    def test_blind_and_omniscient_dungeons_are_identical(self):
+        for seed in (7, 99, 4242):
+            blind = FakeSave()
+            wise = FakeSave()
+            wise.known = list(FACTS)       # knows every monster, trap and potion
+            t1 = self._trace(blind, seed)
+            t2 = self._trace(wise, seed)
+            self.assertEqual(
+                t1, t2,
+                "seed %d: knowledge changed the simulation. it must only change "
+                "what is drawn." % seed)
+            self.assertTrue(t1, "seed %d produced an empty trace" % seed)
+
+
+class TestTheDungeonIsSurvivable(unittest.TestCase):
+    def _reachable(self, lvl, start):
+        seen = {start}
+        q = deque([start])
+        while q:
+            x, y = q.popleft()
+            for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0),
+                           (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                n = (x + dx, y + dy)
+                if n in seen or not lvl.walkable(*n):
+                    continue
+                seen.add(n)
+                q.append(n)
+        return seen
+
+    def test_stairs_are_always_reachable_on_every_floor(self):
+        for seed in range(40):
+            codex = FakeSave()
+            w = World(codex, seed=seed)
+            for depth in range(1, config.DEPTH_MAX + 1):
+                lvl = w.level
+                reach = self._reachable(lvl, lvl.start)
+                if lvl.stairs is None:
+                    self.assertEqual(depth, config.DEPTH_MAX)
+                    boss = [m for m in lvl.monsters if m.key == "warden"]
+                    self.assertEqual(len(boss), 1, "the last floor needs its Warden")
+                    self.assertIn((boss[0].x, boss[0].y), reach,
+                                  "seed %d: the Warden is walled off" % seed)
+                else:
+                    self.assertIn(lvl.stairs, reach,
+                                  "seed %d floor %d: the stairs are unreachable"
+                                  % (seed, depth))
+                    w.new_level(depth + 1)
+
+    def test_nothing_spawns_on_top_of_the_player(self):
+        for seed in range(30):
+            w = World(FakeSave(), seed=seed)
+            for depth in range(1, config.DEPTH_MAX + 1):
+                lvl = w.level
+                sx, sy = lvl.start
+                for m in lvl.monsters:
+                    self.assertGreater(
+                        max(abs(m.x - sx), abs(m.y - sy)), 1,
+                        "seed %d floor %d: a monster spawned in your face" % (seed, depth))
+                for t in lvl.traps:
+                    self.assertNotEqual((t.x, t.y), (sx, sy),
+                                        "seed %d: a trap spawned under the player" % seed)
+                if lvl.stairs:
+                    w.new_level(depth + 1)
+
+
+class TestFloorOne(unittest.TestCase):
+    """Floor 1 is the tutorial the dungeon does not admit to having."""
+
+    def test_floor_one_always_has_a_guaranteed_gear_upgrade(self):
+        from .items import ALL_GEAR
+        for ws in range(60):
+            codex = FakeSave()
+            codex.world_seed = ws          # pin the stone
+            w = World(codex, seed=1)
+            gift = [d for d in w.level.drops if d.gift == "floor1"]
+            self.assertEqual(len(gift), 1,
+                             "world %d: floor 1 has no guaranteed upgrade" % ws)
+            self.assertGreaterEqual(ALL_GEAR[gift[0].payload].tier, 1,
+                                    "world %d: the gift is not an upgrade" % ws)
+
+    def test_the_floor_one_upgrade_is_a_reward_for_exploring(self):
+        """It must not be sitting on the doormat.
+
+        Only THE GIFT is held to this -- ordinary random loot also rolls gear
+        sometimes, and that is allowed to be anywhere. (An earlier version of this
+        test checked every gear drop, so it failed at random whenever the loot table
+        happened to put a Bronze Sword near the door.)
+        """
+        for ws in range(40):
+            codex = FakeSave()
+            codex.world_seed = ws              # pin the stone: no flaky dungeons
+            w = World(codex, seed=1)
+            ex, ey = w.level.entrance
+            gift = [d for d in w.level.drops if d.gift == "floor1"]
+            self.assertEqual(len(gift), 1, "world %d has no gift" % ws)
+            d = abs(gift[0].x - ex) + abs(gift[0].y - ey)
+            self.assertGreater(d, 8,
+                               "world %d: the gift is %d tiles from the gate -- that "
+                               "is a handout, not a reward" % (ws, d))
+
+    def _gift(self, world):
+        return [d for d in world.level.drops if d.gift == "floor1"]
+
+    def test_the_floor_one_upgrade_is_claimed_once_per_GAME_not_per_run(self):
+        """Regression: it used to respawn on every death, so dying was a way to farm
+        a free upgrade off floor 1 forever."""
+        codex = FakeSave()
+        w = World(codex, seed=12)
+        gift = self._gift(w)
+        self.assertEqual(len(gift), 1, "the first run should offer the upgrade")
+
+        # walk over and take it
+        g = gift[0]
+        w.player.x, w.player.y = g.x, g.y
+        w.level.monsters = []
+        w.player_pickup()
+        self.assertTrue(codex.gift_claimed("floor1"), "picking it up must spend it")
+
+        # now die, and come back. it must NOT be there again.
+        for seed in (12, 77, 5):
+            w2 = World(codex, seed=seed)
+            self.assertEqual(self._gift(w2), [],
+                             "seed %d: the floor 1 upgrade respawned after a death"
+                             % seed)
+
+    def test_dying_before_you_find_it_does_not_cost_you_the_gift(self):
+        codex = FakeSave()
+        w = World(codex, seed=12)
+        self.assertEqual(len(self._gift(w)), 1)
+        w.kill_player("angry_rat")          # died without ever reaching it
+        w.leave_corpse()
+        self.assertFalse(codex.gift_claimed("floor1"))
+        w2 = World(codex, seed=31)
+        self.assertEqual(len(self._gift(w2)), 1,
+                         "you never got it, so it must still be waiting for you")
+
+    def test_a_new_game_puts_the_gift_back(self):
+        codex = FakeSave()
+        codex.claim_gift("floor1")
+        w = World(codex, seed=12)
+        self.assertEqual(self._gift(w), [], "already claimed in this game")
+        codex.wipe()
+        w2 = World(codex, seed=12)
+        self.assertEqual(len(self._gift(w2)), 1,
+                         "a NEW GAME must restore the floor 1 upgrade")
+
+    def test_floor_one_has_angry_rats_and_no_plague_rats(self):
+        for seed in range(40):
+            w = World(FakeSave(), seed=seed)
+            keys = {m.key for m in w.level.monsters}
+            self.assertNotIn("rat", keys,
+                             "seed %d: a plague rat got onto floor 1" % seed)
+            for hard in ("brute", "wraith", "spitter", "warden"):
+                self.assertNotIn(hard, keys,
+                                 "seed %d: a %s got onto floor 1" % (seed, hard))
+
+    def test_an_angry_rat_is_genuinely_weaker_than_a_plague_rat(self):
+        from .monsters import TEMPLATES
+        a, p = TEMPLATES["angry_rat"], TEMPLATES["rat"]
+        self.assertLess(a.hp, p.hp)
+        self.assertLess(a.hi, p.hi)
+        self.assertLess(a.speed, p.speed, "the plague rat is the fast one")
+
+    def test_every_floor_has_a_marked_entrance_and_you_spawn_on_it(self):
+        for seed in range(30):
+            w = World(FakeSave(), seed=seed)
+            for depth in range(1, config.DEPTH_MAX + 1):
+                lvl = w.level
+                self.assertTrue(lvl.walkable(*lvl.entrance),
+                                "seed %d floor %d: the entrance is inside a wall"
+                                % (seed, depth))
+                self.assertEqual((w.player.x, w.player.y), lvl.entrance,
+                                 "seed %d floor %d: you did not arrive at the entrance"
+                                 % (seed, depth))
+                if lvl.stairs:
+                    self.assertNotEqual(lvl.stairs, lvl.entrance,
+                                        "the way down must not be the way in")
+                    w.new_level(depth + 1)
+
+    def test_you_always_respawn_at_the_entrance_after_death(self):
+        codex = FakeSave()
+        w = World(codex, seed=8)
+        w.player.x, w.player.y = w.level.stairs      # die far from the gate
+        w.kill_player("angry_rat")
+        w2 = World(codex, seed=8)                    # the run after
+        self.assertEqual((w2.player.x, w2.player.y), w2.level.entrance)
+
+
+class TestTurnEconomy(unittest.TestCase):
+    """Boots are not cosmetic. Speed buys actions."""
+
+    def _actions_ratio(self, boots_key):
+        """Ticks burned per player action. A tick is when the monsters get paid.
+        Fewer ticks for the same 40 actions == the player is acting more often
+        than the dungeon is."""
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []               # measure the clock, not the combat
+        w.player.boots = BOOTS[boots_key]
+        ticks_before = w.tick
+        for _ in range(40):
+            w.player_wait()
+        return 40, w.tick - ticks_before
+
+    def test_faster_boots_mean_more_player_turns_per_monster_turn(self):
+        # a monster at speed 100 acts once per tick; the ticks burned per player
+        # action is the real measure of how fast the player is
+        _, ticks_sandals = self._actions_ratio("sandals")     # +0
+        _, ticks_swift = self._actions_ratio("swift")         # +25
+        _, ticks_wind = self._actions_ratio("wind")           # +40
+        self.assertEqual(ticks_sandals, 40, "base speed should be exactly 1 tick/action")
+        self.assertLess(ticks_swift, ticks_sandals,
+                        "swift boots must buy the player turns")
+        self.assertLess(ticks_wind, ticks_swift,
+                        "windwalkers must be faster still")
+
+    def test_heavy_armour_sells_turns_back(self):
+        from .items import ARMOURS
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.player.armour = ARMOURS["rags"]
+        base = w.player.speed()
+        w.player.armour = ARMOURS["plate"]
+        self.assertLess(w.player.speed(), base,
+                        "plate must cost speed -- that is its whole trade")
+        self.assertGreater(w.player.armour.defense, 0)
+
+
+class TestHoldToWalk(unittest.TestCase):
+    """A tap is one step. A hold walks. Neither may ever kill you by surprise."""
+
+    def test_a_tap_is_exactly_one_step(self):
+        from .keyrepeat import Repeater
+        r = Repeater(delay=0.22, interval=0.085)
+        r.start("w", 0.0)
+        # the KEYDOWN already took the step; nothing more may fire inside the delay
+        for t in (0.0, 0.05, 0.1, 0.21):
+            self.assertIsNone(r.poll(t, lambda k: True),
+                              "a quick tap must not produce a second step at t=%s" % t)
+
+    def test_holding_past_the_delay_walks(self):
+        from .keyrepeat import Repeater
+        r = Repeater(delay=0.22, interval=0.085)
+        r.start("w", 0.0)
+        steps = 0
+        t = 0.0
+        while t < 1.0:
+            t += 1 / 60.0
+            if r.poll(t, lambda k: True):
+                steps += 1
+        # ~0.78s of walking at one step per 0.085s
+        self.assertGreaterEqual(steps, 7, "holding the key should keep walking")
+        self.assertLessEqual(steps, 11, "it should not walk absurdly fast")
+
+    def test_releasing_the_key_stops_the_walk(self):
+        from .keyrepeat import Repeater
+        r = Repeater(delay=0.1, interval=0.05)
+        r.start("w", 0.0)
+        self.assertIsNotNone(r.poll(0.2, lambda k: True))
+        self.assertIsNone(r.poll(0.3, lambda k: False), "release must stop the walk")
+        self.assertFalse(r.active)
+
+    def test_an_autowalk_will_not_attack_for_you(self):
+        from .game import Game
+        from .monsters import Monster
+        g = Game.__new__(Game)                 # no pygame display needed
+        g.world = World(FakeSave(), seed=6)
+        g.state = None
+        w = g.world
+        w.level.monsters = []
+        # find a walkable neighbour and park a brute on it
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if w.walkable(w.player.x + dx, w.player.y + dy):
+                m = Monster("brute", w.player.x + dx, w.player.y + dy)
+                w.level.monsters = [m]
+                hp = m.hp
+                self.assertFalse(g.walk_step(dx, dy),
+                                 "an auto-walk must stop at a monster, not swing")
+                self.assertEqual(m.hp, hp, "the auto-walk threw a punch")
+                return
+        self.skipTest("no walkable neighbour on this seed")
+
+    def test_an_autowalk_stops_the_instant_you_are_hurt(self):
+        from .game import Game
+        from .traps import Trap
+        g = Game.__new__(Game)
+        g.world = World(FakeSave(), seed=6)
+        g.state = None
+        w = g.world
+        w.level.monsters = []
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = w.player.x + dx, w.player.y + dy
+            if w.walkable(nx, ny):
+                w.level.traps = [Trap("dart", nx, ny)]
+                hp = w.player.hp
+                cont = g.walk_step(dx, dy)
+                self.assertLess(w.player.hp, hp, "the trap should have fired")
+                self.assertFalse(cont,
+                                 "you must not keep auto-walking after taking damage")
+                return
+        self.skipTest("no walkable neighbour on this seed")
+
+    def test_a_wall_stops_the_walk(self):
+        """You never spawn beside a wall (the entrance is a room's centre), so put
+        the hero against one first, then try to walk into it."""
+        from .game import Game
+        g = Game.__new__(Game)
+        g.state = None
+        g.world = World(FakeSave(), seed=6)
+        w = g.world
+        w.level.monsters = []
+        lvl = w.level
+        for y in range(lvl.h):
+            for x in range(lvl.w):
+                if not lvl.walkable(x, y):
+                    continue
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    if not lvl.walkable(x + dx, y + dy):
+                        w.player.x, w.player.y = x, y
+                        self.assertFalse(g.walk_step(dx, dy),
+                                         "a wall must stop the auto-walk")
+                        self.assertEqual((w.player.x, w.player.y), (x, y),
+                                         "the walk moved you into a wall")
+                        return
+        self.fail("this level has no walls at all -- the test is broken")
+
+
+class TestRoomVariety(unittest.TestCase):
+    """Rooms come in real size classes, the big ones are placed first and spread out,
+    and the boss always gets a hall."""
+
+    def _floors(self, n_games=30):
+        out = []
+        for ws in range(n_games):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            for d in range(1, config.DEPTH_MAX + 1):
+                w.new_level(d)
+                out.append((d, w.level))
+        return out
+
+    def test_there_are_genuinely_big_and_genuinely_small_rooms(self):
+        areas = [r.area for _, lvl in self._floors() for r in lvl.rooms]
+        self.assertLess(min(areas), 25, "there should be pokey little nooks")
+        self.assertGreater(max(areas), 140,
+                           "there should be halls bigger than any old room (max 108)")
+        # and the spread should be WIDE, not a tight band around one size
+        import statistics
+        self.assertGreater(statistics.pstdev(areas), 28,
+                           "room sizes must actually vary, not cluster")
+
+    def test_hall_count_follows_40_40_20_ish(self):
+        from collections import Counter
+        counts = Counter()
+        for d, lvl in self._floors(60):
+            if d >= config.DEPTH_MAX:
+                continue                      # the boss floor is forced, skip it
+            counts[sum(1 for r in lvl.rooms if r.hall)] += 1
+        total = sum(counts.values())
+        # 0:40% 1:40% 2:20% -- allow slack, we just want the shape to be right
+        self.assertGreater(counts[0] / total, 0.28)
+        self.assertGreater(counts[1] / total, 0.28)
+        self.assertGreater(counts[2] / total, 0.08)
+        self.assertLess(counts[2] / total, 0.32)
+        self.assertLessEqual(max(counts), max(counts))   # no floor exceeds 2
+        self.assertNotIn(3, counts, "never more than two halls")
+
+    def test_the_boss_floor_always_has_a_hall(self):
+        for ws in range(40):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            w.new_level(config.DEPTH_MAX)
+            self.assertTrue(any(r.hall for r in w.level.rooms),
+                            "seed %d: the Warden's floor has no hall to fight in" % ws)
+
+    def test_the_boss_arena_is_big_enough_for_its_pillars(self):
+        """The arena is the largest non-gate room, and its pillars -- the counter the
+        Kodex teaches -- only appear at 9x7. A forced hall guarantees them."""
+        for ws in range(40):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            w.new_level(config.DEPTH_MAX)
+            arena = max((r for r in w.level.rooms if r is not w.level.gate_room),
+                        key=lambda r: r.area)
+            self.assertTrue(arena.w >= 9 and arena.h >= 7,
+                            "seed %d: arena %dx%d is too small for pillars"
+                            % (ws, arena.w, arena.h))
+
+    def test_two_halls_are_never_adjacent(self):
+        """The anti-clustering rule: two halls may not share touching sectors."""
+        for ws in range(60):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            for d in range(2, config.DEPTH_MAX):
+                w.new_level(d)
+                halls = [r for r in w.level.rooms if r.hall]
+                for i, a in enumerate(halls):
+                    for b in halls[i + 1:]:
+                        # two halls live in non-edge-adjacent sectors: they never
+                        # share a tile (generation guarantees a wall between them) and
+                        # their centres are always a real distance apart
+                        self.assertFalse(a.intersects(b, pad=1),
+                                         "seed %d floor %d: two halls overlap"
+                                         % (ws, d))
+                        self.assertGreater(
+                            abs(a.cx - b.cx) + abs(a.cy - b.cy), 12,
+                            "seed %d floor %d: two halls are jammed together"
+                            % (ws, d))
+
+    def test_the_gate_is_not_a_hall(self):
+        for ws in range(40):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            for d in range(1, config.DEPTH_MAX + 1):
+                w.new_level(d)
+                # only forgivable if EVERY room is a hall, which cannot happen
+                self.assertFalse(w.level.gate_room.hall,
+                                 "seed %d floor %d: you walk in through a great hall"
+                                 % (ws, d))
+
+    def test_the_floors_are_still_fully_connected(self):
+        """Nearest-neighbour corridors must still reach every room."""
+        from collections import deque
+        for ws in range(30):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            for d in range(1, config.DEPTH_MAX + 1):
+                w.new_level(d)
+                lvl = w.level
+                seen = {lvl.start}
+                q = deque([lvl.start])
+                while q:
+                    x, y = q.popleft()
+                    for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                        n = (x + dx, y + dy)
+                        if n not in seen and lvl.walkable(*n):
+                            seen.add(n)
+                            q.append(n)
+                if lvl.stairs:
+                    self.assertIn(lvl.stairs, seen,
+                                  "seed %d floor %d: the stairs are cut off" % (ws, d))
+
+
+class TestStairPlacement(unittest.TestCase):
+    """The way down is a random room in the quarter diagonally opposite the entrance
+    -- a real journey, but no longer the same corner every time."""
+
+    def _floors(self, n_games=40):
+        for ws in range(n_games):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            for d in range(1, config.DEPTH_MAX):     # boss floor has no down stairs
+                w.new_level(d)
+                yield ws, d, w.level
+
+    def _quarter(self, lvl, x, y):
+        return (0 if x < lvl.w // 2 else 1, 0 if y < lvl.h // 2 else 1)
+
+    def test_the_stairs_are_NEVER_in_the_entrance_quarter(self):
+        """The one hard invariant: the way down is always at least a quarter away."""
+        for ws, d, lvl in self._floors():
+            eq = self._quarter(lvl, *lvl.entrance)
+            sq = self._quarter(lvl, *lvl.stairs)
+            self.assertNotEqual(sq, eq,
+                                "seed %d floor %d: the stairs are in the entrance's "
+                                "own quarter" % (ws, d))
+
+    def test_the_quarters_are_weighted_roughly_25_25_50(self):
+        """Across (Q2), below (Q3), diagonal (Q4). Diagonal is the favourite but only
+        half the time."""
+        from collections import Counter
+        c = Counter()
+        for ws, d, lvl in self._floors(120):
+            eq = self._quarter(lvl, *lvl.entrance)
+            sq = self._quarter(lvl, *lvl.stairs)
+            if sq == (1 - eq[0], eq[1]):
+                c["Q2"] += 1
+            elif sq == (eq[0], 1 - eq[1]):
+                c["Q3"] += 1
+            elif sq == (1 - eq[0], 1 - eq[1]):
+                c["Q4"] += 1
+        total = sum(c.values())
+        self.assertGreater(total, 600)
+        self.assertAlmostEqual(c["Q2"] / total, 0.25, delta=0.08)
+        self.assertAlmostEqual(c["Q3"] / total, 0.25, delta=0.08)
+        self.assertAlmostEqual(c["Q4"] / total, 0.50, delta=0.10)
+        self.assertGreater(c["Q4"], c["Q2"], "Q4 must still be the favourite")
+
+    def test_the_stairs_are_never_at_the_entrance(self):
+        for ws, d, lvl in self._floors():
+            self.assertNotEqual(lvl.stairs, lvl.entrance,
+                                "seed %d floor %d: the way down is the way in" % (ws, d))
+
+    def test_all_three_quarters_actually_get_used(self):
+        """It is not just 'Q4 vs. a rare fallback' -- Q2 and Q3 must really happen."""
+        from collections import Counter
+        c = Counter()
+        for ws, d, lvl in self._floors(60):
+            eq = self._quarter(lvl, *lvl.entrance)
+            sq = self._quarter(lvl, *lvl.stairs)
+            c[sq] += 1
+        # entrance is usually top-left, so expect real counts in Q2/Q3/Q4
+        self.assertGreaterEqual(len([v for v in c.values() if v > 5]), 3,
+                                "at least three distinct quarters should see stairs")
+
+    def test_it_actually_VARIES_between_dungeons(self):
+        """The whole point: the exit is not the same predictable spot every time."""
+        seen = set()
+        for ws, d, lvl in self._floors():
+            if d == 1:                # compare the same floor across many games
+                seen.add(lvl.stairs)
+        self.assertGreater(len(seen), 10,
+                           "floor 1's stairs must land in many different rooms")
+
+    def test_the_stairs_are_fixed_for_a_GAME(self):
+        """They are part of the stone: same room every run, until a new dungeon."""
+        codex = FakeSave()
+        codex.world_seed = 777
+        first = {}
+        w = World(codex, seed=1)
+        for d in range(1, config.DEPTH_MAX):
+            w.new_level(d)
+            first[d] = w.level.stairs
+
+        for run in (2, 3, 99):
+            w2 = World(codex, seed=run)
+            for d in range(1, config.DEPTH_MAX):
+                w2.new_level(d)
+                self.assertEqual(w2.level.stairs, first[d],
+                                 "floor %d's stairs moved between runs of one game"
+                                 % d)
+
+    def test_the_stairs_are_always_on_a_walkable_tile(self):
+        for ws, d, lvl in self._floors():
+            self.assertTrue(lvl.walkable(*lvl.stairs),
+                            "seed %d floor %d: stairs inside a wall" % (ws, d))
+
+    def test_the_stairs_are_always_reachable(self):
+        from collections import deque
+        for ws, d, lvl in self._floors(20):
+            seen = {lvl.start}
+            q = deque([lvl.start])
+            while q:
+                x, y = q.popleft()
+                for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                    n = (x + dx, y + dy)
+                    if n not in seen and lvl.walkable(*n):
+                        seen.add(n)
+                        q.append(n)
+            self.assertIn(lvl.stairs, seen,
+                          "seed %d floor %d: stairs are cut off" % (ws, d))
+
+    def test_usually_a_journey_but_sometimes_you_get_lucky(self):
+        """A random room in another quarter is USUALLY a real trek, but a Q3 roll near
+        the midline can be short -- and that lucky short floor is the point. So: the
+        typical floor is a journey, but we do not forbid the occasional gift."""
+        dists = [abs(lvl.stairs[0] - lvl.entrance[0]) + abs(lvl.stairs[1] - lvl.entrance[1])
+                 for _, _, lvl in self._floors()]
+        dists.sort()
+        median = dists[len(dists) // 2]
+        self.assertGreater(median, 25, "the typical floor must still be a real trek")
+        # and there IS meaningful spread -- not every floor the same length
+        self.assertGreater(dists[9 * len(dists) // 10] - dists[len(dists) // 10], 20,
+                           "floor length must actually vary")
+
+
+class TestLayoutMigration(unittest.TestCase):
+    def test_an_old_save_forgets_the_map_but_keeps_the_kodex(self):
+        import json
+        import tempfile
+        from . import config as cfg
+        from .codex import Codex
+
+        old = cfg.SAVE_PATH
+        cfg.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_migrate.json")
+        try:
+            # hand-write a save from an OLDER generator
+            data = {
+                "known": ["brute.rule", "dart.rule"], "deaths": 12,
+                "world_seed": 999, "maps": {"1": "1111"},
+                "found_traps": {"2": ["10,10"]},
+                "corpses": {"3": {"x": 5, "y": 5, "gold": 200, "weapon": "brand"}},
+                "layout_version": 1,
+            }
+            with open(cfg.SAVE_PATH, "w") as fh:
+                json.dump(data, fh)
+
+            c = Codex()
+            c.load()
+
+            self.assertIn("brute.rule", c.known, "the Kodex must survive")
+            self.assertEqual(c.deaths, 12, "and the deaths")
+            self.assertIsNone(c.world_seed, "but the stale stone is dropped")
+            self.assertEqual(c.maps, {}, "the map of a dungeon that moved is forgotten")
+            self.assertEqual(c.found_traps, {})
+            self.assertEqual(c.corpses, {})
+            self.assertTrue(c.layout_migrated)
+        finally:
+            if os.path.exists(cfg.SAVE_PATH):
+                os.remove(cfg.SAVE_PATH)
+            cfg.SAVE_PATH = old
+
+    def test_a_current_save_is_left_alone(self):
+        import json
+        import tempfile
+        from . import config as cfg
+        from .codex import Codex
+
+        old = cfg.SAVE_PATH
+        cfg.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_migrate2.json")
+        try:
+            c = Codex()
+            c.known = ["brute.rule"]
+            c.world_seed = 555
+            c.maps = {"1": "1010"}
+            c.save()
+
+            fresh = Codex()
+            fresh.load()
+            self.assertEqual(fresh.world_seed, 555, "a current save keeps its stone")
+            self.assertEqual(fresh.maps, {"1": "1010"})
+            self.assertFalse(fresh.layout_migrated)
+        finally:
+            if os.path.exists(cfg.SAVE_PATH):
+                os.remove(cfg.SAVE_PATH)
+            cfg.SAVE_PATH = old
+
+
+class TestPersistentStone(unittest.TestCase):
+    """The map is cut once per GAME. The things living in it are dealt every RUN."""
+
+    def _grid(self, lvl):
+        return tuple(tuple(row) for row in lvl.grid)
+
+    def _contents(self, lvl):
+        return (tuple(sorted((m.key, m.x, m.y) for m in lvl.monsters)),
+                tuple(sorted((t.key, t.x, t.y) for t in lvl.traps)),
+                tuple(sorted((c.x, c.y) for c in lvl.chests)),
+                tuple(sorted((d.kind, str(d.payload), d.x, d.y) for d in lvl.drops)))
+
+    def test_the_stone_is_identical_on_every_respawn(self):
+        codex = FakeSave()
+        first = World(codex, seed=1)
+        base = {}
+        for depth in range(1, config.DEPTH_MAX + 1):
+            first.new_level(depth)
+            base[depth] = (self._grid(first.level), first.level.entrance,
+                           first.level.stairs)
+
+        for run_seed in (2, 3, 999):                 # later runs: different run RNG
+            w = World(codex, seed=run_seed)
+            for depth in range(1, config.DEPTH_MAX + 1):
+                w.new_level(depth)
+                grid, ent, stairs = base[depth]
+                self.assertEqual(self._grid(w.level), grid,
+                                 "floor %d's walls changed between runs" % depth)
+                self.assertEqual(w.level.entrance, ent,
+                                 "floor %d's entrance moved between runs" % depth)
+                self.assertEqual(w.level.stairs, stairs,
+                                 "floor %d's stairs moved between runs" % depth)
+
+    def test_the_living_are_re_dealt_every_respawn(self):
+        codex = FakeSave()
+        seen = set()
+        for run_seed in (1, 2, 3, 4, 5):
+            w = World(codex, seed=run_seed)
+            seen.add(self._contents(w.level))
+        self.assertGreater(len(seen), 1,
+                           "monsters/traps/loot must be re-dealt on a respawn")
+
+    def test_a_new_game_cuts_new_stone(self):
+        codex = FakeSave()
+        w = World(codex, seed=1)
+        before = self._grid(w.level)
+        old_seed = codex.world_seed
+
+        codex.wipe()
+        self.assertIsNone(codex.world_seed, "a new game must forget the old stone")
+        w2 = World(codex, seed=1)
+        self.assertIsNotNone(codex.world_seed)
+        # a fresh world seed is drawn -- overwhelmingly likely to be a new map
+        self.assertNotEqual(codex.world_seed, old_seed)
+        self.assertNotEqual(self._grid(w2.level), before,
+                            "a new game produced the same dungeon")
+
+    def test_the_stone_stays_walkable_where_it_matters(self):
+        codex = FakeSave()
+        w = World(codex, seed=7)
+        for depth in range(1, config.DEPTH_MAX + 1):
+            w.new_level(depth)
+            self.assertTrue(w.level.walkable(*w.level.entrance))
+            if w.level.stairs:
+                self.assertTrue(w.level.walkable(*w.level.stairs))
+
+
+class TestTheMapIsRemembered(unittest.TestCase):
+    """The stone does not move between runs, so neither should your memory of it.
+    Dying must not un-walk a corridor."""
+
+    def _count(self, lvl):
+        return sum(1 for row in lvl.explored for v in row if v)
+
+    def _codex(self):
+        """Pin the stone. Otherwise each FakeSave draws a random world seed and the
+        map -- and therefore how much a given walk reveals -- changes between runs of
+        the suite, which makes these tests flaky rather than wrong."""
+        c = FakeSave()
+        c.world_seed = 20260713
+        return c
+
+    def _explore(self, w, steps=60):
+        """Walk a spiral so we reveal ground whatever the room looks like."""
+        moves = [(1, 0), (0, 1), (-1, 0), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]
+        for i in range(steps):
+            dx, dy = moves[i % len(moves)]
+            for _ in range(3):
+                w.player_move(dx, dy)
+
+    def test_explored_tiles_survive_a_death(self):
+        codex = self._codex()
+        w = World(codex, seed=21)
+        # walk about a bit to reveal some of the floor
+        for _ in range(40):
+            w.player_move(1, 0)
+            w.player_move(0, 1)
+        seen = self._count(w.level)
+        self.assertGreater(seen, 30, "the test did not explore anything")
+        remembered = [(x, y) for y in range(w.level.h) for x in range(w.level.w)
+                      if w.level.explored[y][x]]
+
+        w.kill_player("angry_rat")            # kill_player folds the map into memory
+
+        w2 = World(codex, seed=99)            # a brand new run
+        for (x, y) in remembered:
+            self.assertTrue(w2.level.explored[y][x],
+                            "tile (%d,%d) was explored, then forgotten on respawn"
+                            % (x, y))
+        self.assertGreaterEqual(self._count(w2.level), seen)
+
+    def test_memory_only_ever_grows(self):
+        codex = self._codex()
+        w = World(codex, seed=21)
+        for _ in range(20):
+            w.player_move(1, 0)
+        first_tiles = {(x, y) for y in range(w.level.h) for x in range(w.level.w)
+                       if w.level.explored[y][x]}
+        first = len(first_tiles)
+        w.kill_player("rat")
+
+        # the second run goes somewhere genuinely new -- the far side of the floor
+        w2 = World(codex, seed=22)
+        w2.player.x, w2.player.y = w2.level.stairs
+        w2.level.compute_fov(w2.player.x, w2.player.y)
+        self._explore(w2, 20)
+        w2.kill_player("rat")
+        second = self._count(w2.level)
+        self.assertTrue(first_tiles <= {(x, y) for y in range(w2.level.h)
+                                        for x in range(w2.level.w)
+                                        if w2.level.explored[y][x]},
+                        "the second run lost tiles the first run had walked")
+        self.assertGreater(second, first,
+                           "the second run should add to the map, not replace it")
+
+        w3 = World(codex, seed=23)
+        self.assertGreaterEqual(self._count(w3.level), second,
+                                "memory must accumulate across runs")
+
+    def test_each_floor_is_remembered_separately(self):
+        codex = self._codex()
+        w = World(codex, seed=21)
+        self._explore(w, 20)
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()                            # descend folds floor 1 into memory
+        self.assertEqual(w.depth, 2)
+        f1 = codex.maps.get("1")
+        self.assertTrue(f1 and "1" in f1, "floor 1 should be remembered")
+        # floor 2 is fresh: only what we can see from the entrance
+        self.assertLess(self._count(w.level), len(f1))
+
+    def test_a_new_game_forgets_the_map(self):
+        codex = self._codex()
+        w = World(codex, seed=21)
+        self._explore(w, 30)
+        w.kill_player("rat")
+        self.assertTrue(codex.maps, "the map should have been remembered")
+
+        codex.wipe()
+        self.assertEqual(codex.maps, {}, "a new game must forget the map")
+        w2 = World(codex, seed=21)
+        # a fresh game: only what is visible from the entrance right now
+        self.assertLess(self._count(w2.level), 200)
+
+    def test_remembering_survives_a_save_and_load(self):
+        import tempfile
+        from . import config as cfg
+        from .codex import Codex
+
+        old = cfg.SAVE_PATH
+        cfg.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_map_test.json")
+        try:
+            c = Codex()
+            c.world_seed = 20260713
+            w = World(c, seed=21)
+            self._explore(w, 30)
+            w.kill_player("rat")
+            c.save()
+
+            fresh = Codex()
+            fresh.load()
+            self.assertEqual(fresh.maps, c.maps, "the map did not survive the save file")
+            w2 = World(fresh, seed=50)
+            self.assertGreater(self._count(w2.level), 30,
+                               "a reloaded game should still know the floor")
+        finally:
+            if os.path.exists(cfg.SAVE_PATH):
+                os.remove(cfg.SAVE_PATH)
+            cfg.SAVE_PATH = old
+
+
+class TestLootMenu(unittest.TestCase):
+    """Standing on a hoard should be a decision, not a vacuum cleaner."""
+
+    def _chest_under_player(self, w, loot):
+        from .dungeon import Chest
+        w.level.monsters = []
+        w.level.chests = [Chest(w.player.x, w.player.y, loot)]
+        w.level.drops = []
+        w.level.corpse = None
+        return w.level.chests[0]
+
+    def test_a_chest_lists_everything_in_it(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("gold", 25), ("gear", "axe"), ("item", "azure")])
+        opts = w.loot_options()
+        self.assertEqual(len(opts), 3)
+        self.assertEqual(opts[0]["label"], "25 gold")
+        self.assertIn("Bone Axe", opts[1]["label"])
+        self.assertIn("azure", opts[2]["label"].lower(),
+                      "an unidentified potion must be listed by its COLOUR")
+
+    def test_an_identified_potion_is_listed_by_its_true_name(self):
+        codex = FakeSave()
+        codex.known.append("id.ochre")
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("item", "ochre")])
+        self.assertEqual(w.loot_options()[0]["label"], "Potion of Healing")
+
+    def test_taking_one_thing_leaves_the_rest(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("gold", 25), ("gear", "axe"), ("item", "azure")])
+        w.take_option(0)                        # just the gold
+        self.assertEqual(w.player.gold, 25)
+        opts = w.loot_options()
+        self.assertEqual(len(opts), 2, "the axe and the potion must still be there")
+        self.assertEqual(w.player.weapon.key, "shiv", "we did not take the axe")
+        self.assertEqual(w.player.pack, [], "we did not take the potion")
+
+    def test_taking_a_middle_option_takes_the_right_one(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("gold", 25), ("gear", "axe"), ("item", "azure")])
+        w.take_option(1)                        # the axe
+        self.assertEqual(w.player.weapon.key, "axe")
+        labels = [o["label"] for o in w.loot_options()]
+        self.assertTrue(any("gold" in l for l in labels))
+        self.assertFalse(any("Bone Axe" in l for l in labels), "the axe is in our hand")
+        # the Rusted Shiv it displaced is now in the chest: gear swaps are not thefts
+        self.assertTrue(any("Rusted Shiv" in l for l in labels),
+                        "the displaced weapon must be left in the chest: %s" % labels)
+
+    def test_take_all_takes_everything_worth_taking(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        ch = self._chest_under_player(w, [("gold", 25), ("gear", "axe"),
+                                          ("item", "azure")])
+        w.take_all()
+        self.assertEqual(w.player.gold, 25)
+        self.assertEqual(w.player.weapon.key, "axe")
+        self.assertEqual(w.player.pack, ["azure"])
+        # the only thing left is the weapon we displaced -- 'all' will not pick your
+        # own cast-off shiv back up, and it does not delete it either
+        self.assertEqual([o["payload"] for o in w.loot_options()], ["shiv"])
+
+    def test_take_all_will_not_downgrade_your_gear_behind_your_back(self):
+        from .items import WEAPONS
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.weapon = WEAPONS["brand"]      # tier 3
+        self._chest_under_player(w, [("gold", 10), ("gear", "sword")])   # tier 1
+        w.take_all()
+        self.assertEqual(w.player.gold, 10)
+        self.assertEqual(w.player.weapon.key, "brand",
+                         "'all' must never swap a Flame Brand for a Bronze Sword")
+
+    def test_an_explicit_choice_may_downgrade_you_if_you_insist(self):
+        from .items import ARMOURS
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ARMOURS["plate"]
+        self._chest_under_player(w, [("gear", "silk")])   # same tier, but a trait
+        w.take_option(0)
+        self.assertEqual(w.player.armour.key, "silk",
+                         "if the player picks it deliberately, give it to them")
+
+    def test_G_is_offered_even_for_a_single_item(self):
+        """The G row is always there. A key that means 'take everything' should not
+        vanish just because 'everything' happens to be one coin."""
+        from . import ui
+        codex = FakeSave()
+        w = World(codex, seed=6)
+
+        self._chest_under_player(w, [("gold", 25)])
+        rows = ui.loot_rows(w, codex)
+        self.assertEqual([r[0] for r in rows], ["1", "G"],
+                         "a single item must still offer G. all")
+
+        self._chest_under_player(w, [("gold", 25), ("item", "ochre")])
+        rows = ui.loot_rows(w, codex)
+        self.assertEqual([r[0] for r in rows], ["1", "2", "G"])
+
+    def test_G_on_a_single_item_just_takes_it(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("gold", 25)])
+        w.player_pickup()               # what G does
+        self.assertEqual(w.player.gold, 25)
+        self.assertEqual(w.loot_options(), [])
+
+    def test_numbers_are_items_only_and_G_is_all(self):
+        """'all' is G, never a number. Pressing the number just past the last item
+        must do nothing, not silently hoover up the chest."""
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("gold", 25), ("item", "ochre")])
+        self.assertFalse(w.take_option(2),
+                         "there is no 3rd item -- that key must do nothing")
+        self.assertEqual(w.player.gold, 0)
+        self.assertEqual(len(w.loot_options()), 2, "nothing should have been taken")
+
+        w.player_pickup()               # this is what G does
+        self.assertEqual(w.player.gold, 25)
+        self.assertEqual(w.player.pack, ["ochre"])
+        self.assertEqual(w.loot_options(), [],
+                         "no gear involved, so nothing is left behind")
+
+    def test_your_corpse_lists_gold_and_gear_separately(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.level.monsters = []
+        w.level.chests = []
+        w.level.drops = []
+        codex.leave_corpse(1, w.player.x, w.player.y, 140, "rapier", gift_key="swift")
+        w2 = World(codex, seed=7)
+        w2.level.monsters = []
+        c = w2.level.corpse
+        self.assertIsNotNone(c)
+        w2.player.x, w2.player.y = c.x, c.y
+        opts = w2.loot_options()
+        labels = [o["label"] for o in opts]
+        self.assertEqual(len(opts), 3, "gold, the weapon, and the gift: %s" % labels)
+        self.assertIn("140 gold", labels[0])
+        self.assertTrue(any("Rapier" in l for l in labels))
+        self.assertTrue(any("[the gift]" in l for l in labels))
+
+        w2.take_option(0)                        # take only the gold
+        self.assertEqual(w2.player.gold, 140)
+        self.assertEqual(len(w2.loot_options()), 2, "the gear must still be on the body")
+        self.assertIsNotNone(codex.corpse_at(1), "the body is not spent yet")
+
+    def test_taking_loot_costs_a_turn(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("gold", 25), ("item", "ochre")])
+        t0 = w.tick
+        w.take_option(0)
+        self.assertGreater(w.tick, t0, "rummaging in a chest must cost you a turn")
+
+
+class TestEveryItemLooksLikeItself(unittest.TestCase):
+    """You should be able to tell what is lying on the floor without walking onto it.
+    Every weapon, every piece of armour, every boot and every potion gets its own
+    sprite -- and none of them may be blank."""
+
+    def _pixels(self, surf):
+        surf.lock()
+        px = tuple(tuple(surf.get_at((x, y)))          # Color is not hashable
+                   for y in range(surf.get_height())
+                   for x in range(surf.get_width()))
+        surf.unlock()
+        return px
+
+    def _is_blank(self, surf):
+        return all(p[3] == 0 for p in self._pixels(surf))
+
+    def test_every_piece_of_gear_has_its_own_sprite(self):
+        from . import sprites
+        from .items import ALL_GEAR
+        seen = {}
+        for key in ALL_GEAR:
+            img = sprites.gear(key)
+            self.assertFalse(self._is_blank(img),
+                             "%s renders as an empty tile" % key)
+            px = self._pixels(img)
+            clash = seen.get(px)
+            self.assertIsNone(clash,
+                              "%s and %s are drawn identically -- you could not tell "
+                              "them apart on the floor" % (key, clash))
+            seen[px] = key
+        self.assertEqual(len(seen), len(ALL_GEAR))
+
+    def test_the_leather_jerkin_is_brown_and_the_scale_vest_is_grey(self):
+        """The specific thing that was asked for, pinned."""
+        from . import sprites
+
+        def average(img):
+            px = [p for p in self._pixels(img) if p[3] > 100]
+            n = len(px)
+            return (sum(p[0] for p in px) / n, sum(p[1] for p in px) / n,
+                    sum(p[2] for p in px) / n)
+
+        r, g, b = average(sprites.gear("leather"))
+        self.assertGreater(r, g, "leather must be brown: red above green")
+        self.assertGreater(g, b, "leather must be brown: green above blue")
+        self.assertGreater(r - b, 30, "leather is not brown enough (r-b=%.0f)" % (r - b))
+
+        r, g, b = average(sprites.gear("scale"))
+        self.assertLess(max(r, g, b) - min(r, g, b), 22,
+                        "scale must be GREY: its channels should be near-equal "
+                        "(got %.0f/%.0f/%.0f)" % (r, g, b))
+
+    def test_the_potions_match_their_descriptions(self):
+        from . import sprites
+        from .sprites import POTION_COLORS
+        # ochre = amber, azure = blue, viscous = green, black = dark
+        oc = POTION_COLORS["ochre"]
+        self.assertGreater(oc[0], oc[2], "the ochre potion must be warm, not blue")
+        az = POTION_COLORS["azure"]
+        self.assertGreater(az[2], az[0], "the azure potion must be BLUE")
+        vi = POTION_COLORS["viscous"]
+        self.assertGreater(vi[1], vi[0], "the viscous potion must be GREEN")
+        self.assertGreater(vi[1], vi[2])
+        bk = POTION_COLORS["black"]
+        self.assertLess(sum(bk) / 3, 100, "the black potion must be dark")
+
+        for flavor in POTION_COLORS:
+            self.assertFalse(self._is_blank(sprites.potion(flavor)))
+
+    def test_all_scrolls_look_the_same(self):
+        from . import sprites
+        a = self._pixels(sprites.scroll())
+        b = self._pixels(sprites.scroll())
+        self.assertEqual(a, b, "scrolls are deliberately identical")
+
+
+class TestBeatingTheWarden(unittest.TestCase):
+    """Kill it, and you choose: start over with one keepsake, or keep walking."""
+
+    def _game(self):
+        from .game import Game
+        g = Game.__new__(Game)
+        g.codex = FakeSave()
+        g.codex.world_seed = 4242
+        g.world = World(g.codex, seed=3)
+        g.state = None
+        g.victory_gear = None
+        g.banner = None
+        g.banner_age = 0.0
+        g.t = 0.0
+        from .keyrepeat import Repeater
+        g.repeat = Repeater()
+        return g
+
+    def _win(self, g, weapon="brand", armour="plate", boots="wind"):
+        from .items import ARMOURS, BOOTS, WEAPONS
+        g.world.new_level(config.DEPTH_MAX)
+        p = g.world.player
+        p.weapon = WEAPONS[weapon]
+        p.armour = ARMOURS[armour]
+        p.boots = BOOTS[boots]
+        warden = [m for m in g.world.level.monsters if m.key == "warden"][0]
+        g.world.kill_monster(warden)
+        self.assertTrue(g.world.won)
+        g.on_win()
+
+    def test_killing_it_records_what_you_were_holding(self):
+        from .game import WIN
+        g = self._game()
+        self._win(g)
+        self.assertEqual(g.state, WIN)
+        self.assertEqual(g.victory_gear,
+                         {"weapon": "brand", "armour": "plate", "boots": "wind"})
+        self.assertEqual(g.codex.wins, 1)
+
+    def test_starting_over_keeps_the_ONE_thing_you_chose(self):
+        g = self._game()
+        self._win(g)
+        g.new_run(keep="weapon")
+
+        p = g.world.player
+        self.assertEqual(p.weapon.key, "brand", "you kept the Flame Brand")
+        self.assertEqual(p.armour.key, "rags", "the dungeon took the plate back")
+        self.assertEqual(p.boots.key, "sandals", "and the boots")
+        self.assertEqual(g.world.depth, 1, "and you are back at the gate")
+
+    def test_you_can_keep_the_armour_instead(self):
+        g = self._game()
+        self._win(g)
+        g.new_run(keep="armour")
+        p = g.world.player
+        self.assertEqual(p.armour.key, "plate")
+        self.assertEqual(p.weapon.key, "shiv")
+        self.assertEqual(p.boots.key, "sandals")
+
+    def test_or_the_boots(self):
+        g = self._game()
+        self._win(g)
+        g.new_run(keep="boots")
+        p = g.world.player
+        self.assertEqual(p.boots.key, "wind")
+        self.assertEqual(p.weapon.key, "shiv")
+        self.assertEqual(p.armour.key, "rags")
+
+    def test_starting_over_is_a_WHOLE_NEW_DUNGEON_not_a_respawn(self):
+        """A victor does not go round the same loop again. New stone, new corridors,
+        the map forgotten, the traps hidden, the dead left behind."""
+        g = self._game()
+        codex = g.codex
+        # a well-worn game: map memory, found traps, a corpse, the gift spent
+        codex.known.extend(["self.corpse", "brute.rule", "dart.rule"])
+        codex.remember_map(1, [[True] * 4] * 4)
+        codex.find_trap(2, 10, 10)
+        codex.leave_corpse(3, 5, 5, 300, "brand")
+        codex.claim_gift("floor1")
+        old_seed = codex.world_seed
+        old_stone = tuple(tuple(r) for r in g.world.level.grid)
+        g.world.player.gold = 500
+        g.world.player.pack = ["ochre", "ochre"]
+        self._win(g)
+
+        g.new_run(keep="weapon", fresh_dungeon=True)
+
+        # --- the PLACE is gone ---
+        self.assertNotEqual(codex.world_seed, old_seed, "the stone is re-cut")
+        self.assertNotEqual(tuple(tuple(r) for r in g.world.level.grid), old_stone,
+                            "it is a different dungeon")
+        self.assertEqual(codex.maps, {}, "the map you drew is forgotten")
+        self.assertEqual(codex.found_traps, {}, "the traps are hidden again")
+        self.assertEqual(codex.corpses, {}, "your dead do not follow you")
+        self.assertEqual(codex.gifts, [], "and the floor-1 gift is waiting again")
+        self.assertIsNone(g.world.level.corpse)
+
+        # --- but YOU are not ---
+        self.assertIn("brute.rule", codex.known, "you keep what you learned")
+        self.assertIn("dart.rule", codex.known)
+        self.assertEqual(codex.tier("brute"), 1,
+                         "the brute is still not a '?' -- that is the reward")
+        self.assertEqual(g.world.player.weapon.key, "brand", "and your one keepsake")
+
+        # --- and it is still a fresh run ---
+        self.assertEqual(g.world.depth, 1)
+        self.assertEqual(sorted(g.world.levels.keys()), [1])
+        self.assertEqual(g.world.player.gold, 0)
+        self.assertEqual(g.world.player.pack, [])
+        self.assertEqual(g.world.vendor_pct, 0)
+        self.assertTrue(g.world.level.monsters)
+
+    def test_a_DEATH_is_still_only_a_respawn(self):
+        """The thing that must not break: dying keeps the dungeon. Only WINNING
+        replaces it."""
+        g = self._game()
+        codex = g.codex
+        codex.remember_map(1, [[True] * 4] * 4)
+        codex.find_trap(1, 9, 9)
+        codex.leave_corpse(2, 4, 4, 90, "sword")
+        seed = codex.world_seed
+        stone = tuple(tuple(r) for r in g.world.level.grid)
+
+        g.new_run()                          # a plain respawn
+
+        self.assertEqual(codex.world_seed, seed, "the dungeon is the SAME after death")
+        self.assertEqual(tuple(tuple(r) for r in g.world.level.grid), stone)
+        self.assertTrue(codex.maps, "you still remember the map")
+        self.assertTrue(codex.found_traps, "and the traps you found")
+        self.assertTrue(codex.corpses, "and your dead are still down there")
+
+    def test_the_boon_is_spent_and_does_not_apply_to_the_NEXT_run(self):
+        g = self._game()
+        self._win(g)
+        g.new_run(keep="weapon")
+        self.assertEqual(g.world.player.weapon.key, "brand")
+        self.assertIsNone(g.victory_gear, "the keepsake is spent")
+
+        g.new_run()                        # e.g. after dying in the new run
+        self.assertEqual(g.world.player.weapon.key, "shiv",
+                         "you do not get to keep it forever -- earn it again")
+
+    def test_walking_on_keeps_you_in_the_dungeon(self):
+        from .game import PLAY
+        g = self._game()
+        self._win(g)
+        depth = g.world.depth
+
+        g.walk_on()
+
+        self.assertEqual(g.state, PLAY)
+        self.assertFalse(g.world.won, "the win flag must clear or the world stops")
+        self.assertEqual(g.world.depth, depth, "you are still standing where you were")
+        # and the world keeps turning
+        t0 = g.world.tick
+        g.world.player_wait()
+        self.assertGreater(g.world.tick, t0, "turns must still pass")
+
+    def test_walking_on_and_then_dying_forfeits_the_keepsake(self):
+        g = self._game()
+        self._win(g)
+        g.walk_on()
+        g.world.kill_player("brute")
+        self.assertTrue(g.world.dead)
+        # the death flow starts a plain new run: no boon
+        g.new_run()
+        self.assertEqual(g.world.player.weapon.key, "shiv")
+
+
+class TestTheCheatCode(unittest.TestCase):
+    """CTRL (or CMD) + 0 9 8 7."""
+
+    def _code(self):
+        from .cheats import CheatCode
+        return CheatCode()
+
+    def test_the_code_fires_on_the_full_sequence(self):
+        c = self._code()
+        seq = [pygame.K_0, pygame.K_9, pygame.K_8, pygame.K_7]
+        for k in seq[:-1]:
+            self.assertFalse(c.feed(k, True))
+        self.assertTrue(c.feed(seq[-1], True), "0987 with CTRL held must fire")
+
+    def test_it_does_nothing_without_the_modifier(self):
+        c = self._code()
+        for k in (pygame.K_0, pygame.K_9, pygame.K_8, pygame.K_7):
+            self.assertFalse(c.feed(k, False),
+                             "typing 0987 by itself must never fire")
+
+    def test_letting_go_of_ctrl_half_way_resets_it(self):
+        c = self._code()
+        c.feed(pygame.K_0, True)
+        c.feed(pygame.K_9, True)
+        c.feed(pygame.K_8, False)          # let go
+        self.assertFalse(c.feed(pygame.K_7, True), "the run was broken")
+        self.assertEqual(c.progress, 0)
+
+    def test_a_wrong_key_starts_over(self):
+        c = self._code()
+        c.feed(pygame.K_0, True)
+        c.feed(pygame.K_9, True)
+        c.feed(pygame.K_5, True)           # wrong
+        self.assertFalse(c.feed(pygame.K_8, True))
+        self.assertFalse(c.feed(pygame.K_7, True))
+
+    def test_a_stray_zero_restarts_the_attempt(self):
+        c = self._code()
+        c.feed(pygame.K_9, True)           # wrong opener
+        self.assertEqual(c.progress, 0)
+        c.feed(pygame.K_0, True)           # ...but this is a fresh start
+        c.feed(pygame.K_9, True)
+        c.feed(pygame.K_8, True)
+        self.assertTrue(c.feed(pygame.K_7, True))
+
+    # --- what it grants -------------------------------------------------
+    def test_it_grants_the_best_gear_and_nine_potions(self):
+        from .items import ARMOURS, BOOTS, WEAPONS
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        self.assertEqual(w.player.weapon.key, "shiv")
+        self.assertEqual(w.player.boots.key, "sandals")
+        base_speed = w.player.speed()
+
+        got = w.grant_cheat()
+
+        self.assertEqual(w.player.weapon.key, "kris",
+                         "the cheat grants the Vampiric Kris specifically")
+        self.assertEqual(w.player.weapon.tier, 3, "and it is still a top-tier weapon")
+        self.assertEqual(w.player.armour.tier, 3, "the best armour in the game")
+        self.assertEqual(w.player.boots.tier, 3, "the best boots in the game")
+        self.assertEqual(max(g.tier for g in ARMOURS.values()), w.player.armour.tier)
+        self.assertEqual(max(g.tier for g in BOOTS.values()), w.player.boots.tier)
+        self.assertEqual(w.player.boots.key, "wind", "the Windwalkers")
+        self.assertEqual(got, 9)
+        self.assertEqual(w.player.pack.count("ochre"), 9)
+        # the Windwalkers must actually outrun the Warden Plate's -18
+        self.assertGreater(w.player.speed(), base_speed,
+                           "the boots must beat the plate's speed penalty")
+
+    def test_it_only_gives_you_what_will_FIT(self):
+        """3 slots free = 9 potions. 2 slots free = 6. And so on."""
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        # leave exactly two slots free
+        w.player.slots = [["kesh", 3], ["vorn", 3], ["azure", 3], ["black", 3],
+                          None, None]
+
+        got = w.grant_cheat()
+
+        self.assertEqual(got, 6, "two free slots hold six potions, not nine")
+        self.assertEqual(w.player.pack.count("ochre"), 6)
+        self.assertEqual(len(w.player.pack), 18, "and the pack is now full")
+
+    def test_a_completely_full_pack_gets_no_potions_but_still_gets_the_gear(self):
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.slots = [["kesh", 3]] * 6
+
+        got = w.grant_cheat()
+
+        self.assertEqual(got, 0)
+        self.assertEqual(w.player.weapon.tier, 3, "the gear still lands")
+        self.assertEqual(w.player.armour.tier, 3)
+
+    def test_a_part_used_potion_stack_is_topped_up_first(self):
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.slots[0] = ["ochre", 1]     # one already in hand
+        w.player.slots[1] = ["kesh", 3]
+
+        got = w.grant_cheat()
+
+        self.assertEqual(w.player.pack.count("ochre"), 10,
+                         "it tops up the stack you already have")
+        self.assertEqual(got, 9)
+
+
+class TestTheWarpCheat(unittest.TestCase):
+    """CTRL + 7 8: drop onto the next floor's entrance tile, from anywhere."""
+
+    def _code(self):
+        from .cheats import CheatCode
+        return CheatCode([pygame.K_7, pygame.K_8])
+
+    def test_the_code_fires_on_seven_eight(self):
+        c = self._code()
+        self.assertFalse(c.feed(pygame.K_7, True))
+        self.assertTrue(c.feed(pygame.K_8, True), "78 with CTRL held must fire")
+
+    def test_it_does_nothing_without_the_modifier(self):
+        c = self._code()
+        self.assertFalse(c.feed(pygame.K_7, False))
+        self.assertFalse(c.feed(pygame.K_8, False))
+
+    # --- what it does ---------------------------------------------------
+    def test_it_drops_you_on_the_next_floors_entrance(self):
+        codex = FakeSave()
+        codex.world_seed = 3   # pin the stone: make no global-random draws
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        start = w.depth
+        # stand somewhere that is NOT the stairs, so a normal descend would refuse
+        self.assertNotEqual((w.player.x, w.player.y), w.level.stairs)
+
+        self.assertTrue(w.warp_down())
+
+        self.assertEqual(w.depth, start + 1, "you went down exactly one floor")
+        self.assertEqual((w.player.x, w.player.y), w.level.entrance,
+                         "and you arrive on the entrance tile")
+
+    def test_it_does_not_need_the_stairs(self):
+        """The whole point: unlike descend(), it works from anywhere."""
+        codex = FakeSave()
+        codex.world_seed = 3   # pin the stone: make no global-random draws
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        # move well away from the down-stairs
+        for r in w.level.rooms:
+            if (r.cx, r.cy) != w.level.stairs:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        self.assertFalse(w.descend(), "a real descend refuses off the stairs")
+        self.assertTrue(w.warp_down(), "but the warp does not care where you stand")
+
+    def test_it_will_not_warp_past_the_warden(self):
+        codex = FakeSave()
+        codex.world_seed = 3   # pin the stone: make no global-random draws
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.new_level(config.DEPTH_MAX)          # the bottom
+        self.assertFalse(w.warp_down(), "there is nothing below the boss floor")
+        self.assertEqual(w.depth, config.DEPTH_MAX, "and you do not move")
+
+    def test_a_warped_floor_is_cached_like_any_other(self):
+        """It obeys the anti-farming rule: warping down then climbing back finds the
+        floor exactly as you left it, not re-rolled."""
+        codex = FakeSave()
+        codex.world_seed = 3   # pin the stone: make no global-random draws
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.warp_down()
+        deep = w.depth
+        placed = (w.player.x + 0, w.player.y + 0)  # noqa: F841
+        monster_count = len(w.level.monsters)
+        w.player.x, w.player.y = w.level.entrance
+        w.ascend()
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()
+        self.assertEqual(w.depth, deep, "back down to the same floor")
+        self.assertEqual(len(w.level.monsters), monster_count,
+                         "and it was NOT re-dealt")
+
+
+class TestTheArsenalCheat(unittest.TestCase):
+    """CTRL + 8 7: choose a top-tier weapon/armour/boots; it drops on an open tile
+    beside you -- a tester for trying high-end gear on the deep floors."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.level.drops = []
+        # carve a small open room so the drop has somewhere clean to land
+        w.player.x, w.player.y = 12, 12
+        for y in range(10, 15):
+            for x in range(10, 15):
+                w.level.grid[y][x] = 1
+        return w
+
+    def test_the_code_fires_on_eight_seven(self):
+        from .cheats import CheatCode
+        c = CheatCode([pygame.K_8, pygame.K_7])
+        self.assertFalse(c.feed(pygame.K_8, True))
+        self.assertTrue(c.feed(pygame.K_7, True), "87 with CTRL held must fire")
+
+    def test_top_tier_gear_offers_three_high_end_of_each(self):
+        from .items import top_tier_gear, WEAPONS, ARMOURS, BOOTS
+        picks = top_tier_gear()
+        for cat, pool in (("weapon", WEAPONS), ("armour", ARMOURS), ("boots", BOOTS)):
+            self.assertEqual(len(picks[cat]), 3, "%s offers exactly three" % cat)
+            best = max(g.tier for g in pool.values())
+            self.assertEqual(picks[cat][0].tier, best, "the first pick is the top tier")
+            self.assertTrue(all(g.tier >= 2 for g in picks[cat]),
+                            "%s picks are all genuinely high-end" % cat)
+
+    def test_it_drops_the_choice_on_an_open_tile_beside_you(self):
+        w = self._world()
+        px, py = w.player.x, w.player.y
+        spot = w.drop_gear_near("brand")
+        self.assertIsNotNone(spot)
+        self.assertLessEqual(max(abs(spot[0] - px), abs(spot[1] - py)), 1,
+                             "it lands on a tile next to you")
+        self.assertNotEqual(spot, (px, py), "beside you, not under you")
+        self.assertTrue(w.walkable(*spot), "and on open floor")
+        # and it is genuinely pickable: stand on it, and it is in the loot menu
+        w.player.x, w.player.y = spot
+        opts = w.loot_options()
+        self.assertTrue(
+            any(o["kind"] == "gear" and o["payload"] == "brand" for o in opts),
+            "the dropped gear can actually be picked up")
+
+    def test_a_boxed_in_hero_gets_it_at_their_feet(self):
+        w = self._world()
+        px, py = w.player.x, w.player.y
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if (dx, dy) != (0, 0):
+                    w.level.grid[py + dy][px + dx] = 0      # walled in on every side
+        spot = w.drop_gear_near("plate")
+        self.assertEqual(spot, (px, py),
+                         "nowhere open beside you -> it lands at your feet")
+
+    def test_an_unknown_key_drops_nothing(self):
+        w = self._world()
+        before = len(w.level.drops)
+        self.assertIsNone(w.drop_gear_near("not_a_real_key"))
+        self.assertEqual(len(w.level.drops), before)
+
+
+class TestTheConsumableCheats(unittest.TestCase):
+    """CTRL+67 (scrolls) and CTRL+76 (potions): pick any uncommon/rare one, into the
+    pack, identified."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.x, w.player.y = 12, 12
+        for y in range(10, 15):
+            for x in range(10, 15):
+                w.level.grid[y][x] = 1
+        return w
+
+    def test_the_codes_fire_on_six_seven_and_seven_six(self):
+        from .cheats import CheatCode
+        scrolls = CheatCode([pygame.K_6, pygame.K_7])
+        self.assertFalse(scrolls.feed(pygame.K_6, True))
+        self.assertTrue(scrolls.feed(pygame.K_7, True), "67 fires the scroll picker")
+        potions = CheatCode([pygame.K_7, pygame.K_6])
+        self.assertFalse(potions.feed(pygame.K_7, True))
+        self.assertTrue(potions.feed(pygame.K_6, True), "76 fires the potion picker")
+
+    def test_giving_a_consumable_puts_it_in_the_pack_identified(self):
+        w = self._world()
+        self.assertFalse(w.codex.identified("zeph"))
+        w.cheat_give_consumable("zeph")
+        self.assertIn("zeph", w.player.pack, "straight into the pack")
+        self.assertTrue(w.codex.identified("zeph"), "and you know what it is")
+
+    def test_a_full_pack_drops_the_consumable_beside_you(self):
+        w = self._world()
+        w.player.slots = [["kesh", 3]] * 6           # completely full
+        before = len(w.level.drops)
+        w.cheat_give_consumable("ulm")
+        self.assertNotIn("ulm", w.player.pack, "no room in the pack")
+        self.assertEqual(len(w.level.drops), before + 1, "so it lands beside you")
+
+    def test_the_picker_offers_exactly_the_uncommon_and_rare(self):
+        from .items import CONSUMABLES
+        for kind in ("scroll", "potion"):
+            items = [f for f, c in CONSUMABLES.items()
+                     if c.kind == kind and c.tier in ("uncommon", "rare")]
+            self.assertEqual(len(items), 10, "%s picker offers 6 uncommon + 4 rare" % kind)
+            self.assertFalse(any(CONSUMABLES[f].tier == "common" for f in items),
+                             "no commons in the picker")
+
+
+class TestTheBeholder(unittest.TestCase):
+    """A gaze that freezes you where you stand -- telegraphed, breakable by line of
+    sight, capped at 2 turns, and it cannot gaze again for 3."""
+
+    def _world(self):
+        codex = FakeSave()
+        w = World(codex, seed=7)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 8 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _beholder(self, w, dx, dy):
+        from .monsters import Monster
+        b = Monster("beholder", w.player.x + dx, w.player.y + dy)
+        b.awake = True
+        w.level.monsters.append(b)
+        return b
+
+    def test_it_telegraphs_before_the_gaze(self):
+        w = self._world()
+        b = self._beholder(w, 4, 0)                   # 4 tiles away, clear line
+        b.take_turn(w)
+        self.assertEqual(b.intent, ("gaze", w.player.x, w.player.y),
+                         "the first turn it only opens its eye -- a warning")
+        self.assertEqual(w.player.frozen, 0, "it has not frozen you yet")
+
+    def test_the_gaze_freezes_you_for_two_turns_and_does_no_damage(self):
+        w = self._world()
+        b = self._beholder(w, 4, 0)
+        hp = w.player.hp
+        b.take_turn(w)                                # telegraph
+        b.take_turn(w)                                # gaze lands
+        self.assertEqual(w.player.frozen, 2, "the gaze freezes you, capped at 2")
+        self.assertEqual(w.player.hp, hp, "the freeze itself does no damage -- setup only")
+        self.assertTrue(b.ray_armed, "and it has armed the ray for its next turn")
+
+    def test_the_ray_follows_the_freeze_on_the_next_turn(self):
+        """Two beats: freeze (no damage), then a baleful ray (real damage). The ray only
+        ever comes right after a landed freeze."""
+        w = self._world()
+        b = self._beholder(w, 4, 0)
+        b.take_turn(w)                                # telegraph
+        b.take_turn(w)                                # gaze -> freeze, ray armed
+        self.assertTrue(b.ray_armed)
+        hp = w.player.hp
+        frozen_before = w.player.frozen
+        b.take_turn(w)                                # the RAY
+        self.assertFalse(b.ray_armed, "the ray is spent")
+        self.assertLess(w.player.hp, hp, "the ray deals real damage")
+        self.assertGreaterEqual(w.player.frozen, frozen_before,
+                                "and it is not fire -- it does NOT thaw the ice")
+        self.assertEqual(b.recharge, 3, "now the whole combo is on cooldown")
+
+    def test_no_freeze_means_no_ray(self):
+        """Dodge the gaze and the ray never comes -- the ray only follows a real freeze."""
+        w = self._world()
+        b = self._beholder(w, 4, 0)
+        b.take_turn(w)                                # telegraph
+        wx = (b.x + w.player.x) // 2
+        w.level.grid[w.player.y][wx] = 0              # break the line before the gaze
+        b.take_turn(w)                                # gaze finds stone: no freeze
+        self.assertFalse(b.ray_armed, "no freeze landed, so no ray is armed")
+        self.assertEqual(w.player.frozen, 0)
+        hp = w.player.hp
+        b.take_turn(w)                                # whatever it does now, it is not a ray
+        self.assertEqual(w.player.hp, hp, "and no ray damage arrives out of nowhere")
+
+    def test_breaking_line_of_sight_beats_the_gaze(self):
+        w = self._world()
+        b = self._beholder(w, 4, 0)
+        b.take_turn(w)                                # telegraph
+        # drop a wall between the beholder and the player before the gaze lands
+        wx = (b.x + w.player.x) // 2
+        w.level.grid[w.player.y][wx] = 0              # a pillar in the eyeline
+        b.take_turn(w)                                # gaze resolves
+        self.assertEqual(w.player.frozen, 0,
+                         "a wall in the eyeline means it freezes stone, not you")
+
+    def test_the_combo_is_on_a_cooldown_before_it_can_gaze_again(self):
+        w = self._world()
+        b = self._beholder(w, 4, 0)
+        b.take_turn(w)                                # telegraph
+        b.take_turn(w)                                # gaze -> freeze, ray armed
+        b.take_turn(w)                                # ray -> recharge = 3
+        self.assertEqual(b.recharge, 3, "the cooldown starts after the RAY, not the gaze")
+        w.player.frozen = 0                           # pretend we thawed
+        for _ in range(3):
+            b.take_turn(w)
+            self.assertIsNone(b.intent, "it must not gaze while recharging")
+            self.assertFalse(b.ray_armed)
+        b.take_turn(w)
+        self.assertEqual(b.intent[0], "gaze", "after three turns it can start over")
+
+    def test_being_frozen_actually_costs_you_turns_while_monsters_act(self):
+        """The whole danger: you cannot act, but the floor can. Each frozen turn is a
+        freeze_tick, burned when the player tries to move (see struggle_against_freeze);
+        the bookkeeping is the same."""
+        from .monsters import Monster
+        w = self._world()
+        w.player.frozen = 2
+        # a rat right beside you, awake and hungry
+        rat = Monster("rat", w.player.x + 1, w.player.y)
+        rat.awake = True
+        w.level.monsters = [rat]
+        hp = w.player.hp
+
+        still = w.freeze_tick()                        # one frozen turn plays out
+        self.assertTrue(still, "one turn down, one to go")
+        self.assertEqual(w.player.frozen, 1)
+        still = w.freeze_tick()                        # the last one
+        self.assertFalse(still, "the ice has let go")
+        self.assertEqual(w.player.frozen, 0, "the two frozen turns were spent")
+        self.assertLess(w.player.hp, hp,
+                        "and the rat mauled you while you could not move")
+
+    def test_struggling_burns_a_turn_and_you_do_NOT_move(self):
+        """The fix: while frozen, trying to act spends the turn where you stand. It
+        costs a real turn (the floor gets its swing) and it does not move you an inch."""
+        from .monsters import Monster
+        w = self._world()
+        w.player.frozen = 2
+        px, py = w.player.x, w.player.y
+        rat = Monster("rat", px + 1, py)
+        rat.awake = True
+        w.level.monsters = [rat]
+        hp = w.player.hp
+
+        w.struggle_against_freeze()                    # you press 'move' -- and can't
+        self.assertEqual((w.player.x, w.player.y), (px, py), "the ice holds you in place")
+        self.assertEqual(w.player.frozen, 1, "but the attempt cost you a frozen turn")
+        self.assertLess(w.player.hp, hp, "and the rat got its free swing")
+
+        w.struggle_against_freeze()
+        self.assertEqual(w.player.frozen, 0, "a second attempt spends the last turn")
+
+    def test_freeze_tick_does_nothing_once_thawed(self):
+        w = self._world()
+        self.assertEqual(w.player.frozen, 0)
+        self.assertFalse(w.freeze_tick(), "no freeze, no turn burned")
+
+    def test_struggling_when_not_frozen_is_a_no_op(self):
+        w = self._world()
+        px, py = w.player.x, w.player.y
+        w.struggle_against_freeze()
+        self.assertEqual((w.player.x, w.player.y), (px, py))
+        self.assertEqual(w.player.frozen, 0)
+
+    def test_you_cannot_drink_a_potion_while_frozen(self):
+        w = self._world()
+        w.player.slots = [["ochre", 2], None, None, None, None, None]  # healing
+        w.player.hp = 10
+        w.player.frozen = 2
+        self.assertFalse(w.use_item(0), "a frozen hand cannot uncork a flask")
+        self.assertEqual(w.player.hp, 10, "no heal")
+        self.assertEqual(w.player.pack.count("ochre"), 2, "and the potion is not spent")
+
+    def test_you_cannot_read_a_scroll_while_frozen(self):
+        w = self._world()
+        w.codex.known.append("id.kesh")
+        w.player.slots = [["kesh", 2], None, None, None, None, None]
+        w.player.frozen = 2
+        self.assertFalse(w.use_item(0), "a frozen hand cannot unroll a scroll")
+        self.assertEqual(w.player.pack.count("kesh"), 2, "the scroll is not spent")
+
+    def test_you_cannot_drop_from_the_pack_while_frozen(self):
+        w = self._world()
+        w.player.slots = [["kesh", 2], None, None, None, None, None]
+        w.player.frozen = 2
+        self.assertFalse(w.drop_item(0), "you cannot rummage in your pack while frozen")
+        self.assertEqual(w.player.pack.count("kesh"), 2, "nothing left your pack")
+
+    def test_the_freeze_is_capped_and_cannot_be_stacked(self):
+        w = self._world()
+        w.freeze_player(2)
+        w.freeze_player(2)
+        self.assertLessEqual(w.player.frozen, 2, "two gazes do not make four turns")
+
+    def test_los_clear_is_blocked_by_walls_not_monsters(self):
+        from .monsters import Monster
+        w = self._world()
+        px, py = w.player.x, w.player.y
+        self.assertTrue(w.los_clear(px, py, px + 4, py, 7),
+                        "open floor: the eye sees you")
+        other = Monster("rat", px + 2, py)             # a creature in the way
+        w.level.monsters.append(other)
+        self.assertTrue(w.los_clear(px, py, px + 4, py, 7),
+                        "the gaze passes over creatures")
+        w.level.grid[py][px + 2] = 0                    # a wall in the way
+        self.assertFalse(w.los_clear(px, py, px + 4, py, 7),
+                         "but a wall blocks it")
+
+    def test_it_takes_several_solid_hits(self):
+        _assert_solid_hits(self, "beholder")
+
+    def test_beholders_only_appear_deep(self):
+        from .monsters import spawn_roster
+        for d in range(1, 13):
+            self.assertNotIn("beholder", spawn_roster(d))
+        self.assertIn("beholder", spawn_roster(13))
+
+    def test_the_beholder_has_a_codex_entry_and_a_name(self):
+        from .codex import CAUSE_NAME, FACTS
+        for tier in ("rule", "tell", "counter"):
+            self.assertIn("beholder.%s" % tier, FACTS)
+        self.assertEqual(CAUSE_NAME["beholder"], "a beholder")
+
+
+class TestTheFlicker(unittest.TestCase):
+    """Blink in beside you, cut, stuck one turn (your window), blink away. You cannot
+    chase it or wall it out."""
+
+    def _world(self):
+        codex = FakeSave()
+        w = World(codex, seed=7)
+        w.level.monsters = []
+        # put the player somewhere with open floor around them
+        for r in w.level.rooms:
+            if r.w >= 6 and r.h >= 6:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _flicker(self, w, x, y):
+        from .monsters import Monster
+        f = Monster("flicker", x, y)
+        f.awake = True
+        w.level.monsters.append(f)
+        return f
+
+    def test_it_blinks_ADJACENT_and_strikes(self):
+        w = self._world()
+        p = w.player
+        f = self._flicker(w, p.x + 4, p.y)           # a few tiles off
+        hp = p.hp
+        f.take_turn(w)
+        self.assertLessEqual(f.dist(p.x, p.y), 1, "it should now be right beside you")
+        self.assertLess(p.hp, hp, "and it should have cut you")
+        self.assertEqual(f.recharge, 1, "and now it is spent for a turn")
+
+    def test_the_recharge_turn_is_a_defenceless_window(self):
+        w = self._world()
+        p = w.player
+        f = self._flicker(w, p.x + 1, p.y)
+        f.recharge = 1
+        pos = (f.x, f.y)
+        hp = p.hp
+        f.take_turn(w)                               # its recharge turn
+        self.assertEqual((f.x, f.y), pos, "it does not move during the window")
+        self.assertEqual(p.hp, hp, "and it does not attack -- it is helpless")
+        self.assertEqual(f.recharge, 0, "the window is now over")
+
+    def test_after_the_window_it_blinks_AWAY(self):
+        w = self._world()
+        p = w.player
+        f = self._flicker(w, p.x + 1, p.y)           # adjacent, recharge spent
+        f.recharge = 0
+        f.take_turn(w)
+        self.assertGreater(f.dist(p.x, p.y), 1,
+                           "with its recharge spent it flees back out to range")
+
+    def test_the_blink_ignores_walls_and_your_body(self):
+        """It appears on ANY open tile beside you -- you cannot put your back to a wall
+        to be safe."""
+        w = self._world()
+        p = w.player
+        # gather the tiles it could land on: all walkable neighbours
+        open_sides = [(p.x + dx, p.y + dy)
+                      for dy in (-1, 0, 1) for dx in (-1, 0, 1)
+                      if (dx, dy) != (0, 0) and w.walkable(p.x + dx, p.y + dy)]
+        self.assertTrue(open_sides)
+        # blink_tile_near must only ever return one of those, never the player's tile
+        for _ in range(50):
+            spot = w.blink_tile_near(p.x, p.y, lo=1, hi=1)
+            self.assertIn(spot, open_sides)
+            self.assertNotEqual(spot, (p.x, p.y))
+
+    def test_a_boxed_in_player_leaves_it_nowhere_to_blink(self):
+        from .traps import Trap  # noqa: F401  (just to have imports consistent)
+        w = self._world()
+        # jam the player into a 1-tile pocket: surround with walls in the grid
+        px, py = w.player.x, w.player.y
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if (dx, dy) != (0, 0):
+                    w.level.grid[py + dy][px + dx] = 0     # wall
+        self.assertIsNone(w.blink_tile_near(px, py, lo=1, hi=1),
+                          "nowhere adjacent is open, so it cannot blink in")
+
+    def test_it_takes_several_solid_hits(self):
+        _assert_solid_hits(self, "flicker")
+
+    def test_it_is_not_faster_than_you(self):
+        """The window only exists if the turns interleave -- it must not outrun you."""
+        from .monsters import TEMPLATES
+        self.assertLessEqual(TEMPLATES["flicker"].speed, config.BASE_SPEED)
+
+    def test_flickers_appear_from_floor_six(self):
+        from .monsters import spawn_roster
+        for d in range(1, 6):
+            self.assertNotIn("flicker", spawn_roster(d))
+        self.assertIn("flicker", spawn_roster(6))
+        self.assertIn("flicker", spawn_roster(12))
+
+    def test_the_flicker_has_a_codex_entry_and_a_name(self):
+        from .codex import CAUSE_NAME, FACTS
+        for tier in ("rule", "tell", "counter"):
+            self.assertIn("flicker.%s" % tier, FACTS)
+        self.assertEqual(CAUSE_NAME["flicker"], "a flicker")
+
+
+class TestThePoltergeist(unittest.TestCase):
+    """Invisible, walks through walls, rakes you for almost nothing. The only thing
+    that beats it is KNOWLEDGE: what you have learned changes what you can see, never
+    what it does."""
+
+    def _world(self, learn=()):
+        codex = FakeSave()
+        codex.world_seed = 4242        # a fixed stone, so two worlds are identical
+        for f in learn:
+            codex.known.append("poltergeist.%s" % f)
+        w = World(codex, seed=7)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 7 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _ghost(self, w, dx, dy):
+        from .monsters import Monster
+        g = Monster("poltergeist", w.player.x + dx, w.player.y + dy)
+        g.awake = True
+        w.level.monsters.append(g)
+        return g
+
+    def test_it_phases_through_walls(self):
+        w = self._world()
+        g = self._ghost(w, 3, 0)
+        # brick up every tile on the line between them: a normal monster is now stuck
+        for step in range(1, 3):
+            w.level.grid[w.player.y][w.player.x + step] = 0
+        before = g.dist(w.player.x, w.player.y)
+        g.take_turn(w)
+        self.assertLess(g.dist(w.player.x, w.player.y), before,
+                        "walls do not stop it -- it drifts straight through")
+
+    def test_it_rakes_you_for_chip_damage(self):
+        w = self._world()
+        g = self._ghost(w, 1, 0)
+        hp = w.player.hp
+        g.take_turn(w)
+        drop = hp - w.player.hp
+        self.assertGreater(drop, 0, "adjacent, it rakes you")
+        self.assertLessEqual(drop, 3, "but only ever for chip damage")
+
+    def test_unseen_when_unknown_named_once_you_know_it(self):
+        w = self._world()                              # know nothing
+        g = self._ghost(w, 1, 0)
+        g.take_turn(w)
+        line = w.messages[-1][0].lower()
+        self.assertIn("unseen thing", line, "before you know it, it has no name")
+        self.assertNotIn("poltergeist", line, "and it is certainly not named")
+
+        w2 = self._world(learn=("rule",))              # now you know what it is
+        g2 = self._ghost(w2, 1, 0)
+        g2.take_turn(w2)
+        self.assertIn("poltergeist", w2.messages[-1][0].lower(),
+                      "once codexed, the strike names it")
+
+    def test_the_tell_flashes_it_into_view_only_once_learned(self):
+        # below the tell tier: the strike leaves no visible trace of where it stood
+        w = self._world(learn=("rule",))
+        g = self._ghost(w, 1, 0)
+        w.fx = []
+        g.take_turn(w)
+        self.assertFalse(any(f["kind"] == "haunt" for f in w.fx),
+                         "without the tell, nothing reveals it")
+        # with the tell: the strike drags it into view for a heartbeat
+        w2 = self._world(learn=("rule", "tell"))
+        g2 = self._ghost(w2, 1, 0)
+        w2.fx = []
+        g2.take_turn(w2)
+        self.assertTrue(any(f["kind"] == "haunt" for f in w2.fx),
+                        "the tell flashes it onto its tile when it hits")
+
+    def test_knowledge_changes_what_you_see_not_what_it_does(self):
+        """The core rule of the whole game, at its most literal: a blind player and an
+        omniscient one face the exact same poltergeist -- same step, same damage."""
+        blind = self._world()
+        omni = self._world(learn=("rule", "tell", "counter"))
+        gb = self._ghost(blind, 2, 0)
+        go = self._ghost(omni, 2, 0)
+        hb, ho = blind.player.hp, omni.player.hp
+        gb.take_turn(blind)
+        go.take_turn(omni)
+        self.assertEqual((gb.x, gb.y), (go.x, go.y), "it moves the same either way")
+        self.assertEqual(hb - blind.player.hp, ho - omni.player.hp,
+                         "and it hits for the same either way")
+
+    def test_poltergeists_appear_from_floor_ten(self):
+        from .monsters import spawn_roster
+        for d in range(1, 10):
+            self.assertNotIn("poltergeist", spawn_roster(d))
+        self.assertIn("poltergeist", spawn_roster(10))
+        self.assertIn("poltergeist", spawn_roster(18))
+
+    def test_it_takes_several_solid_hits_once_you_can_see_it(self):
+        _assert_solid_hits(self, "poltergeist")
+
+    def test_it_has_a_sprite_registered(self):
+        from . import sprites
+        self.assertIn("poltergeist", sprites._MONSTER_DRAW)
+        self.assertIsNotNone(sprites.monster("poltergeist", (206, 214, 230)))
+
+    def test_the_poltergeist_has_a_codex_entry_and_a_name(self):
+        from .codex import CAUSE_NAME, FACTS
+        for tier in ("rule", "tell", "counter"):
+            self.assertIn("poltergeist.%s" % tier, FACTS)
+        self.assertEqual(CAUSE_NAME["poltergeist"], "a poltergeist")
+
+
+class TestTheOrcs(unittest.TestCase):
+    """A pack with keen eyes and no memory. Calm until one of them SEES you -- then the
+    whole pack is on you at once -- and calm again the instant you break the line."""
+
+    # a carved open arena, so line of sight and movement are fully predictable
+    AX, AY, AW, AH = 12, 12, 16, 8
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3         # fixed stone: no global-random draws
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for y in range(self.AY, self.AY + self.AH):
+            for x in range(self.AX, self.AX + self.AW):
+                w.level.grid[y][x] = 1                 # FLOOR
+        self.midy = self.AY + self.AH // 2
+        return w
+
+    def _orc(self, w, x, y):
+        from .monsters import Monster
+        o = Monster("orc", x, y)
+        w.level.monsters.append(o)
+        return o
+
+    def _far_away(self, w):
+        w.player.x, w.player.y = 2, 2                  # outside the arena, walled off
+
+    # --- targeting geometry (independent of sight) ----------------------
+    def test_orc_prey_goes_for_the_player_when_you_are_nearest(self):
+        w = self._world()
+        o = self._orc(w, w.player.x + 1, w.player.y)
+        kind, target = w.orc_prey(o)
+        self.assertEqual(kind, "player")
+        self.assertIs(target, w.player)
+
+    def test_orc_prey_goes_for_a_MONSTER_when_it_is_nearer_than_you(self):
+        from .monsters import Monster
+        w = self._world()
+        o = self._orc(w, 30, 20)
+        brute = Monster("brute", 31, 20)             # right next to the orc
+        w.level.monsters.append(brute)
+        w.player.x, w.player.y = 5, 5                 # you are far away
+        kind, target = w.orc_prey(o)
+        self.assertEqual(kind, "monster")
+        self.assertIs(target, brute, "the orc goes for the nearer thing, not you")
+
+    def test_orc_prey_never_targets_another_orc(self):
+        w = self._world()
+        o1 = self._orc(w, 30, 20)
+        self._orc(w, 31, 20)                          # an orc right beside it
+        w.player.x, w.player.y = 5, 5
+        kind, target = w.orc_prey(o1)
+        self.assertEqual(kind, "player",
+                         "with only orcs nearby, it must fall back to you -- never "
+                         "another orc")
+
+    # --- sight is the ONLY thing that makes them hostile ----------------
+    def test_sight_is_line_of_sight_a_wall_breaks_it(self):
+        w = self._world()
+        w.player.x, w.player.y = self.AX + 1, self.midy
+        o = self._orc(w, self.AX + 5, self.midy)      # a clear line down the arena
+        self.assertTrue(w.orc_can_see_player(o), "open line: it sees you")
+        w.level.grid[self.midy][self.AX + 3] = 0      # a pillar drops into the line
+        self.assertFalse(w.orc_can_see_player(o), "a pillar in the line breaks it")
+
+    def test_sight_has_a_range_limit(self):
+        from .world import ORC_SIGHT
+        w = self._world()
+        w.player.x, w.player.y = self.AX + 1, self.midy
+        near = self._orc(w, self.AX + 1 + ORC_SIGHT - 1, self.midy)
+        far = self._orc(w, self.AX + 1 + ORC_SIGHT + 2, self.midy)
+        self.assertTrue(w.orc_can_see_player(near), "within range, it sees you")
+        self.assertFalse(w.orc_can_see_player(far), "beyond ORC_SIGHT it does not")
+
+    def test_a_calm_pack_ignores_the_whole_floor(self):
+        """The bug this fixes: orcs used to clear a floor before you arrived. A pack
+        that cannot see you now touches nothing on the floor."""
+        from .monsters import Monster
+        w = self._world()
+        o = self._orc(w, self.AX + 4, self.midy)
+        brute = Monster("brute", self.AX + 5, self.midy)   # right beside the orc
+        brute.hp = 26
+        w.level.monsters.append(brute)
+        self._far_away(w)
+        self.assertFalse(w.orcs_hunting())
+        for _ in range(6):
+            o.take_turn(w)
+        self.assertEqual(brute.hp, 26,
+                         "a calm orc must not lay a finger on the brute")
+
+    def test_one_orc_seeing_you_alerts_the_whole_pack(self):
+        w = self._world()
+        w.player.x, w.player.y = self.AX + 1, self.midy
+        self._orc(w, self.AX + 4, self.midy)               # spotter: a clear line
+        blind = self._orc(w, self.AX + 1 + 13, self.midy)  # too far to see you itself
+        self.assertFalse(w.orc_can_see_player(blind), "this one cannot see you itself")
+        self.assertTrue(w.orcs_hunting(), "but the spotter can, so the pack hunts")
+        d0 = blind.dist(w.player.x, w.player.y)
+        blind.take_turn(w)
+        self.assertLess(blind.dist(w.player.x, w.player.y), d0,
+                        "alerted by the pack, the blind orc still closes on you")
+
+    def test_they_lose_you_the_instant_you_break_the_line(self):
+        w = self._world()
+        w.player.x, w.player.y = self.AX + 1, self.midy
+        self._orc(w, self.AX + 4, self.midy)
+        self.assertTrue(w.orcs_hunting(), "in the open, on you")
+        w.level.grid[self.midy][self.AX + 2] = 0           # you duck behind a pillar
+        self.assertFalse(w.orcs_hunting(), "line broken -- forgotten at once")
+
+    def test_while_hunting_they_still_maul_a_nearer_monster(self):
+        """The summon-scroll synergy, preserved -- but only while the pack is hunting
+        you. A visible player, a nearer monster: the orc takes the monster."""
+        from .monsters import Monster
+        w = self._world()
+        w.player.x, w.player.y = self.AX + 1, self.midy    # visible: the pack hunts...
+        o = self._orc(w, self.AX + 7, self.midy)
+        brute = Monster("brute", self.AX + 7, self.midy + 1)  # ...but a brute is adjacent
+        brute.hp = 26
+        w.level.monsters.append(brute)
+        self.assertTrue(w.orcs_hunting())
+        o.take_turn(w)
+        self.assertLess(brute.hp, 26, "mid-hunt it mauls the nearer thing")
+
+    def test_a_calm_pack_pulls_back_together(self):
+        w = self._world()
+        self._far_away(w)                                  # unseen: calm
+        a = self._orc(w, self.AX + 1, self.AY + 1)
+        b = self._orc(w, self.AX + self.AW - 2, self.AY + 1)
+        c = self._orc(w, self.AX + self.AW // 2, self.AY + self.AH - 2)
+        def spread():
+            xs, ys = [a.x, b.x, c.x], [a.y, b.y, c.y]
+            return (max(xs) - min(xs)) + (max(ys) - min(ys))
+        before = spread()
+        for _ in range(6):
+            for o in (a, b, c):
+                o.take_turn(w)
+        self.assertLess(spread(), before, "a calm pack closes ranks")
+
+    # --- kills by an orc are still not yours ----------------------------
+    def test_a_monster_killed_by_an_orc_gives_no_loot_and_no_credit(self):
+        from .monsters import Monster
+        w = self._world()
+        self._orc(w, 30, 20)
+        brute = Monster("brute", 31, 20)
+        brute.hp = 1
+        w.level.monsters.append(brute)
+        kills_before = w.codex.stats["kills"]
+
+        w.hurt_monster(brute, 5, source="orc")
+
+        self.assertNotIn(brute, w.level.monsters, "the brute is dead")
+        self.assertEqual(w.codex.stats["kills"], kills_before,
+                         "an orc's kill is not YOUR kill")
+        self.assertEqual(w.player.kills, 0)
+        body = [s for s in w.level.slain if (s.x, s.y) == (31, 20)]
+        self.assertTrue(body, "the body still lies where it fell")
+        self.assertFalse(body[0].has_loot, "but there is nothing on it to take")
+
+    def test_the_victim_does_NOT_fight_back(self):
+        """A brute with an orc gnawing its flank never turns on the orc -- it only
+        wants the player. (For now; we can change it later.)"""
+        from .monsters import Monster
+        w = self._world()
+        bx, by = self.AX + 2, self.midy
+        brute = Monster("brute", bx, by)
+        brute.awake = True
+        w.level.monsters.append(brute)
+        o = self._orc(w, bx + 1, by)                  # an orc right beside it
+        o.hp = 9
+        self._far_away(w)                             # the player, elsewhere
+
+        for _ in range(4):
+            brute.take_turn(w)
+
+        self.assertEqual(o.hp, 9,
+                         "the brute must never damage the orc -- victims do not "
+                         "retaliate")
+
+    def test_orcs_start_active_but_not_hostile(self):
+        from .monsters import Monster
+        w = self._world()
+        o = self._orc(w, self.AX + 4, self.midy)
+        self._far_away(w)
+        self.assertTrue(o.awake, "an orc always takes a turn -- to watch and to regroup")
+        self.assertFalse(w.orcs_hunting(), "but it is not hostile until it sees you")
+        rat = Monster("rat", 5, 5)
+        self.assertFalse(rat.awake, "everything else sleeps until it sees you")
+
+    def test_orcs_come_as_a_pack_on_the_deep_floors(self):
+        found_pack = False
+        for ws in range(30):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=ws)
+            for d in range(2, config.DEPTH_MAX):
+                w.new_level(d)
+                orcs = [m for m in w.level.monsters if m.key == "orc"]
+                if d < 8:
+                    self.assertEqual(orcs, [],
+                                     "seed %d: orcs before floor 8" % ws)
+                if orcs:
+                    found_pack = True
+                    self.assertGreaterEqual(len(orcs), 3,
+                                            "orcs come in a pack of 3+, not alone")
+        self.assertTrue(found_pack, "orc packs should appear somewhere on the deep floors")
+
+    def test_the_orc_has_a_codex_entry_and_a_name(self):
+        from .codex import CAUSE_NAME, FACTS
+        for tier in ("rule", "tell", "counter"):
+            self.assertIn("orc.%s" % tier, FACTS)
+        self.assertEqual(CAUSE_NAME["orc"], "an orc")
+
+
+class TestTheStoneGolem(unittest.TestCase):
+    """You do not kill it with steel. Steel is for the things that bleed."""
+
+    def _world(self):
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def test_steel_barely_marks_it(self):
+        from .monsters import Monster, damage_multiplier
+        w = self._world()
+        g = Monster("golem", w.player.x + 1, w.player.y)
+        g.hp = 34
+        w.level.monsters = [g]
+        w.hurt_monster(g, 20, source="player")       # a big hit
+        self.assertGreater(g.hp, 34 - 6,
+                           "a 20-damage blow should chip only ~5 off a golem")
+        self.assertEqual(damage_multiplier("golem", "player"), 0.25)
+
+    def test_fire_cracks_it_wide_open(self):
+        from .monsters import Monster, damage_multiplier
+        w = self._world()
+        g = Monster("golem", w.player.x + 1, w.player.y)
+        g.hp = 34
+        w.level.monsters = [g]
+        w.hurt_monster(g, 10, source="glyph")        # a fire glyph
+        self.assertEqual(g.hp, 34 - 20, "fire does DOUBLE to a golem")
+        self.assertEqual(damage_multiplier("golem", "burn"), 2.0)
+        self.assertEqual(damage_multiplier("golem", "scroll"), 2.0)
+
+    def test_the_flame_brand_burns_it_down(self):
+        """The whole point, played out: a fire weapon actually kills the thing your
+        sword cannot."""
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        w.player.weapon = WEAPONS["brand"]            # sets things alight
+        g = Monster("golem", w.player.x + 1, w.player.y)
+        w.level.monsters = [g]
+        # hit it a few times: the direct blows barely land, but the BURN ticks as fire
+        for _ in range(8):
+            if g not in w.level.monsters:
+                break
+            w.player_attack(g)
+            g.take_turn(w)                            # burn ticks on its turn
+        self.assertNotIn(g, w.level.monsters,
+                         "the Flame Brand's fire should eventually crack it")
+
+    def test_it_does_not_resist_anything_else(self):
+        from .monsters import Monster, damage_multiplier
+        self.assertEqual(damage_multiplier("brute", "player"), 1.0)
+        self.assertEqual(damage_multiplier("wraith", "glyph"), 1.0)
+
+    def test_it_is_fast_ninety_percent_of_your_pace(self):
+        from .monsters import TEMPLATES
+        self.assertEqual(TEMPLATES["golem"].speed, int(config.BASE_SPEED * 0.9),
+                         "the golem moves at your pace minus 10%")
+        self.assertGreater(TEMPLATES["golem"].speed, TEMPLATES["brute"].speed,
+                           "and that is faster than a brute")
+
+    def test_once_awake_it_hounds_you_from_out_of_sight(self):
+        """You are never rid of it: even too far away to see you, an awake golem still
+        closes on your exact position, turn after turn."""
+        from .monsters import Monster
+        w = self._world()
+        w.level.monsters = []
+        # carve a clear corridor so the approach does not depend on the random map
+        w.player.x, w.player.y = 10, 10
+        for x in range(10, 24):
+            w.level.grid[10][x] = 1                    # FLOOR
+        # far enough that it cannot possibly see you (sight tops out at 9 tiles)
+        g = Monster("golem", w.player.x + 12, w.player.y)
+        g.awake = True                                # it has already spotted you once
+        w.level.monsters = [g]
+        self.assertFalse(w.monster_can_see_player(g),
+                         "twelve tiles off, it genuinely cannot see you")
+        d0 = g.dist(w.player.x, w.player.y)
+        g.take_turn(w)
+        self.assertLess(g.dist(w.player.x, w.player.y), d0,
+                        "and yet, out of sight, it still closed the gap")
+
+    def test_golems_only_walk_the_deep_floors(self):
+        from .monsters import spawn_roster
+        for d in range(1, 11):
+            self.assertNotIn("golem", spawn_roster(d),
+                             "no golem should appear before floor 11 (got one at %d)" % d)
+        self.assertIn("golem", spawn_roster(11))
+        self.assertIn("golem", spawn_roster(20))
+
+    def test_the_golem_has_a_codex_entry_and_a_name(self):
+        from .codex import CAUSE_NAME, FACTS
+        for tier in ("rule", "tell", "counter"):
+            self.assertIn("golem.%s" % tier, FACTS)
+        self.assertEqual(CAUSE_NAME["golem"], "a stone golem")
+
+
+class TestTheVendor(unittest.TestCase):
+    """It walks the deep floors only. The odds climb as you descend and fall as you
+    climb, so pacing the stairs gains you exactly nothing."""
+
+    def _world(self, seed=6):
+        codex = FakeSave()
+        codex.world_seed = 4242
+        w = World(codex, seed=seed)
+        w.level.monsters = []
+        return w
+
+    def _to(self, w, depth):
+        """Walk down to `depth` the honest way."""
+        while w.depth < depth:
+            w.level.monsters = []
+            w.player.x, w.player.y = w.level.stairs
+            w.descend()
+
+    def test_the_odds_are_zero_above_the_deep_floors(self):
+        w = self._world()
+        for d in range(1, config.VENDOR_MIN_DEPTH):
+            self._to(w, d)
+            self.assertEqual(w.vendor_pct, 0,
+                             "floor %d must never have a vendor" % d)
+            self.assertIsNone(w.level.vendor)
+
+    def test_it_never_stands_in_the_wardens_room(self):
+        """The bottom floor is the exam. There is nobody to sell you anything down
+        there -- whatever you are bringing to the Warden, you bring it with you."""
+        codex = FakeSave()
+        codex.world_seed = 4242
+        for seed in range(80):
+            w = World(codex, seed=seed)
+            w.vendor_pct = 100                 # guarantee a spawn if it were allowed
+            w.new_level(config.DEPTH_MAX)
+            self.assertIsNone(w.level.vendor,
+                              "seed %d: a vendor turned up on the boss floor" % seed)
+
+    def test_the_deepest_it_will_go_is_the_floor_above_the_warden(self):
+        codex = FakeSave()
+        codex.world_seed = 4242
+        w = World(codex, seed=3)
+        w.vendor_pct = 100
+        w.new_level(config.DEPTH_MAX - 1)
+        self.assertIsNotNone(w.level.vendor,
+                             "it should still work on the floor above the Warden")
+
+    def test_the_odds_open_at_five_percent_on_the_first_deep_floor(self):
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH)
+        self.assertEqual(w.vendor_pct, config.VENDOR_BASE_PCT)
+
+    def test_the_odds_climb_five_a_floor_going_down(self):
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH)
+        seen = [w.vendor_pct]
+        for _ in range(3):
+            if w.level.stairs is None:
+                break
+            w.level.vendor = None        # isolate the counter from a lucky spawn
+            w.player.x, w.player.y = w.level.stairs
+            w.descend()
+            seen.append(w.vendor_pct)
+        self.assertEqual(seen[:4], [5, 10, 15, 20])
+
+    def test_climbing_back_up_gives_the_five_percent_BACK(self):
+        """The anti-scum rule: down +5, up -5, so bouncing nets zero."""
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH + 1)
+        w.level.vendor = None
+        self.assertEqual(w.vendor_pct, 10)
+
+        w.player.x, w.player.y = w.level.entrance
+        w.ascend()
+        self.assertEqual(w.vendor_pct, 5, "climbing gives the 5% back")
+
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()
+        self.assertEqual(w.vendor_pct, 10, "and you are exactly where you started")
+
+    def test_a_floor_rolls_ONCE_so_bouncing_buys_no_re_rolls(self):
+        """The hole in the raw rule: the counter never climbs, but re-entering could
+        still hand you unlimited attempts at the same odds."""
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH + 1)
+        deep = w.level
+        deep.vendor = None                # pretend the roll failed
+        rolls = []
+        real = w._maybe_spawn_vendor
+
+        def spy(level, fresh):
+            rolls.append(fresh)
+            return real(level, fresh)
+        w._maybe_spawn_vendor = spy
+
+        for _ in range(5):                # pace the stairs like a scumbag
+            w.player.x, w.player.y = w.level.entrance
+            w.ascend()
+            w.player.x, w.player.y = w.level.stairs
+            w.descend()
+
+        self.assertTrue(rolls, "we did re-enter floors")
+        self.assertFalse(any(rolls),
+                         "no re-entry may ever roll again -- a floor rolls once")
+        self.assertIsNone(deep.vendor, "and so no vendor can be farmed into existence")
+
+    def test_descending_past_a_vendor_loses_it_and_resets_the_odds(self):
+        from .vendor import Vendor
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH + 2)      # odds are 15 here
+        lvl = w.level
+        spot = lvl.free_spot_for_vendor(w.rng, (w.player.x, w.player.y))
+        lvl.vendor = Vendor(spot[0], spot[1], w.depth, w.rng)
+        self.assertEqual(w.vendor_pct, 15)
+
+        w.player.x, w.player.y = lvl.stairs
+        w.descend()
+
+        self.assertIsNone(lvl.vendor, "you walked past it; it does not wait")
+        self.assertEqual(w.vendor_pct, config.VENDOR_BASE_PCT,
+                         "and the odds start again from 5%")
+
+    def test_the_vendor_STAYS_if_you_only_go_up(self):
+        from .vendor import Vendor
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH + 1)
+        lvl = w.level
+        spot = lvl.free_spot_for_vendor(w.rng, (w.player.x, w.player.y))
+        lvl.vendor = Vendor(spot[0], spot[1], w.depth, w.rng)
+
+        w.player.x, w.player.y = lvl.entrance
+        w.ascend()
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()
+
+        self.assertIs(w.level, lvl)
+        self.assertIsNotNone(lvl.vendor,
+                             "climbing away and coming back must NOT lose it")
+
+    def test_the_odds_die_with_you(self):
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH + 2)
+        self.assertGreater(w.vendor_pct, 0)
+        w2 = World(w.codex, seed=9)          # the run after
+        self.assertEqual(w2.vendor_pct, 0,
+                         "a fresh run starts on floor 1 with no chance at all")
+
+    # --- trading --------------------------------------------------------
+    def _vendor_world(self):
+        from .vendor import Vendor
+        w = self._world()
+        self._to(w, config.VENDOR_MIN_DEPTH)
+        w.level.monsters = []
+        spot = w.level.free_spot_for_vendor(w.rng, (w.player.x, w.player.y))
+        w.level.vendor = Vendor(spot[0], spot[1], w.depth, w.rng)
+        w.player.x = spot[0] - 1
+        w.player.y = spot[1]
+        return w, w.level.vendor
+
+    def test_walking_into_it_opens_trade_and_is_not_an_attack(self):
+        w, v = self._vendor_world()
+        t0 = w.tick
+        w.player_move(1, 0)
+        self.assertTrue(w.trading, "it opens its hands")
+        self.assertEqual((w.player.x, w.player.y), (v.x - 1, v.y),
+                         "it is solid -- you do not walk through it")
+        self.assertEqual(w.tick, t0, "and opening the trade costs no turn")
+
+    def test_buying(self):
+        from .vendor import price_of
+        w, v = self._vendor_world()
+        v.stock = [("item", "ochre")]
+        cost = price_of("item", "ochre", w.depth)
+        w.player.gold = cost + 10
+
+        self.assertTrue(w.buy(0))
+        self.assertEqual(w.player.gold, 10)
+        self.assertIn("ochre", w.player.pack)
+        self.assertEqual(v.stock, [], "it does not have two of them")
+
+    def test_it_does_not_haggle(self):
+        from .vendor import price_of
+        w, v = self._vendor_world()
+        v.stock = [("item", "ochre")]
+        w.player.gold = price_of("item", "ochre", w.depth) - 1
+        self.assertFalse(w.buy(0))
+        self.assertEqual(len(v.stock), 1)
+
+    def test_it_buys_potions_and_scrolls(self):
+        from .vendor import sell_price_of
+        w, v = self._vendor_world()
+        w.player.pack = ["ochre", "kesh"]
+        gold0 = w.player.gold
+
+        self.assertTrue(w.sell(0))
+        self.assertEqual(w.player.gold,
+                         gold0 + sell_price_of("ochre", w.depth))
+        self.assertNotIn("ochre", w.player.pack)
+
+    def test_it_will_not_take_your_armour(self):
+        w, v = self._vendor_world()
+        self.assertFalse(v.buys("plate"))
+        self.assertFalse(v.buys("brand"))
+        self.assertTrue(v.buys("ochre"))
+        self.assertTrue(v.buys("vorn"))
+
+    def test_nothing_can_walk_through_it(self):
+        from .monsters import Monster
+        w, v = self._vendor_world()
+        m = Monster("angry_rat", v.x + 1, v.y)
+        m.awake = True
+        w.level.monsters = [m]
+        for _ in range(6):
+            m.take_turn(w)
+            self.assertNotEqual((m.x, m.y), (v.x, v.y),
+                                "it is solid, even to the rats")
+
+
+class TestGoingBackUp(unittest.TestCase):
+    """You can climb back up -- but you can never leave by the front door."""
+
+    def _world(self, seed=6, ws=4242):
+        codex = FakeSave()
+        codex.world_seed = ws
+        w = World(codex, seed=seed)
+        w.level.monsters = []
+        return w
+
+    def _go_down(self, w):
+        w.player.x, w.player.y = w.level.stairs
+        w.level.monsters = []
+        self.assertTrue(w.descend())
+
+    def test_you_can_climb_back_up(self):
+        w = self._world()
+        self._go_down(w)
+        self.assertEqual(w.depth, 2)
+
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend())
+
+        self.assertEqual(w.depth, 1)
+        self.assertEqual((w.player.x, w.player.y), w.level.stairs,
+                         "you come up the stairs, so you arrive AT the stairs")
+
+    def test_the_front_gate_is_sealed(self):
+        w = self._world()
+        w.player.x, w.player.y = w.level.entrance
+        self.assertEqual(w.depth, 1)
+
+        self.assertEqual(w.ascend(), "sealed",
+                         "there is no way out of the Deathward but through it")
+        self.assertEqual(w.depth, 1, "and you are still on floor 1")
+
+    def test_you_have_to_be_standing_on_the_way_up(self):
+        w = self._world()
+        self._go_down(w)
+        w.player.x, w.player.y = w.level.stairs      # the way DOWN, not up
+        self.assertFalse(w.ascend())
+        self.assertEqual(w.depth, 2)
+
+    def test_the_boss_floor_has_no_way_down_but_you_can_still_flee_upward(self):
+        w = self._world()
+        w.new_level(config.DEPTH_MAX)
+        self.assertIsNone(w.level.stairs, "there is no way down from the Warden")
+        self.assertFalse(w.descend())
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend(), "but you may always run away")
+        self.assertEqual(w.depth, config.DEPTH_MAX - 1)
+
+    # --- the exploit ----------------------------------------------------
+    def test_a_revisited_floor_is_NOT_re_rolled(self):
+        """Otherwise walking up and down is an infinite loot mill, and there is no
+        reason ever to fight anything."""
+        from .monsters import Monster
+        w = self._world()
+        w.new_level(2)
+        before_chests = [(c.x, c.y, tuple(c.loot)) for c in w.level.chests]
+        before_traps = [(t.key, t.x, t.y) for t in w.level.traps]
+        # put a known monster on the floor and hurt it
+        m = Monster("kobold", w.level.entrance[0] + 2, w.level.entrance[1])
+        m.hp = 3
+        w.level.monsters.append(m)
+        # open a chest, if there is one
+        if w.level.chests:
+            w.level.chests[0].loot = []
+            w.level.chests[0].opened = True
+
+        w.player.x, w.player.y = w.level.entrance
+        w.ascend()                                   # up to 1
+        self.assertEqual(w.depth, 1)
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()                                  # and back down to 2
+        self.assertEqual(w.depth, 2)
+
+        self.assertEqual([(t.key, t.x, t.y) for t in w.level.traps], before_traps)
+        survivors = [x for x in w.level.monsters if x is m]
+        self.assertTrue(survivors, "the kobold we wounded must still be there")
+        self.assertEqual(survivors[0].hp, 3, "and still wounded")
+        if before_chests:
+            self.assertTrue(w.level.chests[0].opened,
+                            "a chest you emptied must STAY empty")
+
+    def test_the_bodies_you_left_are_still_there_when_you_come_back(self):
+        from .monsters import Monster
+        w = self._world()
+        w.new_level(2)
+        m = Monster("angry_rat", w.level.entrance[0] + 2, w.level.entrance[1])
+        w.level.monsters.append(m)
+        w.kill_monster(m)
+        self.assertEqual(len(w.level.slain), 1)
+
+        w.player.x, w.player.y = w.level.entrance
+        w.ascend()
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()
+
+        self.assertEqual(len(w.level.slain), 1,
+                         "the floor remembers what you did to it, this run")
+
+    def test_a_new_run_wipes_the_floors_clean(self):
+        codex = FakeSave()
+        codex.world_seed = 4242
+        w = World(codex, seed=1)
+        w.new_level(2)
+        w.level.chests = []
+        w.level.monsters = []
+
+        w2 = World(codex, seed=2)            # the run after a death
+        w2.new_level(2)
+        self.assertEqual(w2.levels.keys(), {1, 2},
+                         "a fresh run builds its own floors")
+        self.assertTrue(w2.level.monsters or w2.level.chests,
+                        "and they are populated again")
+
+
+class TestThePack(unittest.TestCase):
+    """Six slots. Three of one thing per slot. Items slide DOWN into a same-type
+    stack that has room -- never up, never across types."""
+
+    def _chest(self, w, loot):
+        from .dungeon import Chest
+        w.level.monsters = []
+        w.level.chests = [Chest(w.player.x, w.player.y, loot)]
+        w.level.drops = []
+        w.level.corpse = None
+        w.level.slain = []
+        return w.level.chests[0]
+
+    def _slots(self, w):
+        return [None if s is None else (s[0], s[1]) for s in w.player.slots]
+
+    def _world(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.level.monsters = []
+        return w
+
+    def test_the_shape_is_six_slots_of_three(self):
+        self.assertEqual(config.PACK_SLOTS, 6)
+        self.assertEqual(config.STACK_MAX, 3)
+
+    def test_a_stack_fills_to_three_before_opening_a_new_slot(self):
+        w = self._world()
+        p = w.player
+        for i in range(3):
+            p.pack_add("ochre")
+        self.assertEqual(self._slots(w)[0], ("ochre", 3))
+        self.assertIsNone(self._slots(w)[1], "three fit in one slot")
+
+        p.pack_add("ochre")               # the 4th
+        self.assertEqual(self._slots(w)[0], ("ochre", 3),
+                         "slot 1 stays at three")
+        self.assertEqual(self._slots(w)[1], ("ochre", 1),
+                         "the 4th opens the next slot")
+
+    def test_the_ceiling_is_eighteen_of_one_thing(self):
+        w = self._world()
+        for _ in range(18):
+            self.assertTrue(w.player.pack_add("ochre"))
+        self.assertEqual(len(w.player.pack), 18)
+        self.assertTrue(w.player.pack_is_full)
+        self.assertFalse(w.player.pack_add("ochre"), "there is no 19th")
+        self.assertFalse(w.player.can_take("azure"))
+
+    def test_six_different_things_is_six_items_and_a_full_pack(self):
+        from .items import CONSUMABLES
+        w = self._world()
+        for f in list(CONSUMABLES)[:6]:
+            w.player.pack_add(f)
+        self.assertEqual(len(w.player.pack), 6)
+        self.assertTrue(w.player.pack_is_full, "every slot is occupied")
+        # ...but there is still room for MORE of what you already carry
+        first = w.player.slots[0][0]
+        self.assertTrue(w.player.can_take(first),
+                        "that stack is only at one; it has room for two more")
+        self.assertFalse(w.player.can_take(list(CONSUMABLES)[7]),
+                         "but nothing NEW can come in")
+
+    def test_EXAMPLE_A_drinking_from_slot_1_pulls_slot_2_down(self):
+        """slot1 = 3 healing, slot2 = 1 healing. Drink from slot 1."""
+        w = self._world()
+        w.player.hp = 5
+        for _ in range(4):
+            w.player.pack_add("ochre")
+        self.assertEqual(self._slots(w)[:2], [("ochre", 3), ("ochre", 1)])
+
+        w.use_item(0)                      # drink from SLOT 1
+
+        self.assertEqual(self._slots(w)[0], ("ochre", 3),
+                         "slot 1 goes 3 -> 2 -> refilled to 3")
+        self.assertIsNone(self._slots(w)[1],
+                          "slot 2 gave up its last potion and is now free")
+
+    def test_EXAMPLE_B_it_only_pulls_as_much_as_it_needs(self):
+        """slot1 = 2 healing, slot2 = 2 healing -> slot1 = 3, slot2 = 1."""
+        w = self._world()
+        w.player.slots[0] = ["ochre", 2]
+        w.player.slots[1] = ["ochre", 2]
+
+        w.player.consolidate("ochre")
+
+        self.assertEqual(self._slots(w)[0], ("ochre", 3), "slot 1 tops up to three")
+        self.assertEqual(self._slots(w)[1], ("ochre", 1),
+                         "and slot 2 keeps the remainder -- it does not empty itself")
+
+    def test_items_never_slide_UP(self):
+        """Drinking slot 2's last potion while slot 1 is full moves nothing."""
+        w = self._world()
+        w.player.hp = 5
+        w.player.slots[0] = ["ochre", 3]
+        w.player.slots[1] = ["ochre", 1]
+
+        w.use_item(1)                      # drink from SLOT 2
+
+        self.assertEqual(self._slots(w)[0], ("ochre", 3), "slot 1 is untouched")
+        self.assertIsNone(self._slots(w)[1], "slot 2 is simply empty now")
+
+    def test_nothing_of_a_different_type_ever_moves(self):
+        """No general compaction: an empty slot 1 does not suck the scroll down."""
+        w = self._world()
+        w.player.hp = 5
+        w.player.slots[0] = ["ochre", 1]
+        w.player.slots[1] = ["kesh", 2]
+
+        w.use_item(0)                      # empties slot 1
+
+        self.assertIsNone(self._slots(w)[0], "slot 1 is empty")
+        self.assertEqual(self._slots(w)[1], ("kesh", 2),
+                         "the scrolls stay in slot 2 -- slot numbers must not shuffle")
+
+    def test_a_refused_pickup_is_LEFT_IN_THE_CHEST(self):
+        w = self._world()
+        w.player.slots = [["ochre", 3], ["ochre", 3], ["ochre", 3],
+                          ["ochre", 3], ["ochre", 3], ["ochre", 3]]
+        ch = self._chest(w, [("item", "azure")])
+        self.assertTrue(w.player.pack_is_full)
+
+        took = w.take_option(0)
+
+        self.assertFalse(took, "no room; the take must fail")
+        self.assertNotIn("azure", w.player.pack)
+        self.assertIn(("item", "azure"), ch.loot,
+                      "the potion must still be in the chest, not deleted")
+
+    def test_a_full_pack_still_takes_gold_and_gear(self):
+        w = self._world()
+        w.player.slots = [["ochre", 3]] * 1 + [["azure", 3], ["viscous", 3],
+                                               ["black", 3], ["kesh", 3], ["vorn", 3]]
+        self._chest(w, [("gold", 50), ("gear", "sword"), ("item", "uul")])
+        w.take_all()
+        self.assertEqual(w.player.gold, 50, "gold does not live in the pack")
+        self.assertEqual(w.player.weapon.key, "sword", "nor does gear")
+        self.assertIn("uul", [o["payload"] for o in w.loot_options()],
+                      "the scroll is still there to come back for")
+
+    def test_you_can_always_top_up_a_stack_that_has_room(self):
+        """Even with every slot occupied, more of something you already carry fits."""
+        w = self._world()
+        w.player.slots = [["ochre", 1], ["azure", 3], ["viscous", 3],
+                          ["black", 3], ["kesh", 3], ["vorn", 3]]
+        self._chest(w, [("item", "ochre")])
+        self.assertTrue(w.take_option(0))
+        self.assertEqual(self._slots(w)[0], ("ochre", 2))
+
+
+class TestDroppingFromThePack(unittest.TestCase):
+    """A carry limit is only fair if you can choose what you carry."""
+
+    def _world(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.level.monsters = []
+        w.level.chests = []
+        w.level.drops = []
+        w.level.slain = []
+        w.level.corpse = None
+        return w
+
+    def _slots(self, w):
+        return [None if s is None else (s[0], s[1]) for s in w.player.slots]
+
+    def test_dropping_one_puts_it_on_the_floor(self):
+        w = self._world()
+        w.player.slots[0] = ["kesh", 3]
+
+        w.drop_item(0)
+
+        self.assertEqual(self._slots(w)[0], ("kesh", 2))
+        floor = [(d.kind, d.payload) for d in w.level.drops_at(w.player.x, w.player.y)]
+        self.assertEqual(floor, [("item", "kesh")],
+                         "the scroll must be lying at your feet, not destroyed")
+
+    def test_dropping_a_whole_stack_costs_one_turn(self):
+        w = self._world()
+        w.player.slots[0] = ["kesh", 3]
+        t0 = w.tick
+
+        w.drop_item(0, whole=True)
+
+        self.assertIsNone(self._slots(w)[0], "the slot is empty")
+        floor = w.level.drops_at(w.player.x, w.player.y)
+        self.assertEqual(len(floor), 3, "all three scrolls are on the floor")
+        self.assertGreater(w.tick, t0, "it costs a turn")
+        # ...but only ONE turn, not three
+        w2 = self._world()
+        w2.player.slots[0] = ["kesh", 1]
+        t1 = w2.tick
+        w2.drop_item(0, whole=True)
+        self.assertEqual(w.tick - t0, w2.tick - t1,
+                         "dumping three costs the same one turn as dumping one")
+
+    def test_all_three_dropped_scrolls_can_be_picked_back_up(self):
+        """Regression: the loot menu used to show only the FIRST drop on a tile."""
+        w = self._world()
+        w.player.slots[0] = ["kesh", 3]
+        w.drop_item(0, whole=True)
+
+        opts = w.loot_options()
+        self.assertEqual(len(opts), 3,
+                         "all three must be listed, not just the first")
+        w.take_option(0)
+        self.assertEqual(self._slots(w)[0], ("kesh", 1))
+        self.assertEqual(len(w.loot_options()), 2)
+
+    def test_THE_SCENARIO_dump_scrolls_to_make_room_for_a_potion(self):
+        """Pack full. Standing on a healing potion. Dump the mapping scrolls."""
+        from .dungeon import Drop
+        w = self._world()
+        w.player.slots = [["kesh", 3], ["azure", 3], ["viscous", 3],
+                          ["black", 3], ["vorn", 3], ["gramm", 3]]
+        w.level.drops = [Drop(w.player.x, w.player.y, "item", "ochre")]
+        self.assertTrue(w.player.pack_is_full)
+        self.assertFalse(w.player.can_take("ochre"), "no room for the potion")
+
+        w.drop_item(0, whole=True)          # dump all three scrolls of mapping
+
+        self.assertIsNone(self._slots(w)[0], "slot 1 is free")
+        self.assertTrue(w.player.can_take("ochre"), "now there is room")
+
+        # the potion is still where it was; pick it up
+        opts = [o for o in w.loot_options() if o["payload"] == "ochre"]
+        self.assertTrue(opts)
+        w.take_option(w.loot_options().index(opts[0]))
+        self.assertEqual(self._slots(w)[0], ("ochre", 1),
+                         "the potion drops into the freed slot")
+        # and the scrolls are still on the floor, not destroyed
+        kesh = [d for d in w.level.drops_at(w.player.x, w.player.y)
+                if d.payload == "kesh"]
+        self.assertEqual(len(kesh), 3, "you can change your mind and take them back")
+
+    def test_dropping_over_a_chest_puts_it_IN_the_chest(self):
+        from .dungeon import Chest
+        w = self._world()
+        w.player.slots[0] = ["kesh", 2]
+        ch = Chest(w.player.x, w.player.y, [("gold", 5)])
+        w.level.chests = [ch]
+
+        w.drop_item(0, whole=True)
+
+        self.assertIn(("item", "kesh"), ch.loot,
+                      "standing on a chest, your cast-offs go into the chest")
+        self.assertEqual(ch.loot.count(("item", "kesh")), 2)
+        self.assertEqual(w.level.drops_at(w.player.x, w.player.y), [],
+                         "and not onto the floor as well")
+
+    def test_dropping_consolidates_what_is_left(self):
+        w = self._world()
+        w.player.slots[0] = ["ochre", 2]
+        w.player.slots[1] = ["ochre", 2]
+
+        w.drop_item(0)                       # slot 1: 2 -> 1, then pulls down
+
+        self.assertEqual(self._slots(w)[0], ("ochre", 3),
+                         "slot 1 refills from slot 2, as always")
+        self.assertIsNone(self._slots(w)[1])
+        self.assertEqual(len(w.level.drops_at(w.player.x, w.player.y)), 1)
+
+    def test_dropping_an_empty_slot_does_nothing(self):
+        w = self._world()
+        t0 = w.tick
+        self.assertFalse(w.drop_item(3))
+        self.assertEqual(w.tick, t0, "and it costs no turn")
+
+
+class TestGearSwapsAreNotThefts(unittest.TestCase):
+    """Taking a better sword must not destroy the one you were holding. Whatever
+    comes off goes back where the new thing came from."""
+
+    def _clear(self, w):
+        w.level.monsters = []
+        w.level.chests = []
+        w.level.drops = []
+        w.level.slain = []
+        w.level.corpse = None
+
+    def test_swapping_at_a_chest_leaves_the_old_gear_in_the_chest(self):
+        from .dungeon import Chest
+        from .items import WEAPONS
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._clear(w)
+        w.player.weapon = WEAPONS["sword"]                  # tier 1
+        ch = Chest(w.player.x, w.player.y, [("gear", "brand")])   # tier 3
+        w.level.chests = [ch]
+
+        w.take_option(0)
+        self.assertEqual(w.player.weapon.key, "brand", "you took the better weapon")
+        self.assertIn(("gear", "sword"), ch.loot,
+                      "the Bronze Sword must be lying in the chest, not deleted")
+        labels = [o["label"] for o in w.loot_options()]
+        self.assertTrue(any("Bronze Sword" in l for l in labels),
+                        "and it must be offered back to you: %s" % labels)
+
+    def test_you_can_change_your_mind_and_swap_back(self):
+        from .dungeon import Chest
+        from .items import WEAPONS
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._clear(w)
+        w.player.weapon = WEAPONS["sword"]
+        w.level.chests = [Chest(w.player.x, w.player.y, [("gear", "brand")])]
+        w.take_option(0)
+        self.assertEqual(w.player.weapon.key, "brand")
+        w.take_option(0)                                     # take the sword back
+        self.assertEqual(w.player.weapon.key, "sword",
+                         "you must be able to put your old weapon back on")
+        self.assertEqual([o["payload"] for o in w.loot_options()], ["brand"],
+                         "and the Flame Brand is now the thing in the chest")
+
+    def test_swapping_off_the_floor_drops_the_old_gear_on_the_floor(self):
+        from .dungeon import Drop
+        from .items import ARMOURS
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._clear(w)
+        w.player.armour = ARMOURS["leather"]                # tier 1
+        w.level.drops = [Drop(w.player.x, w.player.y, "gear", "plate")]   # tier 3
+
+        w.take_option(0)
+        self.assertEqual(w.player.armour.key, "plate")
+        on_floor = [(d.kind, d.payload) for d in w.level.drops]
+        self.assertIn(("gear", "leather"), on_floor,
+                      "the Leather Jerkin must be lying at your feet: %s" % on_floor)
+        self.assertEqual(len(w.level.drops), 1)
+        self.assertEqual(w.level.drops[0].x, w.player.x)
+        self.assertEqual(w.level.drops[0].y, w.player.y)
+
+    def test_swapping_at_a_body_leaves_the_old_gear_on_the_body(self):
+        from .items import BOOTS
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._clear(w)
+        w.player.boots = BOOTS["swift"]                     # tier 1
+        m = Monster("brute", w.player.x, w.player.y)
+        w.level.monsters = [m]
+        w.kill_monster(m)
+        s = w.level.slain[0]
+        s.loot = [("gear", "wind")]                         # tier 3
+
+        w.take_option(0)
+        self.assertEqual(w.player.boots.key, "wind")
+        self.assertIn(("gear", "swift"), s.loot,
+                      "the Swift Boots must be left on the body")
+
+    def test_swapping_at_your_own_corpse_leaves_it_on_your_corpse(self):
+        from .items import WEAPONS
+        codex = FakeSave()
+        codex.world_seed = 55
+        codex.leave_corpse(1, 5, 5, 0, "brand")             # your body holds a tier 3
+        w = World(codex, seed=2)
+        w.level.monsters = []
+        c = w.level.corpse
+        w.player.x, w.player.y = c.x, c.y
+        w.player.weapon = WEAPONS["sword"]                  # you are holding a tier 1
+
+        w.take_option(0)                                     # take the Flame Brand
+        self.assertEqual(w.player.weapon.key, "brand")
+        self.assertIn(("gear", "sword"), c.loot,
+                      "your Bronze Sword must stay on the body, not vanish")
+        # and the save agrees
+        saved = codex.corpse_at(1)
+        self.assertIsNotNone(saved)
+        self.assertIn(["gear", "sword"], saved["loot"])
+
+    def test_take_all_does_not_leave_you_juggling_your_own_cast_offs(self):
+        from .dungeon import Chest
+        from .items import WEAPONS
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._clear(w)
+        w.player.weapon = WEAPONS["shiv"]
+        ch = Chest(w.player.x, w.player.y, [("gold", 10), ("gear", "brand")])
+        w.level.chests = [ch]
+        w.take_all()
+        self.assertEqual(w.player.gold, 10)
+        self.assertEqual(w.player.weapon.key, "brand")
+        # the shiv it displaced is in the chest, and 'all' left it there rather than
+        # picking it straight back up again
+        self.assertEqual(w.player.weapon.key, "brand")
+        self.assertIn(("gear", "shiv"), ch.loot)
+
+
+class TestTheCorpseDuplicationBug(unittest.TestCase):
+    """Regression: looting your own corpse only changed the in-memory copy. The save
+    still believed the gold was on it, so the next death handed it to you again."""
+
+    def test_gold_taken_off_your_corpse_does_not_come_back(self):
+        codex = FakeSave()
+        codex.world_seed = 99
+        codex.leave_corpse(1, 10, 10, 200, "rapier")
+        w = World(codex, seed=1)
+        w.level.monsters = []
+        c = w.level.corpse
+        w.player.x, w.player.y = c.x, c.y
+
+        w.take_option(0)                                    # take ONLY the gold
+        self.assertEqual(w.player.gold, 200)
+        saved = codex.corpse_at(1)
+        self.assertEqual(saved["gold"], 0,
+                         "the SAVE must know the gold is gone")
+
+        # die elsewhere, carrying nothing
+        w.player.gold = 0
+        w.player.x, w.player.y = 20, 20
+        w.kill_player("rat")
+        w.leave_corpse()
+        self.assertEqual(codex.corpse_at(1)["gold"], 0,
+                         "the 200 gold must NOT be resurrected on the new corpse")
+
+    def test_the_weapon_taken_off_your_corpse_does_not_come_back(self):
+        codex = FakeSave()
+        codex.world_seed = 99
+        codex.leave_corpse(1, 10, 10, 0, "rapier")
+        w = World(codex, seed=1)
+        w.level.monsters = []
+        c = w.level.corpse
+        w.player.x, w.player.y = c.x, c.y
+        w.take_option(0)                                    # take the rapier
+        self.assertEqual(w.player.weapon.key, "rapier")
+        saved = codex.corpse_at(1)
+        # the corpse now holds only the shiv we swapped onto it
+        if saved:
+            self.assertNotEqual(saved.get("weapon"), "rapier",
+                                "the rapier is in your hand; it cannot also be on the body")
+
+
+class TestDiscoveryBannerWaits(unittest.TestCase):
+    """A lesson you paid for stays on screen until you move on from it."""
+
+    def _game(self, seed=6):
+        from .game import Game
+        g = Game.__new__(Game)             # no display needed
+        g.codex = FakeSave()
+        g.world = World(g.codex, seed=seed)
+        g.world.level.monsters = []
+        g.state = None
+        g.banner = None
+        g.banner_age = 0.0
+        g.t = 0.0
+        from .keyrepeat import Repeater
+        g.repeat = Repeater()
+        return g
+
+    def test_the_banner_does_not_expire_on_a_timer(self):
+        from .codex import FACTS
+        g = self._game()
+        g.banner = FACTS["brute.rule"]
+        for _ in range(60 * 60):           # a full minute of frames
+            g.banner_age += 1 / 60.0
+        self.assertIsNotNone(g.banner,
+                             "the card must not evaporate while it is being read")
+
+    def test_moving_dismisses_it(self):
+        from .codex import FACTS
+        g = self._game()
+        g.banner = FACTS["brute.rule"]
+        g.banner_age = 3.0
+        g.dismiss_banner()
+        self.assertIsNone(g.banner)
+        self.assertEqual(g.banner_age, 0.0)
+
+    def test_an_autowalk_step_dismisses_it_too(self):
+        from .codex import FACTS
+        g = self._game()
+        g.banner = FACTS["rat.rule"]
+        # pump_repeat calls dismiss_banner before stepping; simulate that contract
+        g.dismiss_banner()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if g.world.walkable(g.world.player.x + dx, g.world.player.y + dy):
+                g.walk_step(dx, dy)
+                break
+        self.assertIsNone(g.banner)
+
+    def test_a_step_that_makes_a_NEW_discovery_still_shows_it(self):
+        """dismiss happens BEFORE the move, so the move's own discovery survives."""
+        from .traps import Trap
+        g = self._game(seed=3)
+        w = g.world
+        w.player.hp = 99
+        g.banner = None
+        dx = dy = 0
+        for ddx, ddy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if w.walkable(w.player.x + ddx, w.player.y + ddy):
+                dx, dy = ddx, ddy
+                break
+        w.level.traps = [Trap("dart", w.player.x + dx, w.player.y + dy)]
+        g.dismiss_banner()                 # what the move handler does first
+        w.player_move(dx, dy)              # ...then the step, which springs the trap
+        self.assertIsNotNone(w.learned,
+                             "the step uncovered a trap; the world should report it")
+        self.assertEqual(w.learned.key, "dart.rule")
+
+
+class TestTheSlain(unittest.TestCase):
+    """What you kill stays on the floor -- until you leave the floor, or die."""
+
+    def _kill_one(self, w, key="angry_rat", at=None):
+        from .monsters import Monster
+        x, y = at or (w.player.x + 2, w.player.y)
+        m = Monster(key, x, y)
+        w.level.monsters.append(m)
+        w.kill_monster(m)
+        return m
+
+    def test_killing_something_leaves_a_body_where_it_fell(self):
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        m = self._kill_one(w)
+        self.assertEqual(len(w.level.slain), 1)
+        s = w.level.slain[0]
+        self.assertEqual((s.x, s.y), (m.x, m.y), "the body must be where it died")
+        self.assertEqual(s.key, "angry_rat")
+
+    def test_bodies_pile_up(self):
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        for i, key in enumerate(["angry_rat", "kobold", "brute"]):
+            self._kill_one(w, key, at=(w.player.x + 2 + i, w.player.y))
+        self.assertEqual(len(w.level.slain), 3)
+        self.assertEqual([s.key for s in w.level.slain],
+                         ["angry_rat", "kobold", "brute"])
+
+    def test_the_bodies_do_not_block_anything(self):
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        spot = None
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if w.walkable(w.player.x + dx, w.player.y + dy):
+                spot = (w.player.x + dx, w.player.y + dy)
+                d = (dx, dy)
+                break
+        self._kill_one(w, at=spot)
+        w.player_move(*d)
+        self.assertEqual((w.player.x, w.player.y), spot,
+                         "you must be able to walk over a corpse")
+
+    def test_the_bodies_are_gone_when_you_take_the_stairs(self):
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        self._kill_one(w)
+        self.assertEqual(len(w.level.slain), 1)
+
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()
+        self.assertEqual(w.depth, 2)
+        self.assertEqual(w.level.slain, [],
+                         "a new floor must not inherit the last floor's dead")
+
+    def test_the_bodies_are_gone_when_you_respawn(self):
+        codex = FakeSave()
+        codex.world_seed = 4242
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        self._kill_one(w)
+        self.assertEqual(len(w.level.slain), 1)
+
+        w.kill_player("rat")
+        w2 = World(codex, seed=6)          # the run after
+        self.assertEqual(w2.level.slain, [],
+                         "a new run must be a clean floor -- the dungeon is re-dealt")
+
+    def test_a_body_with_treasure_acts_like_a_chest(self):
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        w.level.chests = []
+        w.level.drops = []
+        w.level.corpse = None
+
+        m = self._kill_one(w, "brute")
+        s = w.level.slain[0]
+        s.loot = [("gold", 40), ("item", "ochre")]      # force a known hoard
+
+        # standing anywhere else, there is nothing to take
+        self.assertEqual(w.loot_options(), [])
+
+        w.player.x, w.player.y = s.x, s.y
+        opts = w.loot_options()
+        self.assertEqual(len(opts), 2, "the body should offer its loot like a chest")
+        self.assertEqual(opts[0]["label"], "40 gold")
+
+        w.take_option(0)
+        self.assertEqual(w.player.gold, 40)
+        self.assertEqual(len(w.loot_options()), 1,
+                         "taking one thing must leave the rest on the body")
+
+    def test_looting_a_body_does_not_remove_the_body(self):
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        w.level.chests = []
+        w.level.drops = []
+        w.level.corpse = None
+        m = self._kill_one(w, "kobold")
+        s = w.level.slain[0]
+        s.loot = [("gold", 12)]
+        w.player.x, w.player.y = s.x, s.y
+        w.take_all()
+        self.assertEqual(w.player.gold, 12)
+        self.assertFalse(s.has_loot, "the body is empty now")
+        self.assertIn(s, w.level.slain,
+                      "but the corpse itself must still be lying there")
+
+    def test_loot_stays_ON_the_body_and_does_not_spill_onto_the_floor(self):
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        w.level.drops = []
+        for i in range(40):
+            self._kill_one(w, "brute", at=(w.player.x + 2, w.player.y))
+        self.assertEqual(w.level.drops, [],
+                         "no free-floating drops: the corpse IS the container")
+        carrying = [s for s in w.level.slain if s.has_loot]
+        self.assertTrue(carrying, "40 brutes and not one was carrying anything?")
+
+    def test_tougher_things_carry_more(self):
+        from .items import MONSTER_LOOT
+        self.assertLess(MONSTER_LOOT["angry_rat"][0], MONSTER_LOOT["brute"][0])
+        self.assertLess(MONSTER_LOOT["brute"][0], MONSTER_LOOT["mimic"][0],
+                        "the mimic has been eating adventurers; it should be rich")
+
+    def test_the_treasure_dies_with_the_floor(self):
+        """Leave the floor and the body -- and its treasure -- is gone. Loot it or
+        lose it."""
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        s_m = self._kill_one(w, "brute")
+        w.level.slain[0].loot = [("gold", 500)]
+        w.player.x, w.player.y = w.level.stairs
+        w.descend()
+        self.assertEqual(w.level.slain, [])
+        self.assertEqual(w.player.gold, 0, "you walked away from it. it is gone.")
+
+    def test_the_bodies_are_not_written_to_the_save(self):
+        """They are scenery for this run, not part of the game's memory."""
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        self._kill_one(w)
+        data = [k for k in vars(codex) if "slain" in k.lower()]
+        self.assertEqual(data, [], "the slain must not persist in the Kodex")
+
+    def test_a_body_is_left_even_when_a_trap_does_the_killing(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        w.level.slain = []
+        from .monsters import Monster
+        m = Monster("angry_rat", w.player.x + 2, w.player.y)
+        m.hp = 1
+        w.level.monsters = [m]
+        w.level.traps = [Trap("glyph", m.x, m.y)]
+        w.level.traps[0].trigger(w, m)
+        self.assertEqual(len(w.level.slain), 1,
+                         "the floor killed it, but it is still dead on the floor")
+
+
+class TestFireIsVisible(unittest.TestCase):
+    """You must be able to SEE the thing that burned you. A wound with no cause
+    teaches nothing, and teaching is the whole game."""
+
+    def _floor_next_to(self, w):
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if w.walkable(w.player.x + dx, w.player.y + dy):
+                return dx, dy
+        raise AssertionError("boxed in")
+
+    def test_a_fire_glyph_throws_a_visible_burst(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        spot = (w.player.x + dx, w.player.y + dy)
+        w.level.traps = [Trap("glyph", *spot)]
+        self.assertEqual(w.fx, [])
+
+        w.player_move(dx, dy)
+
+        bursts = [f for f in w.fx if f["kind"] == "burst"]
+        self.assertTrue(bursts, "the glyph must show the player what just happened")
+        self.assertEqual((bursts[0]["x"], bursts[0]["y"]), spot,
+                         "the fireball must be centred on the glyph")
+        self.assertGreaterEqual(bursts[0]["r"], 1.0,
+                                "the blast covers the 3x3 -- it must be DRAWN that big, "
+                                "or the player cannot learn to stand outside it")
+
+    def test_the_firestorm_scroll_marks_everything_it_burns(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        codex.known.append("id.vorn")
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        # three monsters in plain sight
+        placed = []
+        for dx, dy in ((1, 0), (-1, 0), (0, 1)):
+            x, y = w.player.x + dx, w.player.y + dy
+            if w.walkable(x, y):
+                m = Monster("angry_rat", x, y)
+                m.hp = 99
+                w.level.monsters.append(m)
+                placed.append((x, y))
+        w.level.compute_fov(w.player.x, w.player.y)
+        w.player.pack = ["vorn"]
+
+        w.use_item(0)
+
+        self.assertTrue([f for f in w.fx if f["kind"] == "flash"],
+                        "the whole visible floor should light up")
+        bursts = {(f["x"], f["y"]) for f in w.fx if f["kind"] == "burst"}
+        for spot in placed:
+            self.assertIn(spot, bursts,
+                          "every monster it burned must be shown burning")
+        self.assertIn((w.player.x, w.player.y), bursts,
+                      "VORN burns YOU too -- and it must show you that it did")
+
+    def test_the_glyph_sets_the_floor_it_damages_on_fire(self):
+        """The burning tiles must BE the damage area. An animation that lies about
+        the blast is worse than no animation at all."""
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        gx, gy = w.player.x + dx, w.player.y + dy
+        w.level.traps = [Trap("glyph", gx, gy)]
+        w.player_move(dx, dy)
+
+        burning = [f for f in w.fx if f["kind"] == "burning"]
+        self.assertTrue(burning, "the floor must catch fire")
+        tiles = set(burning[0]["tiles"])
+
+        # the glyph hurts everything within 1 tile (chebyshev). so must the flames.
+        expected = {(gx + ex, gy + ey)
+                    for ey in (-1, 0, 1) for ex in (-1, 0, 1)
+                    if w.walkable(gx + ex, gy + ey)}
+        self.assertEqual(tiles, expected,
+                         "the flames must cover exactly the tiles that take damage")
+        self.assertIn((gx, gy), tiles)
+        self.assertNotIn((gx + 2, gy), tiles, "and no further")
+
+    def test_the_firestorm_sets_light_to_everything_it_can_see(self):
+        codex = FakeSave()
+        codex.known.append("id.vorn")
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        w.level.compute_fov(w.player.x, w.player.y)
+        w.player.pack = ["vorn"]
+        w.use_item(0)
+
+        burning = [f for f in w.fx if f["kind"] == "burning"]
+        self.assertTrue(burning)
+        tiles = set(burning[0]["tiles"])
+        self.assertGreater(len(tiles), 20, "VORN burns the whole room")
+        for (x, y) in tiles:
+            self.assertTrue(w.level.visible[y][x],
+                            "it can only burn what you can see -- that IS its range")
+            self.assertTrue(w.walkable(x, y), "walls do not burn")
+
+    def test_the_escape_scroll_shows_you_where_you_went(self):
+        """UUL cuts the camera to a strange room. Without a mark on the tile you left
+        and the tile you arrived at, it is indistinguishable from a bug."""
+        codex = FakeSave()
+        codex.known.append("id.uul")
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.pack = ["uul"]
+        before = (w.player.x, w.player.y)
+
+        w.use_item(0)
+
+        after = (w.player.x, w.player.y)
+        self.assertNotEqual(before, after, "UUL should have moved us")
+        vanish = [f for f in w.fx if f["kind"] == "vanish"]
+        arrive = [f for f in w.fx if f["kind"] == "arrive"]
+        self.assertTrue(vanish, "mark the tile you LEFT")
+        self.assertTrue(arrive, "mark the tile you ARRIVED at")
+        self.assertEqual((vanish[0]["x"], vanish[0]["y"]), before)
+        self.assertEqual((arrive[0]["x"], arrive[0]["y"]), after)
+
+    def test_the_summoning_scroll_shows_things_arriving(self):
+        """GRAMM's monsters must not just BE there -- especially since they may be
+        unreadable '?' silhouettes."""
+        codex = FakeSave()
+        codex.known.append("id.gramm")
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.pack = ["gramm"]
+
+        w.use_item(0)
+
+        self.assertTrue(w.level.monsters, "it should have summoned something")
+        summon = [f for f in w.fx if f["kind"] == "summon"]
+        self.assertTrue(summon, "the ground must open under each one")
+        marked = set(summon[0]["tiles"])
+        for m in w.level.monsters:
+            self.assertIn((m.x, m.y), marked,
+                          "every summoned monster must be shown arriving")
+
+    def test_the_mapping_scroll_shows_the_knowledge_travelling(self):
+        """KESH reveals the floor -- but nearly all of it is off-screen, so without a
+        ripple the player reads a scroll and watches nothing happen."""
+        codex = FakeSave()
+        codex.known.append("id.kesh")
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.pack = ["kesh"]
+
+        w.use_item(0)
+
+        ripple = [f for f in w.fx if f["kind"] == "ripple"]
+        self.assertTrue(ripple, "the reveal needs something to watch")
+        self.assertEqual((ripple[0]["x"], ripple[0]["y"]),
+                         (w.player.x, w.player.y),
+                         "the knowledge spreads outward from you")
+        self.assertGreater(len(ripple[0]["tiles"]), 50,
+                           "it should light up the floor it just revealed")
+
+    def test_potions_do_something_visible_on_your_body(self):
+        codex = FakeSave()
+        for flavor, effect in (("ochre", "heal"), ("azure", "haste"),
+                               ("black", "might"), ("viscous", "poison")):
+            codex2 = FakeSave()
+            w = World(codex2, seed=3)
+            w.level.monsters = []
+            w.player.hp = 12
+            w.player.pack = [flavor]
+            w.use_item(0)
+            pulses = [f for f in w.fx if f["kind"] == "pulse"]
+            self.assertTrue(pulses, "%s (%s) does nothing visible" % (flavor, effect))
+            self.assertEqual((pulses[0]["x"], pulses[0]["y"]),
+                             (w.player.x, w.player.y))
+
+    def _spring(self, key, seed=3):
+        """Walk onto a trap of this kind and return the world."""
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=seed)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        w.level.traps = [Trap(key, w.player.x + dx, w.player.y + dy)]
+        spot = (w.player.x + dx, w.player.y + dy)
+        w.player_move(dx, dy)
+        return w, spot
+
+    def test_the_dart_is_drawn_flying_out_of_a_wall(self):
+        w, spot = self._spring("dart")
+        darts = [f for f in w.fx if f["kind"] == "dart"]
+        self.assertTrue(darts, "a dart that hits you unseen teaches you nothing")
+        d = darts[0]
+        self.assertEqual((d["x"], d["y"]), spot, "it must land on the plate")
+        self.assertTrue(d["tiles"], "and it must come FROM somewhere")
+        wx, wy = d["tiles"][0]
+        self.assertFalse(w.walkable(wx, wy),
+                         "the dart comes out of a WALL, not out of thin air")
+
+    def test_the_spikes_are_drawn_coming_up_through_the_floor(self):
+        w, spot = self._spring("spike")
+        spikes = [f for f in w.fx if f["kind"] == "spikes"]
+        self.assertTrue(spikes)
+        self.assertEqual((spikes[0]["x"], spikes[0]["y"]), spot)
+
+    def test_the_gas_cloud_is_drawn(self):
+        """Gas does no damage on contact -- it just starts you bleeding a turn later.
+        Without a visible cloud the poison has no visible cause."""
+        w, spot = self._spring("gas")
+        gas = [f for f in w.fx if f["kind"] == "gas"]
+        self.assertTrue(gas, "the poison must have a visible source")
+        self.assertIn(spot, gas[0]["tiles"], "the cloud covers the vent")
+        self.assertGreater(len(gas[0]["tiles"]), 1, "and it spreads")
+        self.assertGreater(gas[0]["max"], 1.0, "gas lingers -- it does not flash")
+
+    def test_the_alarm_shows_the_whole_floor_waking_up(self):
+        """The alarm does NO damage. The only thing it does is wake everything, so
+        that is the thing that has to be drawn -- otherwise the player learns nothing
+        and the next thirty seconds are inexplicable."""
+        from .monsters import Monster
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.player.hp = 99
+        w.level.monsters = []
+        for i in range(4):
+            m = Monster("kobold", 20 + i * 3, 20)
+            self.assertFalse(m.awake)
+            w.level.monsters.append(m)
+        dx, dy = self._floor_next_to(w)
+        w.level.traps = [Trap("alarm", w.player.x + dx, w.player.y + dy)]
+        # where everything WAS when the rune screamed. they start walking immediately
+        # afterwards, which is the entire problem the animation exists to explain.
+        was = {(m.x, m.y) for m in w.level.monsters}
+
+        w.player_move(dx, dy)
+
+        self.assertTrue(all(m.awake for m in w.level.monsters),
+                        "the alarm wakes everything")
+        shout = [f for f in w.fx if f["kind"] == "shout"]
+        self.assertTrue(shout, "the sound is the payload; draw the sound")
+        self.assertGreaterEqual(shout[0]["r"], 20,
+                                "the rings must cross the whole floor")
+        woke = [f for f in w.fx if f["kind"] == "woke"]
+        self.assertTrue(woke, "mark everything that heard it")
+        self.assertEqual(set(woke[0]["tiles"]), was,
+                         "every monster that heard it must be marked where it stood "
+                         "when it heard it")
+
+    def test_every_trap_in_the_game_shows_you_something(self):
+        """No silent traps. Ever."""
+        from .traps import TRAP_NAMES
+        for key in TRAP_NAMES:
+            w, _ = self._spring(key)
+            self.assertTrue(w.fx,
+                            "the %s fires without showing the player anything" % key)
+
+    def test_the_brutes_fist_is_drawn_landing_even_when_it_misses(self):
+        """The miss matters as much as the hit: it is the proof that stepping off the
+        wind-up actually works."""
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        b = Monster("brute", w.player.x + 1, w.player.y)
+        b.awake = True
+        b.intent = ("smash", w.player.x + 5, w.player.y)   # aimed at empty floor
+        w.level.monsters = [b]
+
+        b.take_turn(w)
+
+        slams = [f for f in w.fx if f["kind"] == "slam"]
+        self.assertTrue(slams, "the fist must be seen hitting the floor")
+        self.assertEqual((slams[0]["x"], slams[0]["y"]), (w.player.x + 5, w.player.y),
+                         "it lands on the TILE it was aimed at, not on you")
+
+    def test_the_spitters_acid_is_drawn_crossing_the_room(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        sx = w.player.x + 3
+        if not w.walkable(sx, w.player.y):
+            self.skipTest("no clear line on this seed")
+        s = Monster("spitter", sx, w.player.y)
+        s.awake = True
+        s.intent = ("spit", -1, 0)
+        w.level.monsters = [s]
+
+        s.take_turn(w)
+
+        bolts = [f for f in w.fx if f["kind"] == "bolt"]
+        self.assertTrue(bolts, "the shot must be visible, not just the wind-up")
+        self.assertEqual(bolts[0]["tiles"][0], (sx, w.player.y),
+                         "it comes from the spitter")
+
+    def test_the_wraiths_drain_is_drawn_as_a_tether(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        wr = Monster("wraith", w.player.x + 1, w.player.y)
+        wr.awake = True
+        w.level.monsters = [wr]
+
+        wr.take_turn(w)
+
+        drains = [f for f in w.fx if f["kind"] == "drain"]
+        self.assertTrue(drains, "your life leaving you must be visible")
+        self.assertEqual((drains[0]["x"], drains[0]["y"]), (wr.x, wr.y),
+                         "the drainer is the wraith")
+        self.assertEqual(drains[0]["tiles"][0], (w.player.x, w.player.y),
+                         "the victim is you")
+
+    def test_your_own_blows_are_drawn(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        m = Monster("kobold", w.player.x + 1, w.player.y)
+        m.hp = 99
+        w.level.monsters = [m]
+        w.player_attack(m)
+        self.assertTrue([f for f in w.fx if f["kind"] == "slash"],
+                        "you should be able to see your own sword connect")
+
+    def test_armour_turning_a_blow_is_drawn(self):
+        """The one moment armour justifies the turns it costs you."""
+        from .items import ARMOURS
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.armour = ARMOURS["plate"]        # 5 def
+        rat = Monster("angry_rat", w.player.x + 1, w.player.y)
+        hp = w.player.hp
+
+        w.monster_attacks_player(rat, 2)          # a rat cannot dent plate
+
+        self.assertEqual(w.player.hp, hp)
+        self.assertTrue([f for f in w.fx if f["kind"] == "impact"],
+                        "sparks off the plate -- the player must SEE the armour work")
+
+    def test_nothing_in_this_dungeon_hurts_you_silently(self):
+        """The load-bearing one. Every source of damage in the game must put
+        something on the screen -- the whole design depends on the player being able
+        to work out what killed them."""
+        from .monsters import TEMPLATES, Monster
+        from .traps import TRAP_NAMES, Trap
+
+        for key in TRAP_NAMES:                    # every trap
+            w, _ = self._spring(key)
+            self.assertTrue(w.fx, "the %s hurts you silently" % key)
+
+        for key in TEMPLATES:                     # every monster's attack
+            if key == "mimic":
+                continue                          # it bites like anything else
+            codex = FakeSave()
+            w = World(codex, seed=3)
+            w.level.monsters = []
+            w.player.hp = 99
+            m = Monster(key, w.player.x + 1, w.player.y)
+            m.awake = True
+            w.level.monsters = [m]
+            hp = w.player.hp
+            for _ in range(6):                    # let it wind up and swing
+                w.fx = []
+                m.take_turn(w)
+                if w.player.hp < hp or w.fx:
+                    break
+            self.assertTrue(
+                w.fx or w.player.hp == hp,
+                "the %s took %d hp off you without drawing anything"
+                % (key, hp - w.player.hp))
+
+    def test_the_effects_expire_in_real_time(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        w.level.traps = [Trap("glyph", w.player.x + dx, w.player.y + dy)]
+        w.player_move(dx, dy)
+        self.assertTrue(w.fx)
+
+        for _ in range(60):              # one second of frames
+            w.tick_fx(1 / 60.0)
+        self.assertEqual(w.fx, [], "the fire should have burned out by now")
+
+    def test_the_effects_are_purely_cosmetic(self):
+        """They must never touch the simulation."""
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        hp = w.player.hp
+        for _ in range(50):
+            w.add_fx("burst", 5, 5)
+        for _ in range(120):
+            w.tick_fx(1 / 60.0)
+        self.assertEqual(w.player.hp, hp)
+        self.assertFalse(w.dead)
+
+
+class TestTheVenom(unittest.TestCase):
+    """The same flask is a mistake to the ignorant and a weapon to the informed.
+    Nothing about the potion changes -- only the hand holding it."""
+
+    def _world(self, known=False):
+        codex = FakeSave()
+        if known:
+            codex.known.append("id.viscous")
+        w = World(codex, seed=9)
+        w.level.monsters = []
+        w.player.pack = ["viscous"]
+        return w, codex
+
+    def test_unknown_venom_gets_drunk_and_poisons_you(self):
+        w, codex = self._world(known=False)
+        hp = w.player.hp
+        w.use_item(0)
+        self.assertLess(w.player.hp, hp, "you drank it; it should hurt")
+        self.assertGreater(w.player.poison, 0, "it should poison you")
+        self.assertIsNone(w.player.blade_coat, "an ignorant hero does not coat a blade")
+        self.assertTrue(codex.identified("viscous"),
+                        "and THAT is how you find out what it was")
+
+    def test_known_venom_is_painted_on_the_blade_not_swallowed(self):
+        w, codex = self._world(known=True)
+        hp = w.player.hp
+        w.use_item(0)
+        self.assertEqual(w.player.hp, hp, "you must NOT drink venom you can identify")
+        self.assertEqual(w.player.poison, 0, "and it must not poison you")
+        self.assertEqual(w.player.blade_coat, "poison", "it goes on the blade")
+        self.assertEqual(w.player.pack, [], "the flask is spent either way")
+
+    def test_the_venom_makes_the_next_strike_hurt(self):
+        from .monsters import Monster
+        w, codex = self._world(known=True)
+        w.use_item(0)
+        self.assertEqual(w.player.blade_coat, "poison")
+
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = 999                       # so it survives and we can read the damage
+        m.max_hp = 999
+        w.level.monsters = [m]
+        w.player_attack(m)
+        venomed_damage = 999 - m.hp
+
+        # a clean strike from the same weapon, for comparison
+        m2 = Monster("brute", w.player.x + 1, w.player.y)
+        m2.hp = 999
+        m2.max_hp = 999
+        w.level.monsters = [m2]
+        w.player_attack(m2)
+        clean_damage = 999 - m2.hp
+
+        self.assertGreater(venomed_damage, clean_damage,
+                           "the venomed strike must hit harder (%d vs %d)"
+                           % (venomed_damage, clean_damage))
+
+    def test_it_wears_off_after_exactly_one_strike(self):
+        from .monsters import Monster
+        w, codex = self._world(known=True)
+        w.use_item(0)
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = 999
+        m.max_hp = 999
+        w.level.monsters = [m]
+
+        w.player_attack(m)
+        self.assertIsNone(w.player.blade_coat,
+                          "one coat, one strike -- the blade is clean again")
+
+        first = 999 - m.hp
+        hp_after_first = m.hp
+        w.player_attack(m)
+        second = hp_after_first - m.hp
+        self.assertLess(second, first,
+                        "the SECOND strike must not still be venomed (%d then %d)"
+                        % (first, second))
+
+    def test_the_venom_is_spent_on_whatever_you_hit_first(self):
+        """It does not politely wait for the boss."""
+        from .monsters import Monster
+        w, codex = self._world(known=True)
+        w.use_item(0)
+        rat = Monster("angry_rat", w.player.x + 1, w.player.y)
+        w.level.monsters = [rat]
+        w.player_attack(rat)
+        self.assertIsNone(w.player.blade_coat,
+                          "you wasted it on a rat, and the game must let you")
+
+    def test_it_survives_until_you_actually_swing(self):
+        w, codex = self._world(known=True)
+        w.use_item(0)
+        for _ in range(30):
+            w.player_wait()
+        self.assertEqual(w.player.blade_coat, "poison",
+                         "the coat must not evaporate on a timer -- it waits")
+
+    def test_a_second_flask_can_be_re_applied(self):
+        from .monsters import Monster
+        w, codex = self._world(known=True)
+        w.player.pack = ["viscous", "viscous"]
+        w.use_item(0)
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = 999
+        m.max_hp = 999
+        w.level.monsters = [m]
+        w.player_attack(m)
+        self.assertIsNone(w.player.blade_coat)
+        w.use_item(0)                    # the second flask
+        self.assertEqual(w.player.blade_coat, "poison",
+                         "you can re-coat with another flask")
+
+    def test_coating_the_blade_costs_a_turn(self):
+        w, codex = self._world(known=True)
+        t0 = w.tick
+        w.use_item(0)
+        self.assertGreater(w.tick, t0, "wiping venom down a blade takes a turn")
+
+
+class TestWaveOneCommons(unittest.TestCase):
+    """The rest of the common tier: Stoneskin, Regeneration, Weakness, Cleansing
+    potions; Identify, Light, Aggravation and Detect Treasure scrolls."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 7 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _use(self, w, flavor):
+        w.codex.known.append("id.%s" % flavor)   # known, so we get the effect not a blind sip
+        w.player.slots = [[flavor, 1], None, None, None, None, None]
+        return w.use_item(0)
+
+    # --- potions --------------------------------------------------------
+    def test_stoneskin_hardens_your_defence(self):
+        w = self._world()
+        base = w.player.defense
+        self._use(w, "grey")
+        self.assertGreater(w.player.defense, base, "stoneskin adds defence")
+        self.assertGreater(w.player.stoneskin, 0, "and it is on a timer")
+
+    def test_regeneration_heals_over_time(self):
+        w = self._world()
+        w.player.hp = 10
+        self._use(w, "crimson")
+        self.assertGreater(w.player.regen, 0)
+        hp = w.player.hp
+        w.player.tick_effects(w)
+        self.assertGreater(w.player.hp, hp, "you knit closed a little each turn")
+
+    def test_weakness_saps_your_damage_when_drunk_blind(self):
+        import random
+        w = self._world()
+        w.player.slots = [["sallow", 1], None, None, None, None, None]  # unknown
+        w.use_item(0)                                 # drunk in ignorance -> it saps YOU
+        self.assertGreater(w.player.weak, 0)
+        rolls = [w.player.damage_roll(random.Random(i)) for i in range(100)]
+        self.assertTrue(all(r >= 1 for r in rolls), "a blow always lands for at least 1")
+        self.assertLessEqual(max(rolls), 1, "but sallow drags a shiv down to nothing")
+
+    def test_a_known_weakness_potion_coats_the_blade_like_venom(self):
+        """The user's ask: every negative potion works like venom. A weakness you can
+        identify is never drunk -- it goes on the blade and saps whatever you cut."""
+        from .monsters import Monster
+        w = self._world()
+        w.codex.known.append("id.sallow")
+        w.player.slots = [["sallow", 1], None, None, None, None, None]
+        hp = w.player.hp
+        w.use_item(0)
+        self.assertEqual(w.player.hp, hp, "you do NOT drink a weakness you can name")
+        self.assertEqual(w.player.weak, 0, "and it does not weaken YOU")
+        self.assertEqual(w.player.blade_coat, "weak", "it goes on the blade instead")
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = m.max_hp = 999
+        w.level.monsters = [m]
+        w.player_attack(m)
+        self.assertGreater(m.weak, 0, "the struck thing's strength is sapped, not yours")
+        self.assertIsNone(w.player.blade_coat, "one coat, one strike")
+
+    def test_a_weakened_monster_hits_softer(self):
+        import random
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+
+        def total(weak):
+            w.rng = random.Random(1)                  # identical rolls both runs
+            p.hp = p.max_hp = 99999
+            m = Monster("brute", p.x + 1, p.y)
+            m.weak = weak
+            w.level.monsters = [m]
+            for _ in range(200):
+                m._hit(w)
+            return 99999 - p.hp
+
+        self.assertLess(total(999), total(0),
+                        "a brute sapped by a weakness coat deals less over many blows")
+
+    def test_every_negative_potion_is_coatable(self):
+        from .world import COATABLE_EFFECTS
+        self.assertIn("poison", COATABLE_EFFECTS, "venom coats the blade")
+        self.assertIn("weak", COATABLE_EFFECTS, "and so does weakness")
+
+    def test_regeneration_also_cleanses_what_ails_you(self):
+        """Cleansing was folded into Regeneration: it washes out poison, weakness and
+        confusion, then heals over time."""
+        w = self._world()
+        w.player.poison = 8
+        w.player.weak = 8
+        w.player.confused = 8
+        self._use(w, "crimson")
+        self.assertEqual(w.player.poison, 0, "poison washed out")
+        self.assertEqual(w.player.weak, 0, "weakness washed out")
+        self.assertEqual(w.player.confused, 0, "confusion washed out")
+        self.assertGreater(w.player.regen, 0, "and the healing-over-time begins")
+
+    def test_vigor_is_a_shield_that_soaks_blows_before_your_health(self):
+        w = self._world()
+        self._use(w, "silver")            # silver is now Potion of Vigor
+        self.assertGreater(w.player.vigor, 0, "a reserve of temporary vitality")
+        shield = w.player.vigor
+        hp = w.player.hp
+        w.hurt_player(shield - 1, "test")
+        self.assertEqual(w.player.hp, hp, "the shell takes the blow, not your blood")
+        self.assertEqual(w.player.vigor, 1, "and the shield wears down")
+        w.hurt_player(10, "test")
+        self.assertEqual(w.player.vigor, 0, "the shield breaks")
+        self.assertLess(w.player.hp, hp, "and the overflow reaches you")
+
+    def test_vigor_fades_if_you_do_not_use_it(self):
+        w = self._world()
+        self._use(w, "silver")
+        for _ in range(40):
+            w.player.tick_effects(w)
+        self.assertEqual(w.player.vigor, 0, "an unspent shield does not last forever")
+
+    # --- scrolls --------------------------------------------------------
+    def test_identify_names_your_biggest_unknown(self):
+        w = self._world()
+        w.player.slots = [["ochre", 1], ["viscous", 3], ["morn", 1], None, None, None]
+        w.codex.known.append("id.morn")
+        self.assertFalse(w.codex.identified("viscous"))
+        w.use_item(2)                                 # read MORN
+        self.assertTrue(w.codex.identified("viscous"),
+                        "it names the mystery you hold the most of")
+        self.assertFalse(w.codex.identified("ochre"), "and only that one")
+
+    def test_light_reveals_nearby_traps_only(self):
+        from .traps import Trap
+        w = self._world()
+        near = (w.player.x + 3, w.player.y)
+        far = (w.player.x + 20, w.player.y)
+        w.level.traps = [Trap("dart", *near), Trap("spike", *far)]
+        self._use(w, "yris")
+        self.assertTrue(w.codex.trap_found(w.depth, *near), "the nearby trap lights up")
+        self.assertFalse(w.codex.trap_found(w.depth, *far), "the far one stays hidden")
+
+    def test_aggravation_wakes_the_whole_floor(self):
+        from .monsters import Monster
+        w = self._world()
+        sleepers = [Monster("rat", w.player.x + 10, w.player.y),
+                    Monster("brute", w.player.x - 10, w.player.y)]
+        for m in sleepers:
+            m.awake = False
+            w.level.monsters.append(m)
+        self._use(w, "ghask")
+        self.assertTrue(all(m.awake for m in sleepers), "everything on the floor wakes")
+
+    def test_detect_treasure_marks_loot_you_have_not_seen(self):
+        from .dungeon import Drop
+        w = self._world()
+        far = (w.player.x + 15, w.player.y + 5)
+        w.level.drops = [Drop(far[0], far[1], "gold", 40)]
+        w.level.seen[far[1]][far[0]] = False
+        self._use(w, "vosh")
+        self.assertTrue(w.level.seen[far[1]][far[0]],
+                        "the far hoard is now marked on the map")
+
+    # --- data integrity -------------------------------------------------
+    def test_every_consumable_has_a_name_a_tier_and_an_id_fact(self):
+        from .items import CONSUMABLES
+        from .codex import FACTS
+        for flavor, c in CONSUMABLES.items():
+            self.assertIn("id.%s" % flavor, FACTS, "%s has no id fact" % flavor)
+            self.assertTrue(c.true_name and c.unknown_name)
+            self.assertIn(c.tier, ("common", "uncommon", "rare"))
+
+    def test_the_new_commons_are_in_the_spawn_pools(self):
+        from .items import POTION_POOL, SCROLL_POOL
+        for f in ("grey", "crimson", "sallow", "silver"):
+            self.assertIn(f, POTION_POOL)
+        for f in ("morn", "yris", "ghask", "vosh"):
+            self.assertIn(f, SCROLL_POOL)
+
+
+class TestWaveTwoBuffs(unittest.TestCase):
+    """The uncommon tier's self-buffs and enchantments: Greater Healing, Rage,
+    Warding, Levitation potions; Enchant Weapon / Enchant Armour scrolls."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 7 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _use(self, w, flavor):
+        w.codex.known.append("id.%s" % flavor)
+        w.player.slots = [[flavor, 1], None, None, None, None, None]
+        return w.use_item(0)
+
+    def test_greater_healing_fills_you_to_the_brim(self):
+        w = self._world()
+        w.player.hp = 3
+        self._use(w, "rose")
+        self.assertEqual(w.player.hp, w.player.max_hp, "greater healing goes to full")
+
+    def test_rage_hits_harder_and_faster_but_leaves_you_open(self):
+        import random
+        w = self._world()
+        base_speed = w.player.speed()
+        base_dmg = w.player.damage_roll(random.Random(5))
+        self._use(w, "vermilion")
+        self.assertGreater(w.player.berserk, 0)
+        self.assertGreater(w.player.speed(), base_speed, "rage is faster")
+        self.assertGreater(w.player.damage_roll(random.Random(5)), base_dmg,
+                           "and it hits harder")
+        # the downside: a real blow bites deeper while you rage
+        hp = w.player.hp
+        w.hurt_player(4, "test")
+        self.assertEqual(hp - w.player.hp, 6, "rage makes you take +2 per hit")
+
+    def test_warding_halves_what_lands(self):
+        w = self._world()
+        self._use(w, "teal")
+        self.assertGreater(w.player.resist, 0)
+        hp = w.player.hp
+        w.hurt_player(10, "test")
+        self.assertEqual(hp - w.player.hp, 5, "warding halves incoming damage")
+
+    def test_levitation_floats_over_pressure_traps_and_pits(self):
+        from .traps import Trap
+        w = self._world()
+        self._use(w, "sky")
+        self.assertGreater(w.player.levitate, 0)
+        hp = w.player.hp
+        Trap("spike", w.player.x, w.player.y).trigger(w, w.player)
+        self.assertEqual(w.player.hp, hp, "you drift over the spike pit")
+        self.assertEqual(w.player.stuck, 0, "and you are not stuck in it")
+
+    def test_enchant_weapon_adds_permanent_damage_and_stacks(self):
+        import random
+        w = self._world()
+        base = w.player.damage_roll(random.Random(7))
+        self._use(w, "krav")
+        once = w.player.damage_roll(random.Random(7))
+        self.assertEqual(once - base, 1, "+1 damage")
+        self.assertEqual(w.player.enchants.get(w.player.weapon.key), 1,
+                         "the enchant lives on the weapon")
+        w.codex.known.append("id.krav")
+        w.player.slots = [["krav", 1], None, None, None, None, None]
+        w.use_item(0)
+        self.assertEqual(w.player.damage_roll(random.Random(7)) - base, 2, "it stacks")
+
+    def test_enchant_armour_adds_permanent_defence(self):
+        w = self._world()
+        base = w.player.defense
+        self._use(w, "dwen")
+        self.assertEqual(w.player.defense, base + 1, "+1 defence, for good")
+
+    def test_enchanting_updates_the_displayed_name_and_stats(self):
+        from .items import WEAPONS, ARMOURS
+        w = self._world()
+        w.player.weapon = WEAPONS["sword"]        # Bronze Sword, 2-5 dmg
+        w.player.armour = ARMOURS["leather"]      # Leather Jerkin, 1 def
+        self.assertEqual(w.player.gear_display("weapon"), ("Bronze Sword", "2-5 dmg"))
+
+        self._use(w, "krav")                       # enchant the weapon +1
+        self.assertEqual(w.player.gear_display("weapon"),
+                         ("Bronze Sword +1", "3-6 dmg"), "name and stats both update")
+
+        w.player.enchants[w.player.weapon.key] = 3
+        self.assertEqual(w.player.gear_display("weapon"),
+                         ("Bronze Sword +3", "5-8 dmg"), "and it stacks")
+
+        self._use(w, "dwen")                       # enchant the armour +1
+        self.assertEqual(w.player.gear_display("armour"),
+                         ("Leather Jerkin +1", "2 def"))
+        # unenchanted gear reads plain
+        self.assertEqual(w.player.gear_display("boots")[0], w.player.boots.name)
+
+    # --- tier-gated spawning --------------------------------------------
+    def test_uncommon_consumables_only_appear_from_floor_eight(self):
+        import random
+        from .items import roll_consumable, CONSUMABLES
+        shallow = [roll_consumable(random.Random(i), 5, "potion") for i in range(300)]
+        self.assertFalse(any(CONSUMABLES[f].tier == "uncommon" for f in shallow),
+                         "no uncommon potions before floor 8")
+        deep = [roll_consumable(random.Random(i), 15, "potion") for i in range(600)]
+        self.assertTrue(any(CONSUMABLES[f].tier == "uncommon" for f in deep),
+                        "uncommon potions do appear on the deep floors")
+
+
+class TestWaveThreePotions(unittest.TestCase):
+    """The rare tier's potions -- all boons, no gambles: Vitality, Heroism, Insight,
+    the Phoenix."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 7 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _use(self, w, flavor):
+        w.codex.known.append("id.%s" % flavor)
+        w.player.slots = [[flavor, 1], None, None, None, None, None]
+        return w.use_item(0)
+
+    def test_vitality_raises_your_maximum_permanently(self):
+        w = self._world()
+        mh = w.player.max_hp
+        self._use(w, "vital")
+        self.assertGreater(w.player.max_hp, mh, "your ceiling rises")
+        self.assertEqual(w.player.hp, w.player.max_hp, "and the new capacity comes full")
+
+    def test_heroism_boosts_everything_at_once(self):
+        import random
+        w = self._world()
+        w.player.hp = 5
+        s0 = w.player.speed()
+        d0 = w.player.damage_roll(random.Random(1))
+        df0 = w.player.defense
+        self._use(w, "radiant")
+        self.assertGreater(w.player.speed(), s0, "faster")
+        self.assertGreater(w.player.damage_roll(random.Random(1)), d0, "harder")
+        self.assertGreater(w.player.defense, df0, "tougher")
+        self.assertGreater(w.player.hp, 5, "and a heal on top")
+
+    def test_insight_hands_you_a_free_kodex_fact(self):
+        w = self._world()
+        known = len(w.codex.known)
+        self._use(w, "luminous")
+        self.assertGreater(len(w.codex.known), known + 1,   # +1 is the id.luminous we set
+                           "you learn a whole new fact for nothing")
+        self.assertIsNotNone(w.learned, "and it announces itself")
+
+    def test_the_phoenix_refuses_your_first_death_only(self):
+        w = self._world()
+        self._use(w, "ember")
+        self.assertTrue(w.player.phoenix, "an ember, waiting")
+        w.player.hp = 1
+        w.hurt_player(999, "test")                 # a killing blow
+        self.assertFalse(w.dead, "death is refused")
+        self.assertGreater(w.player.hp, 0, "you are back on your feet")
+        self.assertFalse(w.player.phoenix, "the ember is spent")
+        w.hurt_player(999, "test")                 # the next one lands for real
+        self.assertTrue(w.dead, "the phoenix is a one-time thing")
+
+    def test_the_rare_potion_pool_is_now_populated(self):
+        from .items import _TIER_POOLS, CONSUMABLES
+        pool = _TIER_POOLS.get(("potion", "rare"), [])
+        self.assertEqual(len(pool), 4, "four rare potions")
+        self.assertTrue(all(CONSUMABLES[f].tier == "rare" for f in pool))
+
+
+class TestWaveThreeScrolls(unittest.TestCase):
+    """The rare tier's scrolls: Banishment, Descent, Thunderclap, Sanctuary."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 8:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _use(self, w, flavor):
+        w.codex.known.append("id.%s" % flavor)
+        w.player.slots = [[flavor, 1], None, None, None, None, None]
+        return w.use_item(0)
+
+    def test_banishment_offers_the_visible_kinds_and_unmakes_the_chosen_one(self):
+        from .monsters import Monster
+        w = self._world()
+        for _ in range(4):
+            w.level.monsters.append(Monster("rat", w.player.x + 2, w.player.y))
+        for _ in range(2):
+            w.level.monsters.append(Monster("brute", w.player.x - 2, w.player.y))
+        w.level.compute_fov(w.player.x, w.player.y)
+        offered = dict(w.banishable_types())
+        self.assertEqual(offered.get("rat"), 4, "it lists what you can see")
+        self.assertEqual(offered.get("brute"), 2)
+        w.banish_type("rat")                        # you PICK the rats
+        kinds = [m.key for m in w.level.monsters]
+        self.assertNotIn("rat", kinds, "the chosen kind is unmade")
+        self.assertEqual(kinds.count("brute"), 2, "the others are untouched")
+
+    def test_banishment_is_not_a_kill_no_loot_no_credit(self):
+        from .monsters import Monster
+        w = self._world()
+        w.level.monsters = [Monster("rat", w.player.x + 2, w.player.y)]
+        w.level.compute_fov(w.player.x, w.player.y)
+        kills = w.codex.stats["kills"]
+        w.banish_type("rat")
+        self.assertEqual(w.level.monsters, [], "gone")
+        self.assertEqual(w.codex.stats["kills"], kills, "you erased them, did not kill them")
+        self.assertEqual(w.level.slain, [], "no corpses left behind")
+
+    def test_reading_it_opens_a_picker_and_identifies_it(self):
+        from .monsters import Monster
+        w = self._world()
+        w.level.monsters = [Monster("rat", w.player.x + 2, w.player.y)]
+        w.level.compute_fov(w.player.x, w.player.y)
+        w.player.slots = [["ossk", 1], None, None, None, None, None]
+        self.assertFalse(w.codex.identified("ossk"))
+        w.use_item(0)
+        self.assertEqual(w.aiming, "banish", "it opens a picker, it does not fire blind")
+        self.assertTrue(w.codex.identified("ossk"), "and reading it reveals what it is")
+
+    def test_backing_out_of_an_empty_room_keeps_the_scroll(self):
+        w = self._world()                           # no monsters -> nothing to banish
+        w.player.slots = [["ossk", 1], None, None, None, None, None]
+        w.use_item(0)
+        self.assertEqual(w.banishable_types(), [], "nothing in sight")
+        self.assertNotIn("ossk", w.player.pack, "it is out of the pack while you decide")
+        w.cancel_banish()
+        self.assertIn("ossk", w.player.pack, "backing out puts the scroll BACK")
+        self.assertIsNone(w.aiming)
+        self.assertTrue(w.codex.identified("ossk"), "but you learned its purpose")
+
+    def test_descent_puts_you_on_the_stairs(self):
+        w = self._world()
+        self.assertNotEqual((w.player.x, w.player.y), w.level.stairs)
+        self._use(w, "vrom")
+        self.assertEqual((w.player.x, w.player.y), w.level.stairs, "standing on the way down")
+
+    def test_thunderclap_damages_everything_in_sight_but_not_you(self):
+        from .monsters import Monster
+        w = self._world()
+        ms = [Monster("rat", w.player.x + dx, w.player.y) for dx in (1, 2)]
+        for m in ms:
+            m.hp = m.max_hp = 99
+            w.level.monsters.append(m)
+        hp = w.player.hp
+        w._apply_effect("thunderclap")             # the effect in isolation, no turn-end
+        self.assertTrue(all(m.hp < 99 for m in ms), "every visible monster is struck")
+        self.assertEqual(w.player.hp, hp, "and it does not touch YOU (unlike Firestorm)")
+
+    def test_sanctuary_stops_every_blow(self):
+        from .monsters import Monster
+        w = self._world()
+        self._use(w, "ulm")
+        self.assertGreater(w.player.sanctuary, 0)
+        b = Monster("brute", w.player.x + 1, w.player.y)
+        w.level.monsters = [b]
+        hp = w.player.hp
+        w.monster_attacks_player(b, 15)
+        self.assertEqual(w.player.hp, hp, "a fist dies a hair from you")
+        w.freeze_player(2)
+        self.assertEqual(w.player.frozen, 0, "and so does the beholder's gaze")
+
+    def test_the_rare_scroll_pool_is_populated(self):
+        from .items import _TIER_POOLS, CONSUMABLES
+        pool = _TIER_POOLS.get(("scroll", "rare"), [])
+        self.assertEqual(len(pool), 4, "four rare scrolls")
+        self.assertTrue(all(CONSUMABLES[f].tier == "rare" for f in pool))
+
+    def test_every_consumable_still_has_a_name_and_id_fact(self):
+        from .items import CONSUMABLES
+        from .codex import FACTS
+        from .sprites import POTION_COLORS
+        for flavor, c in CONSUMABLES.items():
+            self.assertIn("id.%s" % flavor, FACTS, "%s needs an id fact" % flavor)
+            if c.kind == "potion":
+                self.assertIn(flavor, POTION_COLORS, "%s needs a colour" % flavor)
+
+
+class TestWaveTwoControl(unittest.TestCase):
+    """Turning the floor against itself: Fear and Hold Monster scrolls, and the
+    Confusion potion -- which, like every negative potion, coats the blade when known."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 8:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _use(self, w, flavor):
+        w.codex.known.append("id.%s" % flavor)
+        w.player.slots = [[flavor, 1], None, None, None, None, None]
+        return w.use_item(0)
+
+    def test_fear_makes_nearby_monsters_flee(self):
+        from .monsters import Monster
+        w = self._world()
+        ms = [Monster("brute", w.player.x + dx, w.player.y) for dx in (2, 3)]
+        for m in ms:
+            m.awake = True
+            w.level.monsters.append(m)
+        d0 = [m.dist(w.player.x, w.player.y) for m in ms]
+        self._use(w, "skarn")
+        for _ in range(3):
+            for m in ms:
+                m.take_turn(w)
+        d1 = [m.dist(w.player.x, w.player.y) for m in ms]
+        self.assertTrue(all(b > a for a, b in zip(d0, d1)), "they all run from you")
+
+    def test_hold_freezes_nearby_monsters(self):
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("brute", w.player.x + 1, w.player.y)   # adjacent
+        m.awake = True
+        w.level.monsters = [m]
+        self._use(w, "gorm")
+        self.assertGreater(m.stunned, 0, "it is locked rigid")
+        hp = w.player.hp
+        for _ in range(3):
+            m.take_turn(w)
+        self.assertEqual(w.player.hp, hp, "a held monster cannot strike you")
+
+    def test_confusion_drunk_blind_scrambles_your_steps(self):
+        w = self._world()
+        w.player.slots = [["puce", 1], None, None, None, None, None]   # unknown
+        w.use_item(0)
+        self.assertGreater(w.player.confused, 0, "drunk in ignorance, it hits YOU")
+
+    def test_confusion_known_coats_the_blade_and_confuses_the_target(self):
+        from .monsters import Monster
+        w = self._world()
+        w.codex.known.append("id.puce")
+        w.player.slots = [["puce", 1], None, None, None, None, None]
+        w.use_item(0)
+        self.assertEqual(w.player.blade_coat, "confuse", "known, it goes on the blade")
+        self.assertEqual(w.player.confused, 0, "and does not confuse YOU")
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = 999
+        w.level.monsters = [m]
+        w.player_attack(m)
+        self.assertGreater(m.confused, 0, "the struck thing stumbles, not you")
+
+    def test_a_confused_monster_does_not_hunt_you(self):
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.awake = True
+        m.confused = 5
+        w.level.monsters = [m]
+        hp = w.player.hp
+        for _ in range(4):
+            m.take_turn(w)
+        self.assertEqual(w.player.hp, hp, "a confused monster stumbles, it does not press")
+
+
+class TestScrollOfTeleport(unittest.TestCase):
+    """ZEPH: the aimed cousin of Escape. You choose a seen, open tile and jump there."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 8:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.reveal_all()
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def test_reading_it_opens_a_targeting_mode_without_ending_the_turn(self):
+        w = self._world()
+        w.codex.known.append("id.zeph")
+        w.player.slots = [["zeph", 1], None, None, None, None, None]
+        tick = w.tick
+        acted = w.use_item(0)
+        self.assertEqual(w.aiming, "teleport", "it opens a cursor")
+        self.assertEqual(w.tick, tick, "the turn does not end until you confirm")
+        self.assertTrue(acted, "but the scroll is spent")
+
+    def test_you_jump_to_a_chosen_seen_tile(self):
+        w = self._world()
+        w.aiming = "teleport"
+        # find an explored, walkable, empty tile that is not the player
+        target = None
+        for r in w.level.rooms:
+            t = (r.cx + 1, r.cy + 1)
+            if (t != (w.player.x, w.player.y) and w.valid_teleport(*t)):
+                target = t
+                break
+        self.assertIsNotNone(target)
+        self.assertTrue(w.teleport_to(*target))
+        self.assertEqual((w.player.x, w.player.y), target, "you land where you aimed")
+        self.assertIsNone(w.aiming, "and the cursor closes")
+
+    def test_you_cannot_land_on_a_wall_a_monster_or_the_unseen(self):
+        from .monsters import Monster
+        w = self._world()
+        # a wall
+        wx, wy = None, None
+        for y in range(w.level.h):
+            for x in range(w.level.w):
+                if not w.walkable(x, y):
+                    wx, wy = x, y
+                    break
+            if wx is not None:
+                break
+        self.assertFalse(w.valid_teleport(wx, wy), "not onto stone")
+        # a monster's tile
+        m = Monster("rat", w.player.x + 2, w.player.y)
+        w.level.monsters = [m]
+        self.assertFalse(w.valid_teleport(m.x, m.y), "not onto a monster")
+        # an unexplored tile
+        w.level.explored[w.player.y][w.player.x + 3] = False
+        self.assertFalse(w.valid_teleport(w.player.x + 3, w.player.y),
+                         "not to somewhere you have never seen")
+
+    def test_cancelling_leaves_you_put(self):
+        w = self._world()
+        w.aiming = "teleport"
+        here = (w.player.x, w.player.y)
+        w.cancel_aim()
+        self.assertIsNone(w.aiming)
+        self.assertEqual((w.player.x, w.player.y), here, "you did not move")
+
+
+class TestInvisibility(unittest.TestCase):
+    """A boon for the deep floors: unseen, nothing can find you -- until you strike."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 8:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def test_both_the_potion_and_the_scroll_grant_it(self):
+        for flavor in ("violet", "vesh"):
+            w = self._world()
+            w.codex.known.append("id.%s" % flavor)
+            w.player.slots = [[flavor, 1], None, None, None, None, None]
+            w.use_item(0)
+            self.assertGreater(w.player.invisible, 0, "%s hides you" % flavor)
+
+    def test_nothing_can_see_you_while_hidden(self):
+        from .monsters import Monster
+        w = self._world()
+        w.player.invisible = 10
+        m = Monster("brute", w.player.x + 2, w.player.y)
+        w.level.monsters = [m]
+        self.assertFalse(w.monster_can_see_player(m))
+        self.assertTrue(w.player_hidden())
+
+    def test_a_hunting_monster_loses_the_thread(self):
+        from .monsters import Monster
+        w = self._world()
+        w.player.invisible = 30
+        m = Monster("brute", w.player.x + 1, w.player.y)   # adjacent AND awake
+        m.awake = True
+        w.level.monsters = [m]
+        hp = w.player.hp
+        for _ in range(8):
+            m.take_turn(w)
+        self.assertEqual(w.player.hp, hp,
+                         "an adjacent monster cannot strike a target it cannot find")
+
+    def test_striking_breaks_your_cover(self):
+        from .monsters import Monster
+        w = self._world()
+        w.player.invisible = 15
+        m = Monster("rat", w.player.x + 1, w.player.y)
+        m.hp = 99
+        w.level.monsters = [m]
+        w.player_attack(m)
+        self.assertEqual(w.player.invisible, 0, "you cannot kill from hiding")
+
+    def test_it_wears_off(self):
+        w = self._world()
+        w.player.invisible = 1
+        w.player.tick_effects(w)
+        self.assertEqual(w.player.invisible, 0)
+
+
+class TestTheKodexTabs(unittest.TestCase):
+    """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
+
+    def test_there_are_six_tabs(self):
+        from .codex import KODEX_TABS
+        self.assertEqual(KODEX_TABS,
+                         ["monsters", "traps", "scrolls", "potions", "gear", "lore"])
+
+    def test_facts_land_in_the_right_tab(self):
+        from .codex import category_of, FACT_LIST, FACTS
+
+        def a_fact(subject):
+            return next(f for f in FACT_LIST if f.subject == subject)
+        self.assertEqual(category_of(a_fact("rat")), "monsters")
+        self.assertEqual(category_of(a_fact("dart")), "traps")
+        self.assertEqual(category_of(a_fact("self")), "lore")
+        self.assertEqual(category_of(a_fact("dungeon")), "lore")
+        self.assertEqual(category_of(FACTS["id.kesh"]), "scrolls")   # KESH is a scroll
+        self.assertEqual(category_of(FACTS["id.ochre"]), "potions")  # ochre is a potion
+
+    def test_every_fact_lands_in_exactly_one_known_tab(self):
+        from .codex import FACT_LIST, category_of, KODEX_TABS
+        for f in FACT_LIST:
+            self.assertIn(category_of(f), KODEX_TABS, "%s has no tab" % f.key)
+
+    def test_gear_is_earned_by_handling_it(self):
+        codex = FakeSave()
+        self.assertFalse(codex.gear_known("brand"))
+        codex.see_gear("brand")
+        self.assertTrue(codex.gear_known("brand"))
+
+    def test_your_starting_kit_is_already_seen(self):
+        codex = FakeSave()
+        World(codex, seed=3)
+        for k in ("shiv", "rags", "sandals"):
+            self.assertTrue(codex.gear_known(k), "%s starts seen" % k)
+
+    def test_picking_gear_up_marks_it_seen(self):
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        self.assertFalse(codex.gear_known("brand"))
+        w._take("gear", "brand")
+        self.assertTrue(codex.gear_known("brand"), "handling it earns the entry")
+
+    def test_a_new_game_forgets_the_gear_too(self):
+        codex = FakeSave()
+        codex.see_gear("kris")
+        self.assertTrue(codex.gear_known("kris"))
+        codex.wipe()
+        self.assertFalse(codex.gear_known("kris"))
+
+    def test_gear_seen_round_trips_through_the_save(self):
+        import tempfile
+        from .codex import Codex
+        old = config.SAVE_PATH
+        config.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_geartest.json")
+        try:
+            c = Codex()
+            c.see_gear("kris")
+            c.save()
+            c2 = Codex()
+            c2.load()
+            self.assertTrue(c2.gear_known("kris"), "gear_seen persists in the save")
+        finally:
+            if os.path.exists(config.SAVE_PATH):
+                os.remove(config.SAVE_PATH)
+            config.SAVE_PATH = old
+
+
+class TestTheGameLog(unittest.TestCase):
+    """The log is the WHOLE game's: it lives on the codex, survives a respawn (a new
+    World), and is wiped only by a new game."""
+
+    def test_the_log_lives_on_the_codex_and_survives_a_respawn(self):
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.log("a thing happened")
+        self.assertIn(("a thing happened", config.INK), w.messages)
+        # a respawn is a NEW World on the SAME codex
+        w2 = World(codex, seed=3)
+        self.assertIn(("a thing happened", config.INK), w2.messages,
+                      "the log carried across the respawn")
+        self.assertIs(w2.messages, codex.messages, "it IS the codex's list")
+
+    def test_a_new_game_wipes_the_log(self):
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.log("old news")
+        codex.wipe()
+        self.assertEqual(codex.messages, [], "a new game forgets the log")
+
+    def test_the_log_is_generously_capped(self):
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        for i in range(3200):
+            w.log("msg %d" % i)
+        self.assertLessEqual(len(w.messages), 3000, "the log does not grow forever")
+        self.assertGreater(len(w.messages), 2000, "but it holds a whole game's worth")
+
+    def test_the_scroll_range(self):
+        # the popup opens at scroll 0 (newest at the top) and can scroll DOWN into
+        # older history up to log_max_scroll.
+        from .ui import log_max_scroll
+        self.assertEqual(log_max_scroll([]), 0, "an empty log does not scroll")
+        many = [("x", config.INK)] * 500
+        self.assertGreater(log_max_scroll(many), 0, "a long log scrolls down into history")
+
+
+class TestScrollOfMapping(unittest.TestCase):
+    """KESH maps the stone. It must never hand you the contents."""
+
+    def _read_kesh(self, w):
+        w.player.pack = ["kesh"]
+        w.level.monsters = []
+        w.use_item(0)
+
+    def test_it_reveals_the_stone(self):
+        codex = FakeSave()
+        w = World(codex, seed=17)
+        before = sum(1 for r in w.level.explored for v in r if v)
+        self._read_kesh(w)
+        after = sum(1 for r in w.level.explored for v in r if v)
+        self.assertGreater(after, before * 2, "the scroll should map the floor")
+        # every floor tile of the level is now known stone
+        for y in range(w.level.h):
+            for x in range(w.level.w):
+                if w.level.grid[y][x] == 1:
+                    self.assertTrue(w.level.explored[y][x])
+
+    def test_it_reveals_no_items_no_chests_no_traps(self):
+        codex = FakeSave()
+        codex.known = list(FACTS)          # knows every trap type: they WOULD be drawn
+        w = World(codex, seed=17)
+        self._read_kesh(w)
+
+        far = []
+        for coll in (w.level.traps, w.level.chests, w.level.drops):
+            for o in coll:
+                if not w.level.visible[o.y][o.x]:
+                    far.append(o)
+        self.assertTrue(far, "the test needs objects outside line of sight")
+        for o in far:
+            self.assertFalse(
+                w.level.seen[o.y][o.x],
+                "the scroll revealed a %s at (%d,%d) that you have never laid eyes on"
+                % (type(o).__name__, o.x, o.y))
+
+    def test_the_renderer_gate_is_line_of_sight_not_the_map(self):
+        """The thing that actually decides whether an object is drawn."""
+        codex = FakeSave()
+        codex.known = list(FACTS)
+        w = World(codex, seed=17)
+        self._read_kesh(w)
+        for t in w.level.traps:
+            if not w.level.visible[t.y][t.x]:
+                self.assertTrue(w.level.explored[t.y][t.x],
+                                "its tile should be mapped stone")
+                self.assertFalse(w.level.seen[t.y][t.x],
+                                 "but the trap itself must stay hidden")
+                return
+        self.skipTest("all traps happened to be in view")
+
+    def test_walking_into_the_room_does_reveal_them(self):
+        codex = FakeSave()
+        codex.known = list(FACTS)
+        w = World(codex, seed=17)
+        self._read_kesh(w)
+        target = None
+        for t in w.level.traps:
+            if not w.level.seen[t.y][t.x]:
+                target = t
+                break
+        self.assertIsNotNone(target, "need a trap we have not seen")
+        w.player.x, w.player.y = target.x, target.y
+        w.level.compute_fov(w.player.x, w.player.y)
+        self.assertTrue(w.level.seen[target.y][target.x],
+                        "standing on it must reveal it -- eyes work, scrolls do not")
+
+    def test_seen_does_not_persist_across_runs(self):
+        """The stone is remembered forever; what was lying on it is not -- the
+        contents are re-dealt, so last run's sightings mean nothing."""
+        codex = FakeSave()
+        codex.world_seed = 555
+        w = World(codex, seed=1)
+        self._read_kesh(w)
+        for _ in range(20):
+            w.player_move(1, 0)
+        w.kill_player("rat")
+
+        w2 = World(codex, seed=2)
+        mapped = sum(1 for r in w2.level.explored for v in r if v)
+        eyed = sum(1 for r in w2.level.seen for v in r if v)
+        self.assertGreater(mapped, 400, "the stone should still be remembered")
+        self.assertLess(eyed, mapped,
+                        "object-sight must reset each run -- the loot is new")
+
+
+class TestTheGraveStaysPut(unittest.TestCase):
+    def test_your_corpse_lies_exactly_where_you_fell(self):
+        codex = FakeSave()
+        w = World(codex, seed=15)
+        w.new_level(3)
+        # walk somewhere specific and die there
+        spot = None
+        for y in range(w.level.h):
+            for x in range(w.level.w):
+                if w.level.walkable(x, y) and (x, y) != w.level.entrance:
+                    spot = (x, y)
+                    break
+            if spot:
+                break
+        w.player.x, w.player.y = spot
+        w.player.gold = 90
+        w.kill_player("brute")
+        w.leave_corpse()
+
+        w2 = World(codex, seed=88)            # a whole new run
+        w2.new_level(3)
+        self.assertIsNotNone(w2.level.corpse)
+        self.assertEqual((w2.level.corpse.x, w2.level.corpse.y), spot,
+                         "the body must lie exactly where it fell, not 'somewhere "
+                         "on the floor'")
+
+    def test_nothing_else_occupies_the_grave(self):
+        codex = FakeSave()
+        w = World(codex, seed=15)
+        w.player.gold = 20
+        w.kill_player("rat")
+        w.leave_corpse()
+        for run in (2, 3, 4, 5):
+            w2 = World(codex, seed=run)
+            c = w2.level.corpse
+            if not c:
+                continue
+            self.assertIsNone(w2.monster_at(c.x, c.y), "a monster is standing on you")
+            self.assertIsNone(w2.level.drop_at(c.x, c.y))
+            self.assertIsNone(w2.level.chest_at(c.x, c.y))
+
+
+class TestTheGift(unittest.TestCase):
+    def _gift_drop(self, world):
+        return [d for d in world.level.drops if d.gift == "floor1"]
+
+    def test_the_gift_rides_your_corpse_and_can_be_taken_back(self):
+        codex = FakeSave()
+        w = World(codex, seed=12)
+        g = self._gift_drop(w)[0]
+        payload = g.payload
+        w.level.monsters = []
+        w.player.x, w.player.y = g.x, g.y
+        w.player_pickup()
+        self.assertEqual(w.player.gift, payload, "you should be carrying the gift")
+
+        w.player.gold = 40
+        w.kill_player("rat")
+        w.leave_corpse()
+        corpse = codex.corpse_at(1)
+        self.assertEqual(corpse["gift"], payload,
+                         "the gift must stay on the body -- it is the only one")
+
+        # next run: it is NOT lying on the floor again, it is on the corpse
+        w2 = World(codex, seed=44)
+        self.assertEqual(self._gift_drop(w2), [], "the gift must not respawn")
+        self.assertIsNotNone(w2.level.corpse)
+        self.assertEqual(w2.level.corpse.gift, payload)
+
+        w2.level.monsters = []
+        w2.player.x, w2.player.y = w2.level.corpse.x, w2.level.corpse.y
+        w2.player_pickup()
+        from .items import ALL_GEAR
+        slot = ALL_GEAR[payload].slot
+        self.assertEqual(w2.player.gear_key(slot), payload,
+                         "looting your body must give the gift back")
+        self.assertEqual(w2.player.gift, payload)
+
+    def test_dying_twice_never_loses_the_gift(self):
+        codex = FakeSave()
+        codex.leave_corpse(1, 5, 5, 100, "shiv", gift_key="swift")
+        codex.leave_corpse(1, 9, 9, 10, "shiv", gift_key=None)   # died again, giftless
+        self.assertEqual(codex.corpse_at(1)["gift"], "swift",
+                         "the gift must not be dropped by a later, poorer corpse")
+        self.assertEqual(codex.corpse_at(1)["gold"], 110)
+
+
+class TestCorpses(unittest.TestCase):
+    def test_your_corpse_keeps_your_gold_and_waits_for_you(self):
+        codex = FakeSave()
+        w = World(codex, seed=11)
+        w.player.gold = 137
+        w.player.x, w.player.y = w.level.start
+        w.kill_player("rat")
+        w.leave_corpse()
+        self.assertEqual(codex.corpse_at(1)["gold"], 137)
+
+        w2 = World(codex, seed=22)          # a brand new run, a brand new dungeon
+        self.assertIsNotNone(w2.level.corpse, "the corpse did not come back")
+        self.assertEqual(w2.level.corpse.gold, 137)
+
+        w2.player.x, w2.player.y = w2.level.corpse.x, w2.level.corpse.y
+        w2.player_pickup()
+        self.assertEqual(w2.player.gold, 137, "you did not get your gold back")
+        self.assertIsNone(codex.corpse_at(1), "the corpse should be spent")
+
+
+    def test_dying_twice_on_a_floor_does_not_destroy_the_first_cache(self):
+        """Regression: the second corpse used to overwrite the first, silently
+        deleting the gold and the weapon the first body was holding."""
+        codex = FakeSave()
+        codex.leave_corpse(3, 5, 5, 200, "brand")     # died rich, holding a Flame Brand
+        codex.leave_corpse(3, 9, 9, 15, "shiv")       # died again, poor, back on a shiv
+        c = codex.corpse_at(3)
+        self.assertEqual(c["gold"], 215, "the gold must pile up, not vanish")
+        self.assertEqual(c["weapon"], "brand", "the better weapon must survive")
+        self.assertEqual((c["x"], c["y"]), (9, 9), "the cache moves to the newest body")
+
+
+class TestNewGameVersusNewRun(unittest.TestCase):
+    """A death starts a new RUN and you keep what you learned. Only an explicit NEW
+    GAME erases it -- and it must erase ALL of it."""
+
+    def _lived_a_little(self, codex):
+        codex.known.extend(["self.corpse", "angry_rat.rule", "brute.rule", "id.ochre"])
+        codex.telemetry.append({"title": "T", "text": "t"})
+        codex.deaths = 7
+        codex.runs = 5
+        codex.wins = 1
+        codex.best_depth = 6
+        codex.stats["kills"] = 40
+        codex.stats["kills_by"]["brute"] = 3
+        codex.stats["deaths_by"]["brute"] = 2
+        codex.leave_corpse(4, 10, 10, 250, "brand")
+        codex.claim_gift("floor1")
+
+    def test_a_new_run_keeps_the_codex_and_the_dead(self):
+        codex = FakeSave()
+        self._lived_a_little(codex)
+        World(codex)                       # the run after a death
+        self.assertEqual(len(codex.known), 4, "a new run must NOT erase the codex")
+        self.assertIsNotNone(codex.corpse_at(4), "a new run must NOT clear your dead")
+        self.assertEqual(codex.deaths, 7)
+
+    def test_a_new_game_erases_absolutely_everything(self):
+        codex = FakeSave()
+        self._lived_a_little(codex)
+        self.assertTrue(codex.has_progress())
+
+        codex.wipe()
+
+        self.assertEqual(codex.known, [], "the codex survived a new game")
+        self.assertEqual(codex.telemetry, [], "telemetry survived a new game")
+        self.assertEqual(codex.corpses, {}, "your dead survived a new game")
+        self.assertEqual(codex.deaths, 0)
+        self.assertEqual(codex.runs, 0)
+        self.assertEqual(codex.wins, 0)
+        self.assertEqual(codex.best_depth, 0)
+        self.assertEqual(codex.stats["kills"], 0, "kill stats survived a new game")
+        self.assertEqual(codex.stats["kills_by"], {},
+                         "per-species kill counts survived -- they would let the "
+                         "player skip the first lessons of a fresh game")
+        self.assertEqual(codex.stats["deaths_by"], {})
+        self.assertEqual(codex.gifts, [],
+                         "the once-per-game gift must be available again in a new game")
+        self.assertFalse(codex.has_progress())
+
+    def test_after_a_new_game_the_monsters_are_question_marks_again(self):
+        codex = FakeSave()
+        self._lived_a_little(codex)
+        self.assertEqual(codex.tier("brute"), 1)
+        codex.wipe()
+        self.assertEqual(codex.tier("brute"), 0,
+                         "a fresh game must put the '?' back on the monsters")
+        w = World(codex, seed=3)
+        self.assertIsNone(w.level.corpse, "a fresh game must not spawn an old corpse")
+
+    def test_a_new_game_deletes_the_save_file_from_disk(self):
+        import json
+        import tempfile
+        from . import config as cfg
+        from .codex import Codex
+
+        old = cfg.SAVE_PATH
+        cfg.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_wipe_test.json")
+        try:
+            c = Codex()                      # a REAL codex: it touches disk
+            c.known.append("brute.rule")
+            c.deaths = 3
+            c.save()
+            self.assertTrue(os.path.exists(cfg.SAVE_PATH))
+
+            c.wipe()
+            self.assertFalse(os.path.exists(cfg.SAVE_PATH),
+                             "the save file must be gone after a new game")
+
+            fresh = Codex()
+            fresh.load()                     # loading a wiped game must find nothing
+            self.assertEqual(fresh.known, [])
+            self.assertEqual(fresh.deaths, 0)
+        finally:
+            if os.path.exists(cfg.SAVE_PATH):
+                os.remove(cfg.SAVE_PATH)
+            cfg.SAVE_PATH = old
+
+    def test_has_progress_knows_when_there_is_nothing_to_lose(self):
+        codex = FakeSave()
+        self.assertFalse(codex.has_progress(), "a virgin codex has nothing to warn about")
+        codex.known.append("brute.rule")
+        self.assertTrue(codex.has_progress())
+
+
+class TestTrapDiscovery(unittest.TestCase):
+    """A trap is invisible -- not a '?', nothing -- until one goes off in front of
+    you. Then every trap of that kind is on your map forever."""
+
+    def _floor_next_to(self, w):
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if w.walkable(w.player.x + dx, w.player.y + dy):
+                return dx, dy
+        raise AssertionError("boxed in")
+
+    def test_an_undiscovered_trap_is_not_drawn_at_all(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        t = Trap("dart", 5, 5)
+        # the renderer's gate: it draws a trap only if the rule is known
+        self.assertFalse(codex.knows("dart.rule"))
+        self.assertEqual(codex.tier("dart"), 0)
+
+    def test_surviving_a_trap_teaches_you_the_trap(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99                       # survive it
+        dx, dy = self._floor_next_to(w)
+        w.level.traps = [Trap("dart", w.player.x + dx, w.player.y + dy)]
+        self.assertFalse(codex.knows("dart.rule"))
+
+        w.player_move(dx, dy)
+
+        self.assertTrue(codex.knows("dart.rule"),
+                        "springing a trap and living must teach you what it was")
+        self.assertIsNotNone(w.learned, "the discovery should raise a banner")
+        self.assertEqual(w.learned.key, "dart.rule")
+
+    def test_finding_one_trap_reveals_ONLY_that_trap(self):
+        """The whole point: knowing what a dart trap is must not X-ray the floor."""
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        mine = Trap("dart", w.player.x + dx, w.player.y + dy)
+        others = [Trap("dart", 20, 20), Trap("dart", 30, 12)]   # same TYPE, elsewhere
+        w.level.traps = [mine] + others
+
+        w.player_move(dx, dy)
+
+        self.assertTrue(codex.knows("dart.rule"), "you learned what it was")
+        self.assertTrue(codex.trap_found(w.depth, mine.x, mine.y),
+                        "the trap you sprang must be marked")
+        for o in others:
+            self.assertFalse(
+                codex.trap_found(w.depth, o.x, o.y),
+                "the OTHER dart trap at (%d,%d) must stay hidden -- you have never "
+                "been near it" % (o.x, o.y))
+
+    def test_a_found_trap_stays_found_through_death(self):
+        from .traps import Trap
+        codex = FakeSave()
+        codex.world_seed = 31337
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        mine = (w.player.x + dx, w.player.y + dy)
+        w.level.traps = [Trap("spike", *mine)]
+        w.player_move(dx, dy)
+        self.assertTrue(codex.trap_found(1, *mine))
+
+        w.kill_player("rat")
+        w2 = World(codex, seed=777)            # a new run, new monsters, same stone
+        self.assertTrue(codex.trap_found(1, *mine),
+                        "a trap you found must stay found across respawns")
+
+    def test_traps_are_cut_into_the_stone_and_do_not_move(self):
+        codex = FakeSave()
+        codex.world_seed = 909
+        first = None
+        for run_seed in (1, 2, 3):
+            w = World(codex, seed=run_seed)
+            sig = tuple(sorted((t.key, t.x, t.y) for t in w.level.traps))
+            if first is None:
+                first = sig
+            self.assertEqual(sig, first,
+                             "traps must be part of the permanent stonework -- they "
+                             "cannot move between runs or 'this trap' means nothing")
+        self.assertTrue(first, "the floor should have traps at all")
+
+    def test_a_new_game_re_cuts_the_traps_and_forgets_them(self):
+        codex = FakeSave()
+        codex.world_seed = 909
+        w = World(codex, seed=1)
+        t = w.level.traps[0]
+        codex.find_trap(1, t.x, t.y)
+        self.assertTrue(codex.trap_found(1, t.x, t.y))
+
+        codex.wipe()
+        self.assertEqual(codex.found_traps, {}, "a new game must forget found traps")
+
+    def test_knowing_the_type_does_not_mark_traps_on_other_floors(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        spot = (w.player.x + dx, w.player.y + dy)
+        w.level.traps = [Trap("gas", *spot)]
+        w.player_move(dx, dy)
+        self.assertTrue(codex.trap_found(1, *spot))
+        self.assertFalse(codex.trap_found(2, *spot),
+                         "finding a trap on floor 1 says nothing about floor 2")
+
+    def test_each_trap_type_is_learned_separately(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.hp = 99
+        dx, dy = self._floor_next_to(w)
+        w.level.traps = [Trap("gas", w.player.x + dx, w.player.y + dy)]
+        w.player_move(dx, dy)
+        self.assertTrue(codex.knows("gas.rule"))
+        self.assertFalse(codex.knows("dart.rule"),
+                         "learning about gas must not reveal dart traps")
+        self.assertFalse(codex.knows("spike.rule"))
+
+    def test_watching_a_monster_spring_a_trap_teaches_you_too(self):
+        from .monsters import Monster
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        px, py = w.player.x, w.player.y
+        spot = None
+        for dx in range(1, 5):
+            if w.walkable(px + dx, py) and w.level.visible[py][px + dx]:
+                spot = (px + dx, py)
+                break
+        if not spot:
+            self.skipTest("no visible floor tile beside the player")
+        w.level.traps = [Trap("glyph", *spot)]
+        m = Monster("angry_rat", spot[0] + 1, spot[1]) if w.walkable(spot[0] + 1, spot[1]) \
+            else Monster("angry_rat", spot[0], spot[1] - 1)
+        m.awake = True
+        w.level.monsters = [m]
+        self.assertFalse(codex.knows("glyph.rule"))
+
+        m.x, m.y = spot                        # it steps onto the glyph
+        w.on_monster_moved(m)
+
+        self.assertTrue(codex.knows("glyph.rule"),
+                        "you watched it burn; you should know what a fire glyph is")
+
+    def test_the_counter_takes_three(self):
+        codex = FakeSave()
+        self.assertEqual(codex.reveal_on_trap("spike"), None)   # 0 seen
+        codex.stats["traps_by"]["spike"] = 1
+        self.assertEqual(codex.reveal_on_trap("spike").key, "spike.rule")
+        codex.stats["traps_by"]["spike"] = 2
+        self.assertIsNone(codex.reveal_on_trap("spike"),
+                          "two springs is not enough for the counter")
+        codex.stats["traps_by"]["spike"] = 3
+        self.assertEqual(codex.reveal_on_trap("spike").key, "spike.counter")
+
+    def test_a_trap_you_cannot_see_still_teaches_you_nothing(self):
+        """Soft soles mean the plate never fires -- and a trap that never fires
+        cannot teach you anything. That is the trade."""
+        from .items import BOOTS
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.boots = BOOTS["soft"]
+        dx, dy = self._floor_next_to(w)
+        w.level.traps = [Trap("dart", w.player.x + dx, w.player.y + dy)]
+        w.player_move(dx, dy)
+        self.assertFalse(codex.knows("dart.rule"),
+                         "the plate never fired, so there was nothing to learn")
+
+
+class TestTrapsAndGear(unittest.TestCase):
+    def test_an_unknown_trap_still_fires(self):
+        from .traps import Trap
+        codex = FakeSave()                  # knows nothing: the trap is invisible
+        w = World(codex, seed=3)
+        w.level.traps = [Trap("dart", w.player.x + 1, w.player.y)]
+        hp = w.player.hp
+        w.player_move(1, 0)
+        self.assertLess(w.player.hp, hp,
+                        "an un-codexed trap must still hurt -- invisibility is the "
+                        "player's problem, not the trap's")
+
+    def test_soft_soles_do_not_press_plates_but_do_not_stop_fire(self):
+        from .traps import Trap
+        w = World(FakeSave(), seed=3)
+        w.player.boots = BOOTS["soft"]
+        w.level.monsters = []
+        w.level.traps = [Trap("dart", w.player.x + 1, w.player.y)]
+        hp = w.player.hp
+        w.player_move(1, 0)
+        self.assertEqual(w.player.hp, hp, "padded soles must not set off a plate")
+
+        w2 = World(FakeSave(), seed=3)
+        w2.player.boots = BOOTS["soft"]
+        w2.level.monsters = []
+        w2.level.traps = [Trap("glyph", w2.player.x + 1, w2.player.y)]
+        hp2 = w2.player.hp
+        w2.player_move(1, 0)
+        self.assertLess(w2.player.hp, hp2,
+                        "a fire glyph is not weight-triggered; soles must not save you")
+
+    def test_armour_subtracts_flat_and_wraiths_ignore_it(self):
+        from .items import ARMOURS
+        from .monsters import Monster
+        w = World(FakeSave(), seed=3)
+        w.level.monsters = []
+        w.player.armour = ARMOURS["plate"]      # 5 def
+        rat = Monster("rat", w.player.x, w.player.y)
+        hp = w.player.hp
+        for _ in range(12):
+            w.monster_attacks_player(rat, 3)    # a rat's whole damage range
+        self.assertEqual(w.player.hp, hp, "plate should shrug off a rat entirely")
+
+        wraith = Monster("wraith", w.player.x, w.player.y)
+        w.monster_attacks_player(wraith, 5, ignore_armour=True)
+        self.assertLess(w.player.hp, hp, "a wraith must ignore armour")
+
+
+class TestHeadlessSmoke(unittest.TestCase):
+    def test_a_random_walker_survives_the_engine_on_every_floor(self):
+        for seed in (1, 2, 3):
+            codex = FakeSave()
+            w = World(codex, seed=seed)
+            rng = random.Random(seed)
+            for _ in range(2500):
+                if w.dead or w.won:
+                    break
+                r = rng.random()
+                if r < 0.75:
+                    dx, dy = rng.choice([(0, -1), (0, 1), (-1, 0), (1, 0),
+                                         (1, 1), (-1, -1), (1, -1), (-1, 1)])
+                    w.player_move(dx, dy)
+                elif r < 0.85:
+                    w.player_pickup()
+                elif r < 0.92:
+                    w.use_item(0)
+                elif r < 0.97:
+                    w.player_wait()
+                else:
+                    w.descend()
+            self.assertTrue(True)   # reaching here without an exception is the test
+
+    def test_every_depth_generates_and_runs(self):
+        for depth in range(1, config.DEPTH_MAX + 1):
+            w = World(FakeSave(), seed=depth * 13)
+            w.new_level(depth)
+            w.wake_all()
+            for _ in range(120):
+                if w.dead or w.won:
+                    break
+                w.player_wait()
+            self.assertGreaterEqual(len(w.level.rooms), 4)
+
+
+if __name__ == "__main__":
+    pygame.init()
+    unittest.main(exit=False, verbosity=2)
+    pygame.quit()

@@ -1,0 +1,49 @@
+"""Cheat codes, for testing the deep floors without earning them.
+
+Hold CTRL (or CMD on a Mac) and type a sequence. It must be typed in order and with
+the modifier held the whole way through -- let go, or press anything else, and it
+starts over. The codes in use:
+
+    0 9 8 7   grant the best gear and nine healing potions
+    7 8       drop onto the NEXT floor's entrance tile, from anywhere
+    8 7       open the arsenal: pick a top-tier weapon/armour/boots to drop beside you
+    6 7       pick any uncommon/rare SCROLL, straight into the pack
+    7 6       pick any uncommon/rare POTION, straight into the pack
+
+These exist so the deep floors can be reached in a few minutes instead of a few
+hours. They are deliberately not reachable by accident: nothing in the game binds
+CTRL, and neither sequence is one a hand produces by mistake. CheatCode is generic --
+each code is one instance with its own sequence (see game.py).
+"""
+
+import pygame
+
+SEQUENCE = [pygame.K_0, pygame.K_9, pygame.K_8, pygame.K_7]
+
+
+class CheatCode:
+    def __init__(self, sequence=None):
+        self.sequence = list(sequence or SEQUENCE)
+        self.progress = 0
+
+    def reset(self):
+        self.progress = 0
+
+    def feed(self, key, held):
+        """Feed one keypress. `held` is whether CTRL/CMD is down right now.
+
+        Returns True on the keypress that completes the code.
+        """
+        if not held:
+            self.progress = 0
+            return False
+        if key == self.sequence[self.progress]:
+            self.progress += 1
+            if self.progress >= len(self.sequence):
+                self.progress = 0
+                return True
+            return False
+        # a wrong key: start again -- but a wrong key that is the FIRST key of the
+        # code should count as the start of a new attempt, not a dead end
+        self.progress = 1 if key == self.sequence[0] else 0
+        return False
