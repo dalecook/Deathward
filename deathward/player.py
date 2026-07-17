@@ -19,6 +19,28 @@ from . import config
 from .items import ARMOURS, BOOTS, CONSUMABLES, STARTING, WEAPONS
 
 
+# The lasting effects shown as pips on the hero. Each entry is
+# (active_attr, timer_attr, label, colour). timer_attr is None for an untimed
+# effect -- the Phoenix, which lasts until it saves you rather than counting down.
+# The list order is the pip fill order around the tile: top-left, then top-right,
+# then bottom-right, then bottom-left. Colours match the HUD status labels.
+EFFECTS = [
+    ("stoneskin", "stoneskin", "STONESKIN", (180, 184, 194)),
+    ("regen",     "regen",     "REGEN",     config.HEAL),
+    ("vigor",     "vigor_t",   "VIGOR",     (200, 214, 234)),
+    ("berserk",   "berserk",   "RAGE",      (232, 92, 52)),
+    ("resist",    "resist",    "WARDED",    (60, 190, 176)),
+    ("levitate",  "levitate",  "AFLOAT",    (130, 206, 220)),
+    ("invisible", "invisible", "UNSEEN",    (190, 200, 220)),
+    ("heroism",   "heroism",   "HEROISM",   config.GOLD),
+    ("sanctuary", "sanctuary", "SANCTUARY", (150, 210, 255)),
+    ("phoenix",   None,        "PHOENIX",   (255, 140, 55)),
+    ("poison",    "poison",    "POISON",    (150, 190, 90)),
+    ("weak",      "weak",      "WEAKENED",  (168, 140, 168)),
+    ("confused",  "confused",  "CONFUSED",  (206, 130, 206)),
+]
+
+
 class Player:
     def __init__(self):
         self.x = self.y = 0
@@ -188,6 +210,18 @@ class Player:
             if self.sanctuary == 0:
                 world.log("The stillness around you breaks. They can reach you again.",
                           config.DIM)
+
+    def active_effects(self):
+        """Lasting effects currently on the hero, in the fixed pip fill order.
+        Each entry is (label, colour, remaining); remaining is None for an
+        untimed effect (the Phoenix). Render draws the first four as corner pips;
+        the HUD lists them in full."""
+        out = []
+        for active_attr, timer_attr, label, color in EFFECTS:
+            if getattr(self, active_attr):
+                rem = getattr(self, timer_attr) if timer_attr else None
+                out.append((label, color, rem))
+        return out
 
     def heal(self, n):
         before = self.hp

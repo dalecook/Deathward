@@ -5550,6 +5550,64 @@ class TestHeadlessSmoke(unittest.TestCase):
             self.assertGreaterEqual(len(w.level.rooms), 4)
 
 
+class TestActiveEffectPips(unittest.TestCase):
+    """The corner pips that show which lasting potion/scroll effects are on you."""
+
+    def _fresh_player(self):
+        from .player import Player
+        return Player()
+
+    def test_nothing_active_shows_nothing(self):
+        self.assertEqual(self._fresh_player().active_effects(), [])
+
+    def test_only_active_effects_listed_in_fill_order(self):
+        p = self._fresh_player()
+        # switch three on OUT of canonical order; the fill order must not care
+        p.sanctuary = 2
+        p.heroism = 5
+        p.regen = 4
+        labels = [lbl for (lbl, _c, _r) in p.active_effects()]
+        self.assertEqual(labels, ["REGEN", "HEROISM", "SANCTUARY"])
+
+    def test_vigor_reports_its_timer_not_its_hit_points(self):
+        p = self._fresh_player()
+        p.vigor = 20      # twenty soak points ...
+        p.vigor_t = 5     # ... lasting five turns
+        (lbl, _c, rem), = p.active_effects()
+        self.assertEqual(lbl, "VIGOR")
+        self.assertEqual(rem, 5)   # the pip counts turns, not the HP pool
+
+    def test_phoenix_is_steady_with_no_countdown(self):
+        p = self._fresh_player()
+        p.phoenix = True
+        (lbl, _c, rem), = p.active_effects()
+        self.assertEqual(lbl, "PHOENIX")
+        self.assertIsNone(rem)     # untimed -> render never blinks it
+
+    def test_debuffs_are_shown_too(self):
+        p = self._fresh_player()
+        p.poison, p.weak, p.confused = 3, 2, 1
+        labels = [lbl for (lbl, _c, _r) in p.active_effects()]
+        self.assertEqual(labels, ["POISON", "WEAKENED", "CONFUSED"])
+
+    def test_drawing_the_world_with_effects_never_crashes(self):
+        from . import render
+        codex = FakeSave()
+        codex.world_seed = 7919
+        w = World(codex, seed=7)
+        p = w.player
+        p.vigor, p.vigor_t = 6, 6
+        p.regen = 2                    # <= 3: a blinking buff
+        p.poison = 1                   # <= 3: a blinking debuff
+        p.phoenix = True               # steady
+        p.heroism, p.resist = 8, 9     # six active -> exercises the 4-corner cap
+        cam = render.Camera()
+        cam.center_on(p.x, p.y)
+        surf = pygame.Surface((config.W, config.H))
+        for t in (0.0, 0.13):          # both halves of the blink cycle
+            render.draw_world(surf, w, w.codex, cam, t)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
