@@ -639,7 +639,7 @@ class Game:
         elif self.state == CHEAT_ITEMS:
             self._draw_dungeon()
             ui.draw_consumable_cheat(self.screen, self.cheat_items,
-                                     self.cheat_items_kind, self.t)
+                                     self.cheat_items_kind, self.t, self.codex)
         elif self.state == TARGETING:
             self.cam.center_on(self.aim[0], self.aim[1])   # follow the cursor, not you
             render.draw_world(self.screen, self.world, self.codex, self.cam, self.t)

@@ -1202,8 +1202,11 @@ class TestLootMenu(unittest.TestCase):
         self.assertEqual(len(opts), 3)
         self.assertEqual(opts[0]["label"], "25 gold")
         self.assertIn("Bone Axe", opts[1]["label"])
-        self.assertIn("azure", opts[2]["label"].lower(),
-                      "an unidentified potion must be listed by its COLOUR")
+        # an unidentified potion is listed by the LOOK it wears this game, not its
+        # true name -- and that look is whatever the shuffle dealt the azure identity.
+        look = CONSUMABLES[w.codex.look("azure")].unknown_name
+        self.assertEqual(opts[2]["label"], look)
+        self.assertNotIn("Swiftness", opts[2]["label"], "and never its true name")
 
     def test_an_identified_potion_is_listed_by_its_true_name(self):
         codex = FakeSave()
@@ -5606,6 +5609,92 @@ class TestActiveEffectPips(unittest.TestCase):
         surf = pygame.Surface((config.W, config.H))
         for t in (0.0, 0.13):          # both halves of the blink cycle
             render.draw_world(surf, w, w.codex, cam, t)
+
+
+class TestAppearanceShuffle(unittest.TestCase):
+    """Which colour/rune each effect hides behind is dealt fresh every new game --
+    kept for the whole game, re-rolled only when a new game begins."""
+
+    def _dealt(self, seed):
+        from .codex import Codex
+        c = Codex()
+        c.world_seed = seed
+        c.roll_appearances(seed)
+        return c
+
+    def test_looks_are_a_permutation_within_each_kind(self):
+        c = self._dealt(1)
+        for kind in ("potion", "scroll"):
+            flavors = [f for f, x in CONSUMABLES.items() if x.kind == kind]
+            looks = [c.look(f) for f in flavors]
+            self.assertEqual(sorted(looks), sorted(flavors),
+                             "the %s looks must be a permutation of the %s effects"
+                             % (kind, kind))
+            for f in flavors:                       # a look never crosses kinds
+                self.assertEqual(CONSUMABLES[c.look(f)].kind, kind)
+
+    def test_same_seed_deals_the_same_looks(self):
+        self.assertEqual(self._dealt(42).appearance, self._dealt(42).appearance)
+
+    def test_a_different_seed_deals_different_looks(self):
+        self.assertNotEqual(self._dealt(1).appearance, self._dealt(2).appearance)
+
+    def test_look_falls_back_to_itself_before_the_deal(self):
+        from .codex import Codex
+        self.assertEqual(Codex().look("ochre"), "ochre")
+
+    def test_an_unidentified_potion_wears_its_dealt_look(self):
+        c = self._dealt(7)
+        heal = CONSUMABLES["ochre"]                            # identity = healing
+        self.assertEqual(heal.name(c), CONSUMABLES[c.look("ochre")].unknown_name)
+        c.known.append("id.ochre")                            # once known ...
+        self.assertEqual(heal.name(c), "Potion of Healing")   # ... true name, look aside
+
+    def test_the_effect_stays_with_the_identity_not_the_look(self):
+        # the look is display only: ochre is healing in every game it is dealt in
+        for seed in (1, 2, 3):
+            self.assertEqual(CONSUMABLES["ochre"].effect, "heal")
+            self._dealt(seed)                                 # dealing does not touch it
+
+    def test_the_kodex_title_names_this_runs_look(self):
+        from .codex import FACTS, fact_title
+        c = self._dealt(7)
+        title = fact_title(FACTS["id.ochre"], c)
+        self.assertIn(CONSUMABLES[c.look("ochre")].unknown_name.upper(), title)
+        self.assertTrue(title.endswith("IS HEALING"))
+
+    def test_a_respawn_keeps_the_looks_and_a_new_game_reshuffles(self):
+        codex = FakeSave()
+        codex.world_seed = 555
+        World(codex, seed=1)                                  # deals the looks
+        dealt = dict(codex.appearance)
+        self.assertTrue(dealt)
+        World(codex, seed=2)                                  # a respawn: same codex
+        self.assertEqual(codex.appearance, dealt, "a respawn must not reshuffle")
+        codex.new_dungeon()                                   # a victor starts over
+        self.assertEqual(codex.appearance, dealt, "starting over after a win keeps them")
+        codex.appearance = {}                                 # what a new game (wipe) does
+        World(codex, seed=3)
+        self.assertTrue(codex.appearance, "the next game deals afresh")
+
+    def test_the_looks_round_trip_through_a_save(self):
+        import tempfile
+        from . import config as cfg
+        from .codex import Codex
+        old = cfg.SAVE_PATH
+        cfg.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_appearance.json")
+        try:
+            a = Codex()
+            a.world_seed = 88
+            a.roll_appearances(88)
+            a.save()
+            b = Codex()
+            b.load()
+            self.assertEqual(b.appearance, a.appearance)
+        finally:
+            if os.path.exists(cfg.SAVE_PATH):
+                os.remove(cfg.SAVE_PATH)
+            cfg.SAVE_PATH = old
 
 
 if __name__ == "__main__":

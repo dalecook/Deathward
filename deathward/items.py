@@ -152,7 +152,10 @@ class Consumable:
         self.tier = tier              # "common" | "uncommon" | "rare" -- spawn rarity
 
     def name(self, codex):
-        return self.true_name if codex.identified(self.flavor) else self.unknown_name
+        if codex.identified(self.flavor):
+            return self.true_name
+        # unidentified: shown as the look it wears this game, not its own fixed look
+        return CONSUMABLES[codex.look(self.flavor)].unknown_name
 
     def known(self, codex):
         return codex.identified(self.flavor)

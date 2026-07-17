@@ -866,10 +866,11 @@ def potion(flavor, dim=False):
     # flask
     _circ(s, glass, cx, S * 0.66, S * 0.21)
     pygame.draw.rect(s, glass, (cx - S * 0.07, S * 0.32, S * 0.14, S * 0.22))
-    # the liquid -- the colour IS the identity, and you can always see the colour.
-    # what you cannot see is what it does. the flavour names are honest: the ochre one
-    # really is ochre, the viscous one really is a thick green, and the bubbling black
-    # one really does bubble.
+    # the liquid -- you can ALWAYS see the colour; what you cannot see is what it does.
+    # `flavor` here is the LOOK a potion is wearing (the caller resolves it through the
+    # per-game shuffle), so which effect hides behind a given colour changes every game.
+    # the looks themselves are honest: an ochre look really is ochre, a viscous one
+    # really is a thick green.
     _circ(s, col, cx, S * 0.68, S * 0.165)
     pygame.draw.rect(s, col, (cx - S * 0.05, S * 0.46, S * 0.10, S * 0.14))
     _circ(s, _shade(col, 1.35), cx - S * 0.06, S * 0.62, S * 0.04)
