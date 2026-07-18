@@ -509,7 +509,9 @@ class World:
             if (m.hammer_hits - 1) % config.HAMMER_STUN_CADENCE == 0:
                 m.stunned = max(m.stunned, config.HAMMER_STUN_TURNS)
                 self.log("The hammer rings its skull. It reels.", config.GOLD)
-                self.add_fx("impact", m.x, m.y, color=config.GOLD, radius=1.0, life=0.4)
+                # a real-time fx, not a read of m.stunned: the counter is spent inside
+                # this same turn resolution, so a state-based indicator never shows.
+                self.add_fx("stunstars", m.x, m.y, color=config.GOLD, life=0.75)
                 self.shake(4)
         if trait == "burn" and m.alive:
             m.burning = max(m.burning, 3)

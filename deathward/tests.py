@@ -6121,6 +6121,25 @@ class TestHammerStunCadence(unittest.TestCase):
         for mat in ("bone", "bronze", "steel"):
             self.assertEqual(WEAPONS["%s_hammer" % mat].speed_mod, -25)
 
+    def test_landing_a_stun_fires_a_realtime_stunstars_fx(self):
+        # the stun COUNTER is spent inside the turn resolution, so the visible feedback
+        # has to be a real-time fx fired when the stagger lands -- not a read of m.stunned.
+        w = self._setup()
+        m = self._durable_target(w)
+        w.fx = []
+        w.player_attack(m)                          # first blow -> stagger
+        self.assertTrue(any(f["kind"] == "stunstars" for f in w.fx),
+                        "landing the stagger fires a visible fx")
+
+    def test_a_non_stun_blow_fires_no_stunstars_fx(self):
+        w = self._setup()
+        m = self._durable_target(w)
+        w.player_attack(m)                          # blow 1 -> stagger
+        w.fx = []
+        w.player_attack(m)                          # blow 2 -> no stagger
+        self.assertFalse(any(f["kind"] == "stunstars" for f in w.fx),
+                         "the off-beat blows show no stagger fx")
+
 
 class TestStunIndicator(unittest.TestCase):
     def test_draw_stun_stars_runs_without_error(self):

@@ -90,17 +90,21 @@ def draw_aim_cursor(surf, world, cam, aim, ok, t):
     pygame.draw.rect(surf, col, (sx, sy, T, T), 2)
 
 
-def draw_stun_stars(surf, cx, cy, t):
+def draw_stun_stars(surf, cx, cy, t, fade=1.0):
     """Three little gold stars spinning over a staggered thing's head, so the stun is
-    something you SEE and can act on -- not just a line in the log. Shown for anything
-    you have staggered, KNOWN OR NOT: it is feedback on YOUR blow, like the flames on a
-    burning thing, not a fact you have to have earned about the monster."""
+    something you SEE -- not just a line in the log. Feedback on YOUR blow, shown known
+    or not, like the flames on a burning thing.
+
+    Driven by a real-time 'stunstars' fx (below), NOT by reading m.stunned: the stun
+    counter is set and spent inside a single turn resolution, so it is already back to 0
+    by the time a frame draws. `fade` (1 -> 0) shrinks the stars as that fx gutters out."""
     for i in range(3):
         a = t * 3.4 + i * 2.0944                    # 2*pi/3 apart, orbiting slowly
         sx = cx + int(math.cos(a) * 9)
         sy = cy + int(math.sin(a) * 3.5)            # a flattened orbit reads as "overhead"
-        size = 12 + int(3 * math.sin(t * 6.0 + i * 2.0))   # a gentle twinkle
-        glyph(surf, "*", sx, sy, config.GOLD, size)
+        size = int((12 + 3 * math.sin(t * 6.0 + i * 2.0)) * (0.45 + 0.55 * fade))
+        if size > 2:
+            glyph(surf, "*", sx, sy, config.GOLD, size)
 
 
 def draw_world(surf, world, codex, cam, t):
@@ -277,11 +281,6 @@ def draw_world(surf, world, codex, cam, t):
             # it brightens as it feeds and fades as it starves
             alpha = int(90 + 165 * m.feed)
         surf.blit(sprites.monster(m.key, col, alpha), topleft(m.x, m.y))
-
-        # the stagger is feedback on YOUR blow, so it shows whether or not you have the
-        # monster codexed -- unlike its health bar and intent, which stay knowledge-gated.
-        if m.stunned:
-            draw_stun_stars(surf, cx, cy - T // 2 - 4, t)
 
         if codex.knows_tier(m.key, "tell"):
             frac = max(0.0, m.hp / m.max_hp)
@@ -802,6 +801,15 @@ def draw_world(surf, world, codex, cam, t):
                 py = cy + math.sin(a) * d
                 pygame.draw.circle(surf, col, (int(px), int(py)),
                                    max(1, int(3 * fade)))
+            continue
+
+        if f["kind"] == "stunstars":
+            # the hammer's stagger, fired the instant it lands. A real-time fx, NOT a
+            # read of m.stunned -- that counter is already spent by the time we draw.
+            if not cam.on_screen(f["x"], f["y"]):
+                continue
+            cx, cy = at(f["x"], f["y"])
+            draw_stun_stars(surf, cx, cy - T // 2 + 4, t, fade=1.0 - prog)
             continue
 
         if f["kind"] == "pulse":
