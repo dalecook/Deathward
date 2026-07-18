@@ -26,7 +26,7 @@ see a monster, it can see you.
 import random
 
 from . import config
-from .items import gear_pool, roll_chest, roll_loot
+from .items import gear_pool, roll_chest, roll_floor_weapon, roll_loot
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
 
@@ -100,11 +100,12 @@ class Chest:
 class Drop:
     """An item lying on the floor."""
 
-    def __init__(self, x, y, kind, payload, gift=None):
+    def __init__(self, x, y, kind, payload, gift=None, bonus=0):
         self.x, self.y = x, y
         self.kind = kind          # "gold" | "item" | "gear"
         self.payload = payload
         self.gift = gift          # a one-time-per-GAME reward, spent on pickup
+        self.bonus = bonus        # a weapon's masterwork/enchant +n, for placed weapons
 
 
 class Slain:
@@ -463,11 +464,37 @@ class Level:
                 kind, payload = roll_loot(rng, d)
                 self.drops.append(Drop(spot[0], spot[1], kind, payload))
 
+        # THE FLOOR'S ONE WEAPON. Scarce and generation-placed: at most one per floor,
+        # sometimes none, decided by roll_floor_weapon. Floor 1 is a guaranteed Bone Axe,
+        # placed as far from the gate as the level allows -- a reward for exploring, and
+        # the safety valve against a run of empty floors stranding you on the shiv. This
+        # is unconditional (never gated on Kodex state) and separate from the floor-1
+        # gear GIFT below: the gift is a once-per-GAME armour/boots upgrade (gear_pool no
+        # longer includes weapons), so the two coexist without overlap.
+        wp = roll_floor_weapon(rng, d)
+        if wp:
+            wkey, wbonus = wp
+            spot = None
+            if d == 1:
+                far_rooms = sorted(
+                    (r for r in self.rooms if r is not self.gate_room),
+                    key=lambda r: -(abs(r.cx - self.entrance[0]) +
+                                    abs(r.cy - self.entrance[1])))
+                for room in far_rooms:
+                    spot = self._free_tile(avoid_start=True, room=room)
+                    if spot:
+                        break
+            if spot is None:
+                spot = self._free_tile(avoid_start=True)
+            if spot:
+                self.drops.append(Drop(spot[0], spot[1], "gear", wkey, bonus=wbonus))
+
         # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. There is exactly one guaranteed gear
         # upgrade down here, placed as far from the gate as the level allows, so it
         # is a reward for exploring rather than a handout at the door. It is claimed
         # once per GAME: it must not regrow on every respawn, or death becomes a way
-        # to farm it.
+        # to farm it. (Armour/boots only now -- gear_pool excludes weapons; the floor's
+        # weapon is placed unconditionally above.)
         if d == 1 and not codex.gift_claimed("floor1"):
             pool = gear_pool(1)
             if pool:

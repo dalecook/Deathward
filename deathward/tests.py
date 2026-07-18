@@ -5866,6 +5866,47 @@ class TestWeaponGeneration(unittest.TestCase):
                              "weapons are generation-placed, never in the gear pool")
 
 
+class TestFloorWeaponPlacement(unittest.TestCase):
+    def _weapon_drops(self, lvl):
+        from .items import WEAPONS
+        return [d for d in lvl.drops if d.kind == "gear" and d.payload in WEAPONS]
+
+    def test_floor_one_always_has_exactly_one_bone_axe(self):
+        for seed in range(20):
+            codex = FakeSave()
+            codex.world_seed = seed
+            w = World(codex, seed=seed)
+            drops = self._weapon_drops(w.level)
+            self.assertEqual(len(drops), 1, "one weapon on floor 1")
+            self.assertEqual(drops[0].payload, "bone_axe")
+            self.assertEqual(drops[0].bonus, 0)
+
+    def test_no_floor_holds_more_than_one_weapon(self):
+        from .dungeon import Level
+        import random
+        for depth in range(1, 21):
+            for seed in range(15):
+                codex = FakeSave()
+                codex.world_seed = seed
+                lvl = Level(depth, random.Random(seed * 31 + depth), codex)
+                self.assertLessEqual(len(self._weapon_drops(lvl)), 1,
+                                     "at most one weapon per floor at depth %d" % depth)
+
+    def test_weapons_no_longer_come_from_chests(self):
+        from .dungeon import Level
+        from .items import WEAPONS
+        import random
+        for depth in range(1, 21):
+            for seed in range(15):
+                codex = FakeSave()
+                codex.world_seed = seed
+                lvl = Level(depth, random.Random(seed), codex)
+                for ch in lvl.chests:
+                    for kind, payload in ch.loot:
+                        self.assertFalse(kind == "gear" and payload in WEAPONS,
+                                         "no weapon in a chest")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
