@@ -6131,6 +6131,59 @@ class TestStunIndicator(unittest.TestCase):
         render.draw_stun_stars(surf, 100, 100, 1.23)      # must not raise
 
 
+class TestWeaponBench(unittest.TestCase):
+    """CTRL+12 weapon bench: swap on any ordinary weapon (base or +2), old drops."""
+
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.level.drops = []
+        return w
+
+    def test_equips_the_selected_weapon_with_its_bonus(self):
+        w = self._world()
+        w.cheat_equip_weapon("steel_hammer", 2)
+        self.assertEqual(w.player.weapon.key, "steel_hammer")
+        self.assertEqual(w.player.weapon.bonus, 2)
+
+    def test_base_pick_equips_at_plus_zero(self):
+        w = self._world()
+        w.cheat_equip_weapon("bronze_sword", 0)
+        self.assertEqual(w.player.weapon.key, "bronze_sword")
+        self.assertEqual(w.player.weapon.bonus, 0)
+
+    def test_old_weapon_drops_at_your_feet_keeping_its_bonus(self):
+        from .items import WEAPONS
+        w = self._world()
+        w.player.weapon = WEAPONS["bronze_axe"].copy(bonus=1)
+        w.cheat_equip_weapon("bone_sword", 0)
+        dropped = [d for d in w.level.drops
+                   if (d.x, d.y) == (w.player.x, w.player.y)
+                   and d.kind == "gear" and d.payload == "bronze_axe"]
+        self.assertEqual(len(dropped), 1, "the old weapon lands at your feet")
+        self.assertEqual(dropped[0].bonus, 1, "and it keeps its own +n")
+
+    def test_equipping_never_mutates_the_template(self):
+        from .items import WEAPONS
+        w = self._world()
+        w.cheat_equip_weapon("steel_axe", 2)
+        self.assertEqual(WEAPONS["steel_axe"].bonus, 0,
+                         "the shared template stays pristine")
+
+
+class TestWeaponBenchUI(unittest.TestCase):
+    def test_draw_weapon_cheat_runs_without_error(self):
+        import pygame
+        from . import ui, config as cfg
+        pygame.init()
+        surf = pygame.Surface((cfg.W, cfg.H), pygame.SRCALPHA)
+        keys = ["%s_%s" % (m, t) for m in ("bone", "bronze", "steel")
+                for t in ("sword", "axe", "hammer")]
+        ui.draw_weapon_cheat(surf, keys, 0.7)             # must not raise
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

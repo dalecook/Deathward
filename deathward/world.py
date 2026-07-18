@@ -1056,6 +1056,22 @@ class World:
                 return (nx, ny)
         return None
 
+    def cheat_equip_weapon(self, key, bonus=0):
+        """CTRL+12 weapon bench: swap any ordinary weapon (base, or its +2 masterwork)
+        straight onto the hero. Your current weapon drops at your feet, keeping its own
+        +n, so nothing is lost and you can pick it back up."""
+        from .items import WEAPONS
+        if key not in WEAPONS:
+            return
+        g = WEAPONS[key].copy(bonus=bonus)
+        old = self.player.equip(g)          # equip stores its own copy and returns the old
+        self.codex.see_gear(key)
+        name = "%s +%d" % (g.name, bonus) if bonus else g.name
+        self.log("[CHEAT] You heft the %s.  (%s)" % (name, g.desc()), config.GOLD)
+        self.add_fx("pulse", self.player.x, self.player.y, color=config.GOLD, life=0.6)
+        if old:
+            self._put_back(old, None)       # onto the floor at your feet, +n intact
+
     def drop_gear_near(self, gear_key):
         """CTRL+87 arsenal tester: lay a chosen piece of gear on an open tile right
         next to the player, so they can step onto it and try it. Prefers an empty

@@ -949,6 +949,41 @@ def draw_aim_hint(surf, ok):
          (cx, 44), 13, (110, 220, 130) if ok else (230, 90, 90), center=True)
 
 
+def draw_weapon_cheat(surf, keys, t):
+    """CTRL+12 weapon bench: the nine ordinary weapons, 1-9. A digit equips the base
+    weapon; SHIFT+digit equips its +2 masterwork. Your current weapon drops at your
+    feet. The base/+2 instruction lives at the bottom, where the eye lands last."""
+    from .items import WEAPONS
+
+    layer = pygame.Surface((config.W, config.H), pygame.SRCALPHA)
+    layer.fill((6, 6, 10, 238))
+    surf.blit(layer, (0, 0))
+    cx = config.W // 2
+
+    text(surf, "WEAPON BENCH", (cx, 52), 34, config.GOLD, bold=True, center=True)
+    text(surf, "[ CHEAT ]   equip any ordinary weapon -- your current one drops at your feet",
+         (cx, 88), 14, config.DIM, center=True)
+
+    y = 122
+    for idx, key in enumerate(keys):
+        g = WEAPONS.get(key)
+        row = pygame.Rect(cx - 310, y, 620, 40)
+        pygame.draw.rect(surf, (16, 19, 26), row, border_radius=6)
+        pygame.draw.rect(surf, config.GOLD, row, 1, border_radius=6)
+        text(surf, str(idx + 1), (cx - 292, y + 9), 22, config.GOLD, bold=True)
+        if g:
+            text(surf, g.name, (cx - 258, y + 6), 17, config.INK, bold=True)
+            text(surf, g.desc(), (cx + 292, y + 12), 12, config.DIM, right=True)
+        y += 46
+
+    g2 = _pulse(t, 0.8)
+    glow = (int(150 + 60 * g2), int(150 + 60 * g2), int(160 + 60 * g2))
+    text(surf, "press 1-9 to equip the base weapon", (cx, y + 12), 15, glow, center=True)
+    text(surf, "hold SHIFT + 1-9 for the +2 masterwork version", (cx, y + 36), 16,
+         config.GOLD, bold=True, center=True)
+    text(surf, "ESC  cancel", (cx, y + 60), 13, config.FAINT, center=True)
+
+
 def draw_arsenal(surf, keys, t):
     """CTRL+87 tester: the top three of each gear kind. Pick one and it drops on an
     open tile beside you -- for trying high-end gear down in the deep floors."""

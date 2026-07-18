@@ -27,7 +27,8 @@ from .render import Camera
 from .world import World
 
 (TITLE, PLAY, DYING, AUTOPSY, CODEX, HELP, WIN, CONFIRM_NEW, PACK,
- SEALED, TRADE, BOON, ARSENAL, TARGETING, BANISH, CHEAT_ITEMS, LOG) = range(17)
+ SEALED, TRADE, BOON, ARSENAL, TARGETING, BANISH, CHEAT_ITEMS, LOG,
+ WEAPON_PICK) = range(18)
 DEATH_FREEZE = 0.55
 
 MOVES = {
@@ -83,6 +84,8 @@ class Game:
         self.arsenal_cheat = CheatCode([pygame.K_8, pygame.K_7])  # CTRL+87: gear picker
         self.scroll_cheat = CheatCode([pygame.K_6, pygame.K_7])   # CTRL+67: scroll picker
         self.potion_cheat = CheatCode([pygame.K_7, pygame.K_6])   # CTRL+76: potion picker
+        self.weapon_cheat = CheatCode([pygame.K_1, pygame.K_2])   # CTRL+12: weapon bench
+        self.weapon_picks = []     # the ordinary weapon keys offered by the weapon bench
         self.arsenal = []          # the gear keys offered by the arsenal popup
         self.cheat_items = []      # the flavors offered by the scroll/potion picker
         self.cheat_items_kind = "scroll"
@@ -184,6 +187,15 @@ class Game:
                         + [g.key for g in picks["armour"]]
                         + [g.key for g in picks["boots"]])
         self.state = ARSENAL
+
+    def open_weapon_cheat(self):
+        """CTRL+12. The weapon bench: the nine ordinary weapons, laid out 1-9. Press a
+        digit for the base weapon, or hold SHIFT for its +2 masterwork. The chosen one
+        goes straight onto you and your current weapon drops at your feet."""
+        self.weapon_picks = ["%s_%s" % (mat, typ)
+                             for mat in ("bone", "bronze", "steel")
+                             for typ in ("sword", "axe", "hammer")]
+        self.state = WEAPON_PICK
 
     def open_consumable_cheat(self, kind):
         """CTRL+67 (scrolls) / CTRL+76 (potions): pick any uncommon or rare one, and it
@@ -288,6 +300,17 @@ class Game:
                 idx = k - pygame.K_1
                 if idx < len(self.arsenal):
                     self.world.drop_gear_near(self.arsenal[idx])
+                    self.state = PLAY
+            return
+
+        if self.state == WEAPON_PICK:
+            if k == pygame.K_ESCAPE:
+                self.state = PLAY
+            elif pygame.K_1 <= k <= pygame.K_9:
+                idx = k - pygame.K_1
+                if idx < len(self.weapon_picks):
+                    self.world.cheat_equip_weapon(self.weapon_picks[idx],
+                                                  2 if shift else 0)
                     self.state = PLAY
             return
 
@@ -428,6 +451,7 @@ class Game:
             (self.arsenal_cheat, lambda: self.open_arsenal()),         # 87   gear picker
             (self.scroll_cheat, lambda: self.open_consumable_cheat("scroll")),  # 67
             (self.potion_cheat, lambda: self.open_consumable_cheat("potion")),  # 76
+            (self.weapon_cheat, lambda: self.open_weapon_cheat()),     # 12   weapon bench
         ]
         if held or any(c.progress for c, _ in cheats):
             done = [c.feed(k, held) for c, _ in cheats]
@@ -635,6 +659,9 @@ class Game:
         elif self.state == ARSENAL:
             self._draw_dungeon()
             ui.draw_arsenal(self.screen, self.arsenal, self.t)
+        elif self.state == WEAPON_PICK:
+            self._draw_dungeon()
+            ui.draw_weapon_cheat(self.screen, self.weapon_picks, self.t)
         elif self.state == BANISH:
             self._draw_dungeon()
             ui.draw_banish(self.screen, self.world.banishable_types(), self.codex,

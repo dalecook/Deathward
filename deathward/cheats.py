@@ -24,6 +24,7 @@ starts over. The codes in use:
     8 7       open the arsenal: pick a top-tier weapon/armour/boots to drop beside you
     6 7       pick any uncommon/rare SCROLL, straight into the pack
     7 6       pick any uncommon/rare POTION, straight into the pack
+    1 2       open the weapon bench: swap on any ordinary weapon (SHIFT for its +2)
 
 These exist so the deep floors can be reached in a few minutes instead of a few
 hours. They are deliberately not reachable by accident: nothing in the game binds
