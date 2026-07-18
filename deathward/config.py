@@ -104,6 +104,14 @@ BASE_HP      = 26
 BASE_SPEED   = 100               # energy gained per tick; act at 100
 ACT_COST     = 100
 
+# THE HAMMER'S STAGGER. A hammer does not gamble its stun on a die roll -- it lands on
+# a rhythm you can play around: it staggers the FIRST blow against a given enemy, then
+# every Nth blow after. Deterministic, so the control is legible (and it costs no rng
+# draw). These are the dials: crank the cadence tighter or the hold longer if the
+# hammer still feels weak, but a 2-turn hold on a tight cadence perma-locks a duel.
+HAMMER_STUN_CADENCE = 3          # stun on hits 1, 1+N, 1+2N, ... against each enemy
+HAMMER_STUN_TURNS   = 1          # turns the stagger holds
+
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole

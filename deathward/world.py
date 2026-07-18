@@ -501,11 +501,16 @@ class World:
                 # its life, visibly crossing the gap into you
                 self.add_fx("drain", p.x, p.y, color=(226, 74, 96), life=0.5,
                             tiles=[(m.x, m.y)])
-        if trait == "stun" and self.rng.random() < 0.25 and m.alive:
-            m.stunned = max(m.stunned, 1)
-            self.log("The hammer rings its skull. It reels.", config.GOLD)
-            self.add_fx("impact", m.x, m.y, color=config.GOLD, radius=1.0, life=0.4)
-            self.shake(4)
+        if trait == "stun" and m.alive:
+            # a rhythm, not a gamble: the FIRST blow on a thing staggers it, then every
+            # Nth blow after. Deterministic, so the control is legible -- and it costs no
+            # rng draw, which keeps generation/combat reproducible.
+            m.hammer_hits += 1
+            if (m.hammer_hits - 1) % config.HAMMER_STUN_CADENCE == 0:
+                m.stunned = max(m.stunned, config.HAMMER_STUN_TURNS)
+                self.log("The hammer rings its skull. It reels.", config.GOLD)
+                self.add_fx("impact", m.x, m.y, color=config.GOLD, radius=1.0, life=0.4)
+                self.shake(4)
         if trait == "burn" and m.alive:
             m.burning = max(m.burning, 3)
             self.log("The %s catches fire." % self._mname(m), (255, 150, 80))

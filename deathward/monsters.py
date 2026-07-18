@@ -182,6 +182,7 @@ class Monster:
         self.weak = 0             # turns of sapped strength (a weakness-coated blade)
         self.feared = 0           # turns fleeing (a scroll of Fear)
         self.confused = 0         # turns stumbling at random (a confusion-coated blade)
+        self.hammer_hits = 0      # stun-weapon blows landed on it -> the stagger cadence
 
     @property
     def name(self):

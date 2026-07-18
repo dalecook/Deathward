@@ -5801,7 +5801,7 @@ class TestWeaponRoster(unittest.TestCase):
     def test_matrix_shape_and_stats(self):
         from .items import WEAPONS
         bands = {"bone": (1, 5), "bronze": (2, 5), "steel": (3, 5)}
-        taxes = {"sword": 0, "axe": -15, "hammer": -30}
+        taxes = {"sword": 0, "axe": -15, "hammer": -25}
         traits = {"sword": None, "axe": "cleave", "hammer": "stun"}
         tiers = {"bone": 1, "bronze": 2, "steel": 3}
         for mat, (lo, hi) in bands.items():
@@ -6066,6 +6066,69 @@ class TestWeaponBonusSurvivesDeath(unittest.TestCase):
         w._consume_option(opts[idx])
         self.assertEqual(w.player.weapon.key, "bronze_hammer")
         self.assertEqual(w.player.weapon.bonus, 2)
+
+
+class TestHammerStunCadence(unittest.TestCase):
+    def _setup(self):
+        codex = FakeSave()
+        codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        from .items import WEAPONS
+        w.player.weapon = WEAPONS["steel_hammer"].copy()
+        return w
+
+    def _durable_target(self, w, dx=1, dy=0):
+        from .monsters import Monster
+        m = Monster("brute", w.player.x + dx, w.player.y + dy)
+        m.hp = m.max_hp = 999          # never dies mid-test
+        w.level.monsters.append(m)
+        return m
+
+    def test_stuns_on_first_hit_then_every_third(self):
+        w = self._setup()
+        m = self._durable_target(w)
+        pattern = []
+        for _ in range(7):
+            m.stunned = 0
+            w.player_attack(m)
+            pattern.append(m.stunned > 0)
+        self.assertEqual(pattern,
+                         [True, False, False, True, False, False, True],
+                         "stun-hit-hit cadence, opening on the first blow")
+
+    def test_stun_lasts_one_turn(self):
+        w = self._setup()
+        m = self._durable_target(w)
+        w.player_attack(m)
+        self.assertEqual(m.stunned, 1)
+
+    def test_cadence_is_per_enemy(self):
+        w = self._setup()
+        a = self._durable_target(w, 1, 0)
+        b = self._durable_target(w, 0, 1)
+        a.stunned = b.stunned = 0
+        w.player_attack(a)              # a's opening blow -> stun
+        w.player_attack(b)              # b's own opening blow -> stun (independent count)
+        self.assertTrue(a.stunned and b.stunned,
+                        "each enemy opens with its own stun")
+        a.stunned = 0
+        w.player_attack(a)              # a's second blow -> no stun
+        self.assertFalse(a.stunned, "a's second blow does not stun")
+
+    def test_hammer_tax_eased_to_minus_25(self):
+        from .items import WEAPONS
+        for mat in ("bone", "bronze", "steel"):
+            self.assertEqual(WEAPONS["%s_hammer" % mat].speed_mod, -25)
+
+
+class TestStunIndicator(unittest.TestCase):
+    def test_draw_stun_stars_runs_without_error(self):
+        import pygame
+        from . import render
+        pygame.init()
+        surf = pygame.Surface((200, 200), pygame.SRCALPHA)
+        render.draw_stun_stars(surf, 100, 100, 1.23)      # must not raise
 
 
 if __name__ == "__main__":

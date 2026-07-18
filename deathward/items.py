@@ -94,7 +94,7 @@ def _ordinary(mat, mat_tier, mat_lo):
     for typ, tax, trait, note in (
             ("sword", 0, None, ""),
             ("axe", -15, "cleave", "cleaves every adjacent enemy"),
-            ("hammer", -30, "stun", "1 in 4 strikes stuns for a turn")):
+            ("hammer", -25, "stun", "staggers the first blow, then every third")):
         key = "%s_%s" % (mat, typ)
         name = "%s %s" % (mat.capitalize(), typ.capitalize())
         out[key] = Weapon(key, name, mat_tier, mat_lo, 5, trait, note, speed_mod=tax)
