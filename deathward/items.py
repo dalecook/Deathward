@@ -307,9 +307,10 @@ def roll_consumable(rng, depth, kind):
 
 
 def gear_pool(depth):
-    """What gear can drop at a given depth. Deeper floors unlock better tiers."""
+    """Armour and boots that can drop at a given depth. Weapons are NOT here -- they are
+    placed one-per-floor at generation time (see roll_floor_weapon)."""
     pool = []
-    for table in (WEAPONS, ARMOURS, BOOTS):
+    for table in (ARMOURS, BOOTS):
         for key, g in table.items():
             if g.tier == 0:
                 continue
@@ -320,6 +321,30 @@ def gear_pool(depth):
             elif g.tier == 3 and depth >= 5:
                 pool.append(key)
     return pool
+
+
+def roll_floor_weapon(rng, depth):
+    """The one weapon a floor may hold, decided at generation. Returns (key, bonus) or
+    None. Depends only on (rng, depth) -- never on the Kodex -- so blind and omniscient
+    runs of a seed stay bit-identical.
+
+    Floor 1 always yields an unenhanced Bone Axe (the safety valve + the cleave lesson).
+    Floors 2-7 are ordinary, material banded by depth, with a depth-scaled masterwork
+    chance. Floors 8+ are magical, always unenhanced.
+    """
+    if depth == 1:
+        return ("bone_axe", 0)
+    present = 0.80 if depth <= 8 else 0.70 if depth <= 15 else 0.60
+    if rng.random() >= present:
+        return None
+    if depth <= 7:
+        material = "bone" if depth <= 2 else "bronze" if depth <= 4 else "steel"
+        wtype = rng.choice(["sword", "axe", "hammer"])
+        bonus = 0
+        if rng.random() < (depth - 1) * 0.10:      # 10% on 2 ... 60% on 7
+            bonus = 2 if rng.random() < 0.25 else 1
+        return ("%s_%s" % (material, wtype), bonus)
+    return (rng.choice(["rapier", "brand", "kris"]), 0)
 
 
 def roll_loot(rng, depth):

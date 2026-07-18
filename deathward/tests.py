@@ -5805,6 +5805,67 @@ class TestWeaponSprites(unittest.TestCase):
             self.assertIsNotNone(surf)
 
 
+class TestWeaponGeneration(unittest.TestCase):
+    def test_floor_one_is_always_an_unenhanced_bone_axe(self):
+        import random
+        from .items import roll_floor_weapon
+        for seed in range(50):
+            self.assertEqual(roll_floor_weapon(random.Random(seed), 1),
+                             ("bone_axe", 0))
+
+    def test_material_bands(self):
+        import random
+        from .items import roll_floor_weapon
+        def mats(depth):
+            out = set()
+            for seed in range(400):
+                r = roll_floor_weapon(random.Random(seed), depth)
+                if r:
+                    out.add(r[0].split("_")[0])
+            return out
+        self.assertEqual(mats(2), {"bone"})
+        self.assertEqual(mats(3) | mats(4), {"bronze"})
+        self.assertEqual(mats(6), {"steel"})
+
+    def test_floor_eight_plus_is_magical(self):
+        import random
+        from .items import roll_floor_weapon
+        got = set()
+        for seed in range(400):
+            r = roll_floor_weapon(random.Random(seed), 8)
+            if r:
+                self.assertEqual(r[1], 0, "magical weapons are found unenhanced")
+                got.add(r[0])
+        self.assertTrue(got <= {"rapier", "brand", "kris"})
+
+    def test_present_probability_falls_with_depth(self):
+        import random
+        from .items import roll_floor_weapon
+        def rate(depth):
+            hits = sum(roll_floor_weapon(random.Random(s), depth) is not None
+                       for s in range(2000))
+            return hits / 2000.0
+        self.assertAlmostEqual(rate(5), 0.80, delta=0.04)
+        self.assertAlmostEqual(rate(12), 0.70, delta=0.04)
+        self.assertAlmostEqual(rate(18), 0.60, delta=0.04)
+
+    def test_enhancement_chance_climbs(self):
+        import random
+        from .items import roll_floor_weapon
+        def enh_rate(depth):
+            present = [r for r in (roll_floor_weapon(random.Random(s), depth)
+                                   for s in range(4000)) if r]
+            return sum(1 for _, b in present if b > 0) / len(present)
+        self.assertLess(enh_rate(2), 0.16)     # ~10%
+        self.assertGreater(enh_rate(7), 0.50)  # ~60%
+
+    def test_gear_pool_has_no_weapons(self):
+        from .items import gear_pool, WEAPONS
+        for depth in (1, 5, 10, 20):
+            self.assertFalse(any(k in WEAPONS for k in gear_pool(depth)),
+                             "weapons are generation-placed, never in the gear pool")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
