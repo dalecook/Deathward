@@ -1177,7 +1177,8 @@ class World:
                  config.DIM)
         if isinstance(sink, Corpse):
             self.codex.write_corpse(self.depth, sink.x, sink.y, sink.gold,
-                                    sink.weapon, sink.gift, sink.loot)
+                                    sink.weapon, sink.gift, sink.loot,
+                                    weapon_bonus=sink.weapon_bonus)
             self.codex.save()
         return self._end_player_turn()
 

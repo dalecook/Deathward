@@ -6035,6 +6035,23 @@ class TestWeaponBonusSurvivesDeath(unittest.TestCase):
         self.assertEqual((c["weapon"], c["weapon_bonus"]), ("steel_axe", 3),
                          "on a tier tie, the higher bonus wins")
 
+    def test_dropping_an_item_onto_your_corpse_keeps_the_weapon_bonus(self):
+        codex = FakeSave()
+        codex.world_seed = 21
+        codex.leave_corpse(1, 0, 0, 0, "steel_axe", weapon_bonus=2)
+        w = World(codex, seed=21)
+        c = w.level.corpse
+        self.assertIsNotNone(c)
+        w.player.x, w.player.y = c.x, c.y
+        # put a potion in the pack, then drop it onto the corpse (a normal free-a-slot
+        # action) -- this must hit the `isinstance(sink, Corpse)` write_corpse branch
+        # in drop_item
+        w.player.slots[0] = ["ochre", 1]
+        w.drop_item(0)
+        saved = codex.corpse_at(1)
+        self.assertEqual(saved["weapon_bonus"], 2,
+                         "dropping onto your corpse must not wipe the weapon's +n")
+
     def test_reclaiming_your_body_re_equips_the_bonus(self):
         codex = FakeSave()
         codex.world_seed = 7
