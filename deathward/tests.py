@@ -5922,6 +5922,40 @@ class TestFloorWeaponPlacement(unittest.TestCase):
         self.assertGreater(seen, 0, "some floor-4 runs must place a weapon")
 
 
+class TestWeaponBonusPickup(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave()
+        codex.world_seed = 5
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        return w
+
+    def test_picking_up_an_enhanced_weapon_equips_the_bonus(self):
+        from .dungeon import Drop
+        w = self._world()
+        w.level.drops.append(Drop(w.player.x, w.player.y, "gear", "steel_sword", bonus=2))
+        opts = w.loot_options()
+        idx = next(i for i, o in enumerate(opts)
+                   if o["kind"] == "gear" and o["payload"] == "steel_sword")
+        w._consume_option(opts[idx])
+        self.assertEqual(w.player.weapon.key, "steel_sword")
+        self.assertEqual(w.player.weapon.bonus, 2)
+
+    def test_swapping_preserves_the_old_weapons_bonus_on_the_floor(self):
+        from .dungeon import Drop
+        from .items import WEAPONS
+        w = self._world()
+        w.player.weapon = WEAPONS["bronze_axe"].copy(bonus=3)
+        w.level.drops.append(Drop(w.player.x, w.player.y, "gear", "steel_sword", bonus=0))
+        opts = w.loot_options()
+        idx = next(i for i, o in enumerate(opts)
+                   if o["kind"] == "gear" and o["payload"] == "steel_sword")
+        w._consume_option(opts[idx])
+        dropped = [d for d in w.level.drops if d.payload == "bronze_axe"]
+        self.assertEqual(len(dropped), 1)
+        self.assertEqual(dropped[0].bonus, 3, "the +3 rides down onto the floor")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

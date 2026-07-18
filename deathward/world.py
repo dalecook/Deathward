@@ -782,7 +782,7 @@ class World:
                              "src": ("slain", s, i)})
 
         for d in lvl.drops_at(p.x, p.y):
-            opts.append({"kind": d.kind, "payload": d.payload,
+            opts.append({"kind": d.kind, "payload": d.payload, "bonus": d.bonus,
                          "label": self.loot_label(d.kind, d.payload),
                          "src": ("drop", d)})
 
@@ -885,7 +885,7 @@ class World:
                 p.gift = d.payload
                 self.codex.save()
             # taken off the bare floor: whatever comes off goes onto the bare floor
-            self._take(d.kind, d.payload, sink=None)
+            self._take(d.kind, d.payload, sink=None, bonus=d.bonus)
 
         elif src[0] == "slain":
             s, i = src[1], src[2]
@@ -963,14 +963,15 @@ class World:
             return self._end_player_turn()
         return self.take_all()
 
-    def _take(self, kind, payload, sink=None):
+    def _take(self, kind, payload, sink=None, bonus=0):
         """Put one thing into the hero's hands.
 
         Gear is a SWAP, not a purchase. Whatever comes off does not evaporate -- it
         goes back where the new thing came from: into the chest, onto the body, into
         your own corpse, or, if you picked the new thing up off the floor, onto the
         floor at your feet. You can always change your mind. `sink` is the container
-        it came out of, or None for bare ground.
+        it came out of, or None for bare ground. `bonus` is a placed weapon's
+        masterwork/enchant +n; it rides onto the equipped instance.
         """
         p = self.player
         if kind == "gold":
@@ -982,6 +983,8 @@ class World:
             self.log("You take the %s." % c.name(self.codex), config.ITEM)
         elif kind == "gear":
             g = ALL_GEAR[payload]
+            if g.slot == "weapon" and bonus:
+                g = g.copy(bonus=bonus)          # carry the found/kept +n into the swap
             old = p.equip(g)
             self.codex.see_gear(payload)          # you have handled it -> a Kodex entry
             name, desc = p.gear_display(g.slot)   # shows any enchant it already carried
@@ -1175,8 +1178,11 @@ class World:
         return self._end_player_turn()
 
     def _put_back(self, gear, sink):
-        """The gear you just took off. It goes back into the container you looted, or
-        onto the ground under you if there was no container."""
+        """The gear you took off. Back into the container you looted, or onto the ground.
+        NOTE: a weapon returned to a container's loot LIST loses its +n this phase (the
+        loot-tuple format is 2-wide); a weapon returned to bare GROUND keeps it. The
+        death-corpse's own weapon slot preserves +n (see leave_corpse). The loot-list
+        edge is closed when armour/boots join the per-instance model."""
         if sink is not None and hasattr(sink, "loot"):
             sink.loot.append(("gear", gear.key))
             where = ("chest" if isinstance(sink, Chest)
@@ -1185,7 +1191,8 @@ class World:
             self.log("You leave the %s in the %s." % (gear.name, where), config.DIM)
         else:
             p = self.player
-            self.level.drops.append(Drop(p.x, p.y, "gear", gear.key))
+            bonus = getattr(gear, "bonus", 0)
+            self.level.drops.append(Drop(p.x, p.y, "gear", gear.key, bonus=bonus))
             self.log("You drop the %s at your feet." % gear.name, config.DIM)
 
     def use_item(self, index):
