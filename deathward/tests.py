@@ -5906,6 +5906,21 @@ class TestFloorWeaponPlacement(unittest.TestCase):
                         self.assertFalse(kind == "gear" and payload in WEAPONS,
                                          "no weapon in a chest")
 
+    def test_deeper_floors_do_place_weapons_of_the_expected_band(self):
+        from .dungeon import Level
+        import random
+        seen = 0
+        for seed in range(60):
+            codex = FakeSave()
+            codex.world_seed = seed
+            lvl = Level(4, random.Random(seed * 31 + 4), codex)
+            for d in self._weapon_drops(lvl):
+                seen += 1
+                self.assertTrue(d.payload.startswith("bronze_"),
+                                "floor 4 weapons are bronze")
+                self.assertIn(d.bonus, (0, 1, 2))
+        self.assertGreater(seen, 0, "some floor-4 runs must place a weapon")
+
 
 if __name__ == "__main__":
     pygame.init()

@@ -432,6 +432,20 @@ class Level:
             return x, y
         return None
 
+    def _far_room_spot(self):
+        """A free tile in the room farthest (Manhattan) from the entrance, skipping
+        the gate room; None if no such tile is free. Used for floor 1's guaranteed
+        placements, which sit as far from the gate as the level allows."""
+        far_rooms = sorted(
+            (r for r in self.rooms if r is not self.gate_room),
+            key=lambda r: -(abs(r.cx - self.entrance[0]) +
+                            abs(r.cy - self.entrance[1])))
+        for room in far_rooms:
+            spot = self._free_tile(avoid_start=True, room=room)
+            if spot:
+                return spot
+        return None
+
     def _install_traps(self):
         """Cut the traps into the floor. Uses the LAYOUT rng, so floor 4's dart trap
         is in the same doorway in every run of this game."""
@@ -474,16 +488,7 @@ class Level:
         wp = roll_floor_weapon(rng, d)
         if wp:
             wkey, wbonus = wp
-            spot = None
-            if d == 1:
-                far_rooms = sorted(
-                    (r for r in self.rooms if r is not self.gate_room),
-                    key=lambda r: -(abs(r.cx - self.entrance[0]) +
-                                    abs(r.cy - self.entrance[1])))
-                for room in far_rooms:
-                    spot = self._free_tile(avoid_start=True, room=room)
-                    if spot:
-                        break
+            spot = self._far_room_spot() if d == 1 else None
             if spot is None:
                 spot = self._free_tile(avoid_start=True)
             if spot:
@@ -498,16 +503,10 @@ class Level:
         if d == 1 and not codex.gift_claimed("floor1"):
             pool = gear_pool(1)
             if pool:
-                far_rooms = sorted(
-                    (r for r in self.rooms if r is not self.gate_room),
-                    key=lambda r: -(abs(r.cx - self.entrance[0]) +
-                                    abs(r.cy - self.entrance[1])))
-                for room in far_rooms:
-                    spot = self._free_tile(avoid_start=True, room=room)
-                    if spot:
-                        self.drops.append(Drop(spot[0], spot[1], "gear",
-                                               rng.choice(pool), gift="floor1"))
-                        break
+                spot = self._far_room_spot()
+                if spot:
+                    self.drops.append(Drop(spot[0], spot[1], "gear",
+                                           rng.choice(pool), gift="floor1"))
 
         # one chest per floor from depth 2 is not a chest
         if d >= 2 and self.chests and rng.random() < 0.55:
