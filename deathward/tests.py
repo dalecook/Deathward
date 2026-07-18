@@ -5970,6 +5970,21 @@ class TestWeaponBonusSurvivesDeath(unittest.TestCase):
                               "gift": None, "loot": []}          # a pre-bonus save
         self.assertEqual(codex.corpse_at(4).get("weapon_bonus", 0), 0)
 
+    def test_old_corpse_without_bonus_survives_the_merge_and_restore(self):
+        codex = FakeSave()
+        codex.world_seed = 11
+        codex.corpses["1"] = {"x": 0, "y": 0, "gold": 5, "weapon": "brand",
+                              "gift": None, "loot": []}          # a pre-bonus save
+        # drives codex.leave_corpse's old.get("weapon_bonus", 0) merge branch
+        codex.leave_corpse(1, 0, 0, 10, "bone_axe", weapon_bonus=0)
+        c = codex.corpse_at(1)
+        self.assertEqual(c["weapon"], "brand", "kept the better weapon")
+        self.assertEqual(c.get("weapon_bonus", 0), 0)
+        # drives dungeon.py's Corpse restore .get("weapon_bonus", 0) with no KeyError
+        w = World(codex, seed=11)
+        self.assertIsNotNone(w.level.corpse)
+        self.assertEqual(w.level.corpse.weapon_bonus, 0)
+
     def test_better_weapon_keeps_its_bonus_across_a_second_death(self):
         codex = FakeSave()
         codex.leave_corpse(2, 4, 4, 50, "steel_sword", weapon_bonus=1)
@@ -5977,6 +5992,14 @@ class TestWeaponBonusSurvivesDeath(unittest.TestCase):
         c = codex.corpse_at(2)
         self.assertEqual(c["weapon"], "steel_sword")
         self.assertEqual(c["weapon_bonus"], 1, "the better weapon keeps its +n")
+
+    def test_same_tier_second_death_keeps_the_higher_bonus(self):
+        codex = FakeSave()
+        codex.leave_corpse(2, 4, 4, 0, "steel_sword", weapon_bonus=1)
+        codex.leave_corpse(2, 8, 8, 0, "steel_axe", weapon_bonus=3)   # same tier, higher +n
+        c = codex.corpse_at(2)
+        self.assertEqual((c["weapon"], c["weapon_bonus"]), ("steel_axe", 3),
+                         "on a tier tie, the higher bonus wins")
 
     def test_reclaiming_your_body_re_equips_the_bonus(self):
         codex = FakeSave()
