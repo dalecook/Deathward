@@ -1197,7 +1197,7 @@ class TestLootMenu(unittest.TestCase):
     def test_a_chest_lists_everything_in_it(self):
         codex = FakeSave()
         w = World(codex, seed=6)
-        self._chest_under_player(w, [("gold", 25), ("gear", "axe"), ("item", "azure")])
+        self._chest_under_player(w, [("gold", 25), ("gear", "bone_axe"), ("item", "azure")])
         opts = w.loot_options()
         self.assertEqual(len(opts), 3)
         self.assertEqual(opts[0]["label"], "25 gold")
@@ -1218,7 +1218,7 @@ class TestLootMenu(unittest.TestCase):
     def test_taking_one_thing_leaves_the_rest(self):
         codex = FakeSave()
         w = World(codex, seed=6)
-        self._chest_under_player(w, [("gold", 25), ("gear", "axe"), ("item", "azure")])
+        self._chest_under_player(w, [("gold", 25), ("gear", "bone_axe"), ("item", "azure")])
         w.take_option(0)                        # just the gold
         self.assertEqual(w.player.gold, 25)
         opts = w.loot_options()
@@ -1229,9 +1229,9 @@ class TestLootMenu(unittest.TestCase):
     def test_taking_a_middle_option_takes_the_right_one(self):
         codex = FakeSave()
         w = World(codex, seed=6)
-        self._chest_under_player(w, [("gold", 25), ("gear", "axe"), ("item", "azure")])
+        self._chest_under_player(w, [("gold", 25), ("gear", "bone_axe"), ("item", "azure")])
         w.take_option(1)                        # the axe
-        self.assertEqual(w.player.weapon.key, "axe")
+        self.assertEqual(w.player.weapon.key, "bone_axe")
         labels = [o["label"] for o in w.loot_options()]
         self.assertTrue(any("gold" in l for l in labels))
         self.assertFalse(any("Bone Axe" in l for l in labels), "the axe is in our hand")
@@ -1242,11 +1242,11 @@ class TestLootMenu(unittest.TestCase):
     def test_take_all_takes_everything_worth_taking(self):
         codex = FakeSave()
         w = World(codex, seed=6)
-        ch = self._chest_under_player(w, [("gold", 25), ("gear", "axe"),
+        ch = self._chest_under_player(w, [("gold", 25), ("gear", "bone_axe"),
                                           ("item", "azure")])
         w.take_all()
         self.assertEqual(w.player.gold, 25)
-        self.assertEqual(w.player.weapon.key, "axe")
+        self.assertEqual(w.player.weapon.key, "bone_axe")
         self.assertEqual(w.player.pack, ["azure"])
         # the only thing left is the weapon we displaced -- 'all' will not pick your
         # own cast-off shiv back up, and it does not delete it either
@@ -1256,8 +1256,8 @@ class TestLootMenu(unittest.TestCase):
         from .items import WEAPONS
         codex = FakeSave()
         w = World(codex, seed=6)
-        w.player.weapon = WEAPONS["brand"]      # tier 3
-        self._chest_under_player(w, [("gold", 10), ("gear", "sword")])   # tier 1
+        w.player.weapon = WEAPONS["brand"]      # tier 4
+        self._chest_under_player(w, [("gold", 10), ("gear", "bronze_sword")])   # tier 2
         w.take_all()
         self.assertEqual(w.player.gold, 10)
         self.assertEqual(w.player.weapon.key, "brand",
@@ -1542,7 +1542,7 @@ class TestBeatingTheWarden(unittest.TestCase):
         codex = g.codex
         codex.remember_map(1, [[True] * 4] * 4)
         codex.find_trap(1, 9, 9)
-        codex.leave_corpse(2, 4, 4, 90, "sword")
+        codex.leave_corpse(2, 4, 4, 90, "bronze_sword")
         seed = codex.world_seed
         stone = tuple(tuple(r) for r in g.world.level.grid)
 
@@ -1651,7 +1651,7 @@ class TestTheCheatCode(unittest.TestCase):
 
         self.assertEqual(w.player.weapon.key, "kris",
                          "the cheat grants the Vampiric Kris specifically")
-        self.assertEqual(w.player.weapon.tier, 3, "and it is still a top-tier weapon")
+        self.assertEqual(w.player.weapon.tier, 4, "and it is still a top-tier weapon")
         self.assertEqual(w.player.armour.tier, 3, "the best armour in the game")
         self.assertEqual(w.player.boots.tier, 3, "the best boots in the game")
         self.assertEqual(max(g.tier for g in ARMOURS.values()), w.player.armour.tier)
@@ -1687,7 +1687,7 @@ class TestTheCheatCode(unittest.TestCase):
         got = w.grant_cheat()
 
         self.assertEqual(got, 0)
-        self.assertEqual(w.player.weapon.tier, 3, "the gear still lands")
+        self.assertEqual(w.player.weapon.tier, 4, "the gear still lands")
         self.assertEqual(w.player.armour.tier, 3)
 
     def test_a_part_used_potion_stack_is_topped_up_first(self):
@@ -3103,10 +3103,10 @@ class TestThePack(unittest.TestCase):
         w = self._world()
         w.player.slots = [["ochre", 3]] * 1 + [["azure", 3], ["viscous", 3],
                                                ["black", 3], ["kesh", 3], ["vorn", 3]]
-        self._chest(w, [("gold", 50), ("gear", "sword"), ("item", "uul")])
+        self._chest(w, [("gold", 50), ("gear", "bronze_sword"), ("item", "uul")])
         w.take_all()
         self.assertEqual(w.player.gold, 50, "gold does not live in the pack")
-        self.assertEqual(w.player.weapon.key, "sword", "nor does gear")
+        self.assertEqual(w.player.weapon.key, "bronze_sword", "nor does gear")
         self.assertIn("uul", [o["payload"] for o in w.loot_options()],
                       "the scroll is still there to come back for")
 
@@ -3256,13 +3256,13 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
         codex = FakeSave()
         w = World(codex, seed=6)
         self._clear(w)
-        w.player.weapon = WEAPONS["sword"]                  # tier 1
-        ch = Chest(w.player.x, w.player.y, [("gear", "brand")])   # tier 3
+        w.player.weapon = WEAPONS["bronze_sword"]           # tier 2
+        ch = Chest(w.player.x, w.player.y, [("gear", "brand")])   # tier 4
         w.level.chests = [ch]
 
         w.take_option(0)
         self.assertEqual(w.player.weapon.key, "brand", "you took the better weapon")
-        self.assertIn(("gear", "sword"), ch.loot,
+        self.assertIn(("gear", "bronze_sword"), ch.loot,
                       "the Bronze Sword must be lying in the chest, not deleted")
         labels = [o["label"] for o in w.loot_options()]
         self.assertTrue(any("Bronze Sword" in l for l in labels),
@@ -3274,12 +3274,12 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
         codex = FakeSave()
         w = World(codex, seed=6)
         self._clear(w)
-        w.player.weapon = WEAPONS["sword"]
+        w.player.weapon = WEAPONS["bronze_sword"]
         w.level.chests = [Chest(w.player.x, w.player.y, [("gear", "brand")])]
         w.take_option(0)
         self.assertEqual(w.player.weapon.key, "brand")
         w.take_option(0)                                     # take the sword back
-        self.assertEqual(w.player.weapon.key, "sword",
+        self.assertEqual(w.player.weapon.key, "bronze_sword",
                          "you must be able to put your old weapon back on")
         self.assertEqual([o["payload"] for o in w.loot_options()], ["brand"],
                          "and the Flame Brand is now the thing in the chest")
@@ -3324,21 +3324,21 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
         from .items import WEAPONS
         codex = FakeSave()
         codex.world_seed = 55
-        codex.leave_corpse(1, 5, 5, 0, "brand")             # your body holds a tier 3
+        codex.leave_corpse(1, 5, 5, 0, "brand")             # your body holds a tier 4
         w = World(codex, seed=2)
         w.level.monsters = []
         c = w.level.corpse
         w.player.x, w.player.y = c.x, c.y
-        w.player.weapon = WEAPONS["sword"]                  # you are holding a tier 1
+        w.player.weapon = WEAPONS["bronze_sword"]           # you are holding a tier 2
 
         w.take_option(0)                                     # take the Flame Brand
         self.assertEqual(w.player.weapon.key, "brand")
-        self.assertIn(("gear", "sword"), c.loot,
+        self.assertIn(("gear", "bronze_sword"), c.loot,
                       "your Bronze Sword must stay on the body, not vanish")
         # and the save agrees
         saved = codex.corpse_at(1)
         self.assertIsNotNone(saved)
-        self.assertIn(["gear", "sword"], saved["loot"])
+        self.assertIn(["gear", "bronze_sword"], saved["loot"])
 
     def test_take_all_does_not_leave_you_juggling_your_own_cast_offs(self):
         from .dungeon import Chest
@@ -4446,7 +4446,7 @@ class TestWaveTwoBuffs(unittest.TestCase):
     def test_enchanting_updates_the_displayed_name_and_stats(self):
         from .items import WEAPONS, ARMOURS
         w = self._world()
-        w.player.weapon = WEAPONS["sword"].copy()   # Bronze Sword, 2-5 dmg
+        w.player.weapon = WEAPONS["bronze_sword"].copy()   # Bronze Sword, 2-5 dmg
         w.player.armour = ARMOURS["leather"]      # Leather Jerkin, 1 def
         self.assertEqual(w.player.gear_display("weapon"), ("Bronze Sword", "2-5 dmg"))
 
@@ -5761,6 +5761,48 @@ class TestWeaponSpeedTaxAndInstanceBonus(unittest.TestCase):
         p.weapon.bonus += 5                       # simulate an enchant on the fresh hero
         self.assertEqual(WEAPONS[p.weapon.key].bonus, 0,
                          "the shared template must stay pristine")
+
+
+class TestWeaponRoster(unittest.TestCase):
+    def test_matrix_shape_and_stats(self):
+        from .items import WEAPONS
+        bands = {"bone": (1, 5), "bronze": (2, 5), "steel": (3, 5)}
+        taxes = {"sword": 0, "axe": -15, "hammer": -30}
+        traits = {"sword": None, "axe": "cleave", "hammer": "stun"}
+        tiers = {"bone": 1, "bronze": 2, "steel": 3}
+        for mat, (lo, hi) in bands.items():
+            for typ, tax in taxes.items():
+                w = WEAPONS["%s_%s" % (mat, typ)]
+                self.assertEqual((w.lo, w.hi), (lo, hi))
+                self.assertEqual(w.speed_mod, tax)
+                self.assertEqual(w.trait, traits[typ])
+                self.assertEqual(w.tier, tiers[mat])
+
+    def test_shiv_is_the_starter_and_lowest(self):
+        from .items import WEAPONS, STARTING
+        self.assertEqual(STARTING[0], "shiv")
+        self.assertEqual(WEAPONS["shiv"].tier, 0)
+
+    def test_magical_trio_is_top_tier(self):
+        from .items import WEAPONS
+        for k in ("rapier", "brand", "kris"):
+            self.assertEqual(WEAPONS[k].tier, 4)
+
+    def test_iron_warhammer_is_retired(self):
+        from .items import WEAPONS
+        self.assertNotIn("sword", WEAPONS)
+        self.assertNotIn("hammer", WEAPONS)   # the old Iron Warhammer key is gone
+
+
+class TestWeaponSprites(unittest.TestCase):
+    def test_every_weapon_key_renders_without_error(self):
+        import pygame
+        from .items import WEAPONS
+        from . import sprites
+        pygame.init()
+        for key in WEAPONS:
+            surf = sprites.gear(key)          # the public gear-sprite entry point
+            self.assertIsNotNone(surf)
 
 
 if __name__ == "__main__":

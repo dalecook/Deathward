@@ -931,6 +931,13 @@ def _w_blade(s, S, blade, hilt, guard, length=0.50, width=0.09, tip=0.08):
     _circ(s, guard, cx, S * 0.88, S * 0.05)
 
 
+_MATERIAL = {                       # (blade, hilt, guard) per material
+    "bone":   ((236, 230, 212), (172, 150, 118), (200, 190, 168)),
+    "bronze": ((206, 150, 74), (120, 84, 52), (162, 116, 60)),
+    "steel":  ((216, 224, 236), (60, 62, 72), (176, 182, 196)),
+}
+
+
 def _weapon_sprite(key, s, S):
     cx = S * 0.5
     if key == "shiv":                       # rusted, short, pitiful
@@ -939,44 +946,40 @@ def _weapon_sprite(key, s, S):
                  tip=0.28)
         _circ(s, _shade(rust, 0.7), cx + S * 0.02, S * 0.45, S * 0.02)
         _circ(s, _shade(rust, 0.7), cx - S * 0.02, S * 0.55, S * 0.015)
-    elif key == "sword":                    # bronze
-        _w_blade(s, S, (206, 150, 74), (120, 84, 52), (162, 116, 60))
-    elif key == "axe":                      # bone haft, single crescent blade
-        bone = (236, 230, 212)
-        haft = (172, 150, 118)
-        _line(s, haft, (cx - S * 0.10, S * 0.16), (cx - S * 0.02, S * 0.90), S * 0.055)
-        _line(s, _shade(haft, 0.7), (cx - S * 0.09, S * 0.30), (cx - S * 0.05, S * 0.72),
-              S * 0.015)
-        # the crescent: bites out to one side, so it reads as an AXE and not a mallet
-        head = [(cx - S * 0.08, S * 0.16), (cx + S * 0.10, S * 0.13),
-                (cx + S * 0.30, S * 0.24), (cx + S * 0.34, S * 0.40),
-                (cx + S * 0.20, S * 0.34), (cx + S * 0.04, S * 0.36),
-                (cx - S * 0.06, S * 0.34)]
-        _poly(s, bone, head)
-        pygame.draw.lines(s, _shade(bone, 0.72), True,
-                          [(int(x), int(y)) for x, y in head], int(S * 0.018))
-        _line(s, (255, 252, 244), (cx + S * 0.12, S * 0.16), (cx + S * 0.31, S * 0.27),
-              S * 0.022)                    # the edge catches the light
-        # a small back-spur, and the bone lashing
-        _poly(s, bone, [(cx - S * 0.08, S * 0.18), (cx - S * 0.22, S * 0.26),
-                        (cx - S * 0.07, S * 0.30)])
-        _line(s, (120, 104, 84), (cx - S * 0.10, S * 0.36), (cx + S * 0.02, S * 0.35),
-              S * 0.025)
-    elif key == "rapier":                   # long, thin, bright steel; swept guard
+        return
+    if "_" in key and key.split("_")[0] in _MATERIAL:
+        mat, typ = key.split("_")
+        blade, hilt, guard = _MATERIAL[mat]
+        if typ == "sword":
+            _w_blade(s, S, blade, hilt, guard)
+        elif typ == "axe":
+            haft = hilt
+            _line(s, haft, (cx - S * 0.10, S * 0.16), (cx - S * 0.02, S * 0.90), S * 0.055)
+            head = [(cx - S * 0.08, S * 0.16), (cx + S * 0.10, S * 0.13),
+                    (cx + S * 0.30, S * 0.24), (cx + S * 0.34, S * 0.40),
+                    (cx + S * 0.20, S * 0.34), (cx + S * 0.04, S * 0.36),
+                    (cx - S * 0.06, S * 0.34)]
+            _poly(s, blade, head)
+            pygame.draw.lines(s, _shade(blade, 0.72), True,
+                              [(int(x), int(y)) for x, y in head], int(S * 0.018))
+            _line(s, _shade(blade, 1.25), (cx + S * 0.12, S * 0.16),
+                  (cx + S * 0.31, S * 0.27), S * 0.022)
+        elif typ == "hammer":
+            _line(s, hilt, (cx, S * 0.30), (cx, S * 0.90), S * 0.07)
+            pygame.draw.rect(s, blade, (cx - S * 0.28, S * 0.14, S * 0.56, S * 0.26),
+                             border_radius=int(S * 0.04))
+            pygame.draw.rect(s, _shade(blade, 0.7),
+                             (cx - S * 0.28, S * 0.14, S * 0.56, S * 0.26),
+                             int(S * 0.025), border_radius=int(S * 0.04))
+            _line(s, _shade(blade, 1.25), (cx - S * 0.22, S * 0.20),
+                  (cx + S * 0.22, S * 0.20), S * 0.02)
+        return
+    if key == "rapier":                     # long, thin, bright steel; swept guard
         _w_blade(s, S, (232, 240, 250), (60, 60, 70), (200, 200, 214),
                  length=0.58, width=0.045, tip=0.04)
         pygame.draw.arc(s, (200, 200, 214),
                         (cx - S * 0.16, S * 0.62, S * 0.32, S * 0.18),
                         math.pi, 2 * math.pi, int(S * 0.03))
-    elif key == "hammer":                   # iron, enormous head
-        _line(s, (120, 96, 68), (cx, S * 0.30), (cx, S * 0.90), S * 0.07)
-        head = (156, 162, 176)
-        pygame.draw.rect(s, head, (cx - S * 0.28, S * 0.14, S * 0.56, S * 0.26),
-                         border_radius=int(S * 0.04))
-        pygame.draw.rect(s, _shade(head, 0.7), (cx - S * 0.28, S * 0.14, S * 0.56, S * 0.26),
-                         int(S * 0.025), border_radius=int(S * 0.04))
-        _line(s, _shade(head, 1.25), (cx - S * 0.22, S * 0.20), (cx + S * 0.22, S * 0.20),
-              S * 0.02)
     elif key == "brand":                    # it is on fire
         _w_blade(s, S, (255, 168, 72), (90, 60, 40), (200, 110, 50), length=0.52)
         for i, (dx, dy, r) in enumerate(((-0.06, 0.30, 0.05), (0.06, 0.22, 0.04),

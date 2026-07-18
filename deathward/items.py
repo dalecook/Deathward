@@ -85,20 +85,34 @@ class Boots:
         return s + ("  |  " + self.note if self.note else "")
 
 
-WEAPONS = {
-    "shiv":     Weapon("shiv", "Rusted Shiv", 0, 1, 3),
-    "sword":    Weapon("sword", "Bronze Sword", 1, 2, 5),
-    "axe":      Weapon("axe", "Bone Axe", 1, 1, 7, "cleave",
-                       "cleaves every adjacent enemy"),
-    "rapier":   Weapon("rapier", "Steel Rapier", 2, 4, 6, "crit",
-                       "1 in 4 strikes doubles"),
-    "hammer":   Weapon("hammer", "Iron Warhammer", 2, 3, 9, "stun",
-                       "1 in 4 strikes stuns for a turn"),
-    "brand":    Weapon("brand", "Flame Brand", 3, 5, 10, "burn",
-                       "sets the struck thing alight"),
-    "kris":     Weapon("kris", "Vampiric Kris", 3, 3, 7, "lifesteal",
-                       "you heal for half of what you deal"),
-}
+# Ordinary weapons: TYPE sets the attack shape and a speed tax, MATERIAL raises the
+# damage floor (holding the ceiling at 5, so a better material means fewer whiffs, not
+# a bigger top end). Tier encodes the power ordering used to keep the better of two
+# weapons on a corpse: shiv < bone < bronze < steel < magical.
+def _ordinary(mat, mat_tier, mat_lo):
+    out = {}
+    for typ, tax, trait, note in (
+            ("sword", 0, None, ""),
+            ("axe", -15, "cleave", "cleaves every adjacent enemy"),
+            ("hammer", -30, "stun", "1 in 4 strikes stuns for a turn")):
+        key = "%s_%s" % (mat, typ)
+        name = "%s %s" % (mat.capitalize(), typ.capitalize())
+        out[key] = Weapon(key, name, mat_tier, mat_lo, 5, trait, note, speed_mod=tax)
+    return out
+
+WEAPONS = {"shiv": Weapon("shiv", "Rusted Shiv", 0, 1, 3)}
+WEAPONS.update(_ordinary("bone", 1, 1))
+WEAPONS.update(_ordinary("bronze", 2, 2))
+WEAPONS.update(_ordinary("steel", 3, 3))
+# --- magical (floors 8+): found unenhanced, enchantable by scroll -----------
+WEAPONS.update({
+    "rapier": Weapon("rapier", "Steel Rapier", 4, 4, 6, "crit",
+                     "1 in 4 strikes doubles"),
+    "brand":  Weapon("brand", "Flame Brand", 4, 5, 10, "burn",
+                     "sets the struck thing alight"),
+    "kris":   Weapon("kris", "Vampiric Kris", 4, 3, 7, "lifesteal",
+                     "you heal for half of what you deal"),
+})
 
 ARMOURS = {
     "rags":     Armour("rags", "Padded Rags", 0, 0),
@@ -144,8 +158,10 @@ def gear_catalog():
 
 def top_tier_gear(n=3):
     """The best `n` of each kind -- for the CTRL+87 arsenal tester. Ranked by tier,
-    highest first; ties keep roster order (which runs plain -> exotic). There are only
-    two top-tier weapons and armours, so the third slot is the best of the next tier."""
+    highest first; ties keep roster order (which runs plain -> exotic). The magical
+    trio (rapier/brand/kris) fills all three weapon slots outright; armour and boots
+    have only two top-tier pieces each, so their third slot is the best of the next
+    tier down."""
     def top(d):
         return sorted(d.values(), key=lambda g: g.tier, reverse=True)[:n]
     return {"weapon": top(WEAPONS), "armour": top(ARMOURS), "boots": top(BOOTS)}
