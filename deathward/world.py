@@ -1600,10 +1600,9 @@ class World:
                      "else's problem now.", config.MANA)
             self.add_fx("pulse", p.x, p.y, color=(130, 206, 220), life=0.6)
         elif effect == "enchant_weapon":
-            key = p.weapon.key
-            p.enchants[key] = p.enchants.get(key, 0) + 1
+            p.weapon.bonus += 1
             self.log("Your %s drinks the light and keeps it. +%d damage, for good."
-                     % (p.weapon.name, p.enchants[key]), config.GOLD)
+                     % (p.weapon.name, p.weapon.bonus), config.GOLD)
             self.add_fx("pulse", p.x, p.y, color=config.GOLD, life=0.6)
         elif effect == "enchant_armour":
             key = p.armour.key

@@ -4431,8 +4431,7 @@ class TestWaveTwoBuffs(unittest.TestCase):
         self._use(w, "krav")
         once = w.player.damage_roll(random.Random(7))
         self.assertEqual(once - base, 1, "+1 damage")
-        self.assertEqual(w.player.enchants.get(w.player.weapon.key), 1,
-                         "the enchant lives on the weapon")
+        self.assertEqual(w.player.weapon.bonus, 1, "the enchant lives on the weapon")
         w.codex.known.append("id.krav")
         w.player.slots = [["krav", 1], None, None, None, None, None]
         w.use_item(0)
@@ -4447,7 +4446,7 @@ class TestWaveTwoBuffs(unittest.TestCase):
     def test_enchanting_updates_the_displayed_name_and_stats(self):
         from .items import WEAPONS, ARMOURS
         w = self._world()
-        w.player.weapon = WEAPONS["sword"]        # Bronze Sword, 2-5 dmg
+        w.player.weapon = WEAPONS["sword"].copy()   # Bronze Sword, 2-5 dmg
         w.player.armour = ARMOURS["leather"]      # Leather Jerkin, 1 def
         self.assertEqual(w.player.gear_display("weapon"), ("Bronze Sword", "2-5 dmg"))
 
@@ -4455,7 +4454,7 @@ class TestWaveTwoBuffs(unittest.TestCase):
         self.assertEqual(w.player.gear_display("weapon"),
                          ("Bronze Sword +1", "3-6 dmg"), "name and stats both update")
 
-        w.player.enchants[w.player.weapon.key] = 3
+        w.player.weapon.bonus = 3
         self.assertEqual(w.player.gear_display("weapon"),
                          ("Bronze Sword +3", "5-8 dmg"), "and it stacks")
 
@@ -5727,6 +5726,34 @@ class TestWeaponInstance(unittest.TestCase):
     def test_speed_mod_defaults_to_zero(self):
         from .items import Weapon
         self.assertEqual(Weapon("k", "n", 1, 1, 5).speed_mod, 0)
+
+
+class TestWeaponSpeedTaxAndInstanceBonus(unittest.TestCase):
+    def _p(self):
+        from .player import Player
+        return Player()
+
+    def test_speed_includes_the_weapon_tax(self):
+        from .items import Weapon
+        p = self._p()
+        base = p.speed()
+        p.weapon = Weapon("h", "H", 1, 1, 5, speed_mod=-30)
+        self.assertEqual(p.speed(), base - 30)
+
+    def test_equip_gives_a_private_copy(self):
+        from .items import Weapon
+        p = self._p()
+        template = Weapon("bronze_sword", "Bronze Sword", 2, 2, 5)
+        p.equip(template)
+        p.weapon.bonus = 4
+        self.assertEqual(template.bonus, 0,
+                         "enchanting the equipped weapon never touches the template")
+
+    def test_gear_display_reads_instance_bonus(self):
+        from .items import Weapon
+        p = self._p()
+        p.weapon = Weapon("bronze_sword", "Bronze Sword", 2, 2, 5, bonus=3)
+        self.assertEqual(p.gear_display("weapon"), ("Bronze Sword +3", "5-8 dmg"))
 
 
 if __name__ == "__main__":

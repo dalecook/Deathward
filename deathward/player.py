@@ -87,7 +87,8 @@ class Player:
 
     # --- derived --------------------------------------------------------
     def speed(self):
-        s = config.BASE_SPEED + self.boots.speed + self.armour.speed_mod
+        s = (config.BASE_SPEED + self.boots.speed + self.armour.speed_mod
+             + self.weapon.speed_mod)
         if self.haste > 0:
             s += 50
         if self.berserk > 0:
@@ -108,7 +109,7 @@ class Player:
         return d
 
     def damage_roll(self, rng):
-        d = self.weapon.roll(rng) + self.enchants.get(self.weapon.key, 0)
+        d = self.weapon.roll(rng)
         if self.might > 0:
             d += 3
         if self.berserk > 0:
@@ -122,7 +123,7 @@ class Player:
     def equip(self, gear):
         old = None
         if gear.slot == "weapon":
-            old, self.weapon = self.weapon, gear
+            old, self.weapon = self.weapon, gear.copy()
         elif gear.slot == "armour":
             old, self.armour = self.armour, gear
         elif gear.slot == "boots":
@@ -134,12 +135,16 @@ class Player:
                 "boots": self.boots}[slot].key
 
     def gear_display(self, slot):
-        """(name, desc) for an equipped slot, with any enchantment folded into BOTH.
-        A Bronze Sword enchanted twice reads 'Bronze Sword +2' with '4-7 dmg'."""
+        """(name, desc) for an equipped slot. The weapon's +n lives on the instance;
+        armour's still lives on the enchants dict until the armour rework."""
         g = {"weapon": self.weapon, "armour": self.armour, "boots": self.boots}[slot]
+        if slot == "weapon":
+            n = g.bonus
+            name = "%s +%d" % (g.name, n) if n else g.name
+            return name, g.desc()
         n = self.enchants.get(g.key, 0)
         name = "%s +%d" % (g.name, n) if n else g.name
-        desc = g.desc(n) if slot in ("weapon", "armour") else g.desc()
+        desc = g.desc(n) if slot == "armour" else g.desc()
         return name, desc
 
     # --- per-turn -------------------------------------------------------
