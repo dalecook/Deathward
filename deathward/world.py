@@ -1012,7 +1012,7 @@ class World:
                                       # matters more for testing than raw damage does
         best_a = max(ARMOURS.values(), key=lambda g: (g.tier, g.defense))
         best_b = max(BOOTS.values(), key=lambda g: (g.tier, g.speed))
-        p.weapon = best_w
+        p.weapon = best_w.copy()
         p.armour = best_a
         p.boots = best_b
         for g in (best_w, best_a, best_b):

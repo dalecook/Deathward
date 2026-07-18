@@ -50,7 +50,7 @@ class Player:
         # you start the run ready to move. otherwise the first action costs two
         # ticks and the dungeon gets a free swing before you have taken a step.
         self.energy = config.ACT_COST
-        self.weapon = WEAPONS[STARTING[0]]
+        self.weapon = WEAPONS[STARTING[0]].copy()
         self.armour = ARMOURS[STARTING[1]]
         self.boots = BOOTS[STARTING[2]]
         # six slots; each is None or [flavor, count] with count <= STACK_MAX

@@ -5755,6 +5755,13 @@ class TestWeaponSpeedTaxAndInstanceBonus(unittest.TestCase):
         p.weapon = Weapon("bronze_sword", "Bronze Sword", 2, 2, 5, bonus=3)
         self.assertEqual(p.gear_display("weapon"), ("Bronze Sword +3", "5-8 dmg"))
 
+    def test_enchanting_the_starting_weapon_never_mutates_the_template(self):
+        from .items import WEAPONS
+        p = self._p()
+        p.weapon.bonus += 5                       # simulate an enchant on the fresh hero
+        self.assertEqual(WEAPONS[p.weapon.key].bonus, 0,
+                         "the shared template must stay pristine")
+
 
 if __name__ == "__main__":
     pygame.init()
