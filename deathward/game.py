@@ -117,7 +117,10 @@ class Game:
             from .items import ALL_GEAR
             key = self.victory_gear.get(keep)
             if key and key in ALL_GEAR:
-                self.world.player.equip(ALL_GEAR[key])
+                g = ALL_GEAR[key]
+                if keep == "weapon" and self.victory_gear.get("weapon_bonus"):
+                    g = g.copy(bonus=self.victory_gear["weapon_bonus"])
+                self.world.player.equip(g)
                 self.codex.see_gear(key)
                 self.world.log("You kept the %s. Everything else, the dungeon took "
                                "back." % ALL_GEAR[key].name, config.GOLD)
@@ -150,8 +153,8 @@ class Game:
         self.world.remember_map()
         # what you were holding when it fell. one of these you may keep.
         p = self.world.player
-        self.victory_gear = {"weapon": p.weapon.key, "armour": p.armour.key,
-                             "boots": p.boots.key}
+        self.victory_gear = {"weapon": p.weapon.key, "weapon_bonus": p.weapon.bonus,
+                             "armour": p.armour.key, "boots": p.boots.key}
         self.codex.save()
         self.state = WIN
 

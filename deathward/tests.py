@@ -1459,7 +1459,8 @@ class TestBeatingTheWarden(unittest.TestCase):
         self._win(g)
         self.assertEqual(g.state, WIN)
         self.assertEqual(g.victory_gear,
-                         {"weapon": "brand", "armour": "plate", "boots": "wind"})
+                         {"weapon": "brand", "weapon_bonus": 0,
+                          "armour": "plate", "boots": "wind"})
         self.assertEqual(g.codex.wins, 1)
 
     def test_starting_over_keeps_the_ONE_thing_you_chose(self):
@@ -1590,6 +1591,39 @@ class TestBeatingTheWarden(unittest.TestCase):
         # the death flow starts a plain new run: no boon
         g.new_run()
         self.assertEqual(g.world.player.weapon.key, "shiv")
+
+
+class TestVictoryKeepBonus(unittest.TestCase):
+    """A kept weapon should carry its +n, not just its key, into the next run."""
+
+    _game = TestBeatingTheWarden._game
+
+    def _win(self, g, weapon="steel_axe", armour="plate", boots="wind", bonus=3):
+        from .items import ARMOURS, BOOTS, WEAPONS
+        g.world.new_level(config.DEPTH_MAX)
+        p = g.world.player
+        p.weapon = WEAPONS[weapon].copy(bonus=bonus)
+        p.armour = ARMOURS[armour]
+        p.boots = BOOTS[boots]
+        warden = [m for m in g.world.level.monsters if m.key == "warden"][0]
+        g.world.kill_monster(warden)
+        self.assertTrue(g.world.won)
+        g.on_win()
+
+    def test_the_victory_capture_records_the_bonus(self):
+        g = self._game()
+        self._win(g)
+        self.assertEqual(g.victory_gear,
+                         {"weapon": "steel_axe", "weapon_bonus": 3,
+                          "armour": "plate", "boots": "wind"})
+
+    def test_kept_weapon_keeps_its_bonus_into_the_next_run(self):
+        g = self._game()
+        self._win(g)
+        g.new_run(keep="weapon", fresh_dungeon=True)
+        p = g.world.player
+        self.assertEqual(p.weapon.key, "steel_axe")
+        self.assertEqual(p.weapon.bonus, 3, "the +3 must survive the keep")
 
 
 class TestTheCheatCode(unittest.TestCase):
