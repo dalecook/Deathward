@@ -879,24 +879,28 @@ class Codex:
         return len(self.known), TOTAL_FACTS
 
     # --- corpses --------------------------------------------------------
-    def write_corpse(self, depth, x, y, gold, weapon_key, gift_key, loot):
+    def write_corpse(self, depth, x, y, gold, weapon_key, gift_key, loot,
+                     weapon_bonus=0):
         """Overwrite the saved record of the body on this floor, exactly as it now
         stands. Called whenever the body is touched -- without this, taking gold off
         your corpse mutated only the in-memory copy, and the save still believed the
         gold was there, so you could collect it again on the next death. Forever."""
         self.corpses[str(depth)] = {
-            "x": x, "y": y, "gold": gold, "weapon": weapon_key, "gift": gift_key,
+            "x": x, "y": y, "gold": gold, "weapon": weapon_key,
+            "weapon_bonus": weapon_bonus, "gift": gift_key,
             "loot": [list(t) for t in loot],
         }
 
-    def leave_corpse(self, depth, x, y, gold, weapon_key, gift_key=None):
+    def leave_corpse(self, depth, x, y, gold, weapon_key, gift_key=None,
+                     weapon_bonus=0):
         """The body stays exactly where it fell, and it keeps what it was carrying.
 
         Your dead accumulate: dying twice on the same floor must never quietly
         destroy the cache the first body was holding. The gold piles up on the
-        newest corpse, it keeps the better of the two weapons, and it never loses
-        the gift -- the gift is once per game, so if a corpse is holding it, that
-        corpse is the only place in the world it still exists.
+        newest corpse, it keeps the better of the two weapons (its +n breaking the
+        tie), and it never loses the gift -- the gift is once per game, so if a
+        corpse is holding it, that corpse is the only place in the world it still
+        exists.
         """
         from .items import ALL_GEAR
 
@@ -905,14 +909,17 @@ class Codex:
         if old:
             gold += old.get("gold", 0)
             old_w = old.get("weapon")
+            old_b = old.get("weapon_bonus", 0)
             if old_w in ALL_GEAR and weapon_key in ALL_GEAR:
-                if ALL_GEAR[old_w].tier > ALL_GEAR[weapon_key].tier:
-                    weapon_key = old_w
+                # keep the better weapon: higher tier wins, +n breaks the tie
+                if (ALL_GEAR[old_w].tier, old_b) > (ALL_GEAR[weapon_key].tier,
+                                                    weapon_bonus):
+                    weapon_key, weapon_bonus = old_w, old_b
             elif old_w and not weapon_key:
-                weapon_key = old_w
+                weapon_key, weapon_bonus = old_w, old_b
             gift_key = gift_key or old.get("gift")
             loot = [tuple(t) for t in old.get("loot", [])]   # never drop what it held
-        self.write_corpse(depth, x, y, gold, weapon_key, gift_key, loot)
+        self.write_corpse(depth, x, y, gold, weapon_key, gift_key, loot, weapon_bonus)
 
     def gift_on_a_corpse(self):
         """Which floor, if any, is holding the gift for you."""

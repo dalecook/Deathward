@@ -5956,6 +5956,44 @@ class TestWeaponBonusPickup(unittest.TestCase):
         self.assertEqual(dropped[0].bonus, 3, "the +3 rides down onto the floor")
 
 
+class TestWeaponBonusSurvivesDeath(unittest.TestCase):
+    def test_corpse_record_stores_and_reloads_the_bonus(self):
+        codex = FakeSave()
+        codex.leave_corpse(3, 5, 5, 120, "steel_axe", weapon_bonus=2)
+        c = codex.corpse_at(3)
+        self.assertEqual(c["weapon"], "steel_axe")
+        self.assertEqual(c["weapon_bonus"], 2)
+
+    def test_old_corpse_without_bonus_loads_as_zero(self):
+        codex = FakeSave()
+        codex.corpses["4"] = {"x": 1, "y": 1, "gold": 0, "weapon": "brand",
+                              "gift": None, "loot": []}          # a pre-bonus save
+        self.assertEqual(codex.corpse_at(4).get("weapon_bonus", 0), 0)
+
+    def test_better_weapon_keeps_its_bonus_across_a_second_death(self):
+        codex = FakeSave()
+        codex.leave_corpse(2, 4, 4, 50, "steel_sword", weapon_bonus=1)
+        codex.leave_corpse(2, 8, 8, 10, "bone_axe", weapon_bonus=0)   # died again, worse
+        c = codex.corpse_at(2)
+        self.assertEqual(c["weapon"], "steel_sword")
+        self.assertEqual(c["weapon_bonus"], 1, "the better weapon keeps its +n")
+
+    def test_reclaiming_your_body_re_equips_the_bonus(self):
+        codex = FakeSave()
+        codex.world_seed = 7
+        codex.leave_corpse(1, 0, 0, 0, "bronze_hammer", weapon_bonus=2)
+        w = World(codex, seed=7)
+        c = w.level.corpse
+        self.assertIsNotNone(c)
+        w.player.x, w.player.y = c.x, c.y
+        opts = w.loot_options()
+        idx = next(i for i, o in enumerate(opts)
+                   if o["kind"] == "gear" and o["payload"] == "bronze_hammer")
+        w._consume_option(opts[idx])
+        self.assertEqual(w.player.weapon.key, "bronze_hammer")
+        self.assertEqual(w.player.weapon.bonus, 2)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

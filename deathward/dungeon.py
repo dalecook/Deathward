@@ -136,10 +136,11 @@ class Corpse:
     """You, from a previous run. Still lying exactly where you fell, still holding
     everything you were holding."""
 
-    def __init__(self, x, y, gold, weapon, gift=None, loot=None):
+    def __init__(self, x, y, gold, weapon, gift=None, loot=None, weapon_bonus=0):
         self.x, self.y = x, y
         self.gold = gold
         self.weapon = weapon
+        self.weapon_bonus = weapon_bonus
         self.gift = gift
         # anything else on the body -- including gear you swapped off while standing
         # over it. a corpse is a container like any other.
@@ -390,7 +391,8 @@ class Level:
                 spot = self._free_tile()          # only if the stone changed under it
                 cx, cy = spot if spot else self.entrance
             self.corpse = Corpse(cx, cy, c.get("gold", 0), c.get("weapon"),
-                                 c.get("gift"), c.get("loot"))
+                                 c.get("gift"), c.get("loot"),
+                                 weapon_bonus=c.get("weapon_bonus", 0))
             # nothing else may occupy the grave
             self.monsters = [m for m in self.monsters if (m.x, m.y) != (cx, cy)]
             self.drops = [d for d in self.drops if (d.x, d.y) != (cx, cy)]

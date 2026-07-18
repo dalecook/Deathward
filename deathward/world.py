@@ -764,8 +764,9 @@ class World:
                     label = self.loot_label("gear", key)
                     if field == "gift":
                         label += "   [the gift]"
+                    bonus = c.weapon_bonus if field == "weapon" else 0
                     opts.append({"kind": "gear", "payload": key, "label": label,
-                                 "src": ("corpse", field)})
+                                 "bonus": bonus, "src": ("corpse", field)})
             for i, (kind, payload) in enumerate(c.loot):
                 opts.append({"kind": kind, "payload": payload,
                              "label": self.loot_label(kind, payload),
@@ -861,10 +862,13 @@ class World:
                 c.gold = 0
             else:
                 key = getattr(c, field)
+                bonus = c.weapon_bonus if field == "weapon" else 0
                 setattr(c, field, None)
+                if field == "weapon":
+                    c.weapon_bonus = 0
                 self.log("You prise the %s from your own fingers."
                          % ALL_GEAR[key].name, config.CORPSE)
-                self._take("gear", key, sink=c)   # what comes off stays on the body
+                self._take("gear", key, sink=c, bonus=bonus)   # what comes off stays on the body
             self._settle_corpse(c)
 
         elif src[0] == "corpse_loot":
@@ -916,7 +920,7 @@ class World:
             self.codex.take_corpse(self.depth)
         else:
             self.codex.write_corpse(self.depth, c.x, c.y, c.gold, c.weapon, c.gift,
-                                    c.loot)
+                                    c.loot, weapon_bonus=c.weapon_bonus)
         self.codex.save()
 
     def take_option(self, index):
@@ -1779,5 +1783,5 @@ class World:
     def leave_corpse(self):
         p = self.player
         self.codex.leave_corpse(self.depth, p.x, p.y, p.gold, p.weapon.key,
-                                gift_key=p.gift)
+                                gift_key=p.gift, weapon_bonus=p.weapon.bonus)
         self.codex.stats["gold_lost"] += p.gold
