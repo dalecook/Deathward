@@ -5699,6 +5699,36 @@ class TestAppearanceShuffle(unittest.TestCase):
             cfg.SAVE_PATH = old
 
 
+class TestWeaponInstance(unittest.TestCase):
+    def test_bonus_raises_both_ends_of_the_band(self):
+        from .items import Weapon
+        import random
+        w = Weapon("steel_sword", "Steel Sword", 3, 3, 5, bonus=2)
+        rolls = [w.roll(random.Random(i)) for i in range(200)]
+        self.assertEqual(min(rolls), 5, "floor raised by +2")
+        self.assertEqual(max(rolls), 7, "ceiling raised by +2")
+
+    def test_desc_folds_the_bonus(self):
+        from .items import Weapon
+        self.assertEqual(Weapon("bronze_sword", "Bronze Sword", 2, 2, 5).desc(),
+                         "2-5 dmg")
+        self.assertEqual(Weapon("bronze_sword", "Bronze Sword", 2, 2, 5, bonus=3).desc(),
+                         "5-8 dmg")
+
+    def test_copy_is_independent(self):
+        from .items import Weapon
+        base = Weapon("bone_axe", "Bone Axe", 1, 1, 5, trait="cleave", speed_mod=-15)
+        c = base.copy(bonus=2)
+        self.assertEqual(c.bonus, 2)
+        self.assertEqual(base.bonus, 0, "copying does not touch the template")
+        self.assertEqual(c.trait, "cleave")
+        self.assertEqual(c.speed_mod, -15)
+
+    def test_speed_mod_defaults_to_zero(self):
+        from .items import Weapon
+        self.assertEqual(Weapon("k", "n", 1, 1, 5).speed_mod, 0)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

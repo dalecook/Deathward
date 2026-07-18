@@ -37,15 +37,25 @@ import random
 class Weapon:
     slot = "weapon"
 
-    def __init__(self, key, name, tier, lo, hi, trait=None, note=""):
+    def __init__(self, key, name, tier, lo, hi, trait=None, note="",
+                 speed_mod=0, bonus=0):
         self.key, self.name, self.tier = key, name, tier
         self.lo, self.hi, self.trait, self.note = lo, hi, trait, note
+        self.speed_mod = speed_mod        # a swing tax, same units as boots/armour speed
+        self.bonus = bonus                # masterwork + scroll enchant, per-instance
 
     def roll(self, rng):
-        return rng.randint(self.lo, self.hi)
+        return rng.randint(self.lo, self.hi) + self.bonus
+
+    def copy(self, bonus=None):
+        return Weapon(self.key, self.name, self.tier, self.lo, self.hi, self.trait,
+                      self.note, self.speed_mod,
+                      self.bonus if bonus is None else bonus)
 
     def desc(self, bonus=0):
-        s = "%d-%d dmg" % (self.lo + bonus, self.hi + bonus)
+        lo = self.lo + self.bonus + bonus
+        hi = self.hi + self.bonus + bonus
+        s = "%d-%d dmg" % (lo, hi)
         return s + ("  |  " + self.note if self.note else "")
 
 
