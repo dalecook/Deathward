@@ -6538,6 +6538,49 @@ class TestAntiIncorporeal(unittest.TestCase):
         self.assertEqual(999 - wraith.hp, 6, "wraith takes 6 (4 * 1.5)")
 
 
+class TestVoidScimitar(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.level.slain = []
+        return w
+
+    def test_void_deletes_with_no_body_or_loot(self):
+        from . import config
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("brute", w.player.x + 1, w.player.y); m.hp = m.max_hp = 999
+        w.level.monsters = [m]
+        w.player.weapon = WEAPONS["void_scimitar"].copy()
+        old = config.VOID_KILL_CHANCE
+        config.VOID_KILL_CHANCE = 1.0
+        try:
+            w.player_attack(m)
+        finally:
+            config.VOID_KILL_CHANCE = old
+        self.assertNotIn(m, w.level.monsters, "the monster is gone")
+        self.assertEqual(len(w.level.slain), 0, "no body, no loot")
+
+    def test_the_warden_is_void_immune(self):
+        from . import config
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        boss = Monster("warden", w.player.x + 1, w.player.y); boss.hp = boss.max_hp = 999
+        w.level.monsters = [boss]
+        w.player.weapon = WEAPONS["void_scimitar"].copy()
+        old = config.VOID_KILL_CHANCE
+        config.VOID_KILL_CHANCE = 1.0
+        try:
+            w.player_attack(boss)
+        finally:
+            config.VOID_KILL_CHANCE = old
+        self.assertIn(boss, w.level.monsters, "you cannot void the Warden")
+        self.assertLess(boss.hp, 999, "it takes ordinary damage instead")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

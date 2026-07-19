@@ -58,6 +58,8 @@ COATABLE_EFFECTS = {"poison", "weak", "confuse"}
 # view (FOV_RADIUS 8), because orcs have good eyes -- they tend to spot you a step
 # before you spot them.
 ORC_SIGHT = 10
+
+BOSS_KEYS = {"warden"}      # void-immune; the mini-boss task adds its keys here
 from .player import Player
 from .vendor import Vendor, price_of, sell_price_of
 
@@ -501,6 +503,14 @@ class World:
             dmg += self.rng.randint(6, 10)
         p.blade_coat = None
 
+        if ("void" in traits and m.alive and not self._void_immune(m)
+                and self.rng.random() < config.VOID_KILL_CHANCE):
+            self.log("The Scimitar passes through the %s and it is simply gone."
+                     % self._mname(m), config.MANA)
+            self.add_fx("vanish", m.x, m.y, color=(120, 100, 190), life=0.5)
+            self.void_monster(m)
+            return
+
         self.log("You %s the %s for %d.%s"
                  % ("CRIT" if crit else "hit", self._mname(m), dmg,
                     " !" if crit else ""),
@@ -571,6 +581,24 @@ class World:
         if self.walkable(nx, ny) and not self.monster_at(nx, ny):
             m.x, m.y = nx, ny
             self.on_monster_moved(m)
+
+    def _void_immune(self, m):
+        """The void cannot swallow a boss (the Warden, or a mini-boss)."""
+        return m.key in BOSS_KEYS
+
+    def void_monster(self, m):
+        """Unmake a monster: removed outright, no body, no loot -- the cost that
+        balances the Scimitar. Still counts as your kill."""
+        if m not in self.level.monsters:
+            return
+        self.level.monsters.remove(m)
+        self.player.kills += 1
+        self.run_kills += 1
+        self.codex.stats["kills"] += 1
+        self.codex.stats["kills_by"][m.key] = self.codex.stats["kills_by"].get(m.key, 0) + 1
+        self.log("The %s is unmade -- the void takes it whole. Nothing remains."
+                 % self._mname(m), config.MANA)
+        self.add_fx("vanish", m.x, m.y, color=(120, 100, 190), life=0.5)
 
     def hurt_monster(self, m, dmg, source="player"):
         # some things resist some damage -- the stone golem shrugs off steel and

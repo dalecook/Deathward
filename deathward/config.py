@@ -123,6 +123,8 @@ POISON_DMG          = 2           # damage per poisoned turn
 ENRAGE_CHANCE       = 0.20        # Betrayer's Edge: chance to send the struck thing berserk
 ENRAGE_TURNS        = 6           # turns it attacks whatever is nearest
 
+VOID_KILL_CHANCE    = 0.10        # Scimitar of the Void: chance to unmake outright
+
 FULGURITE_INCORP_MULT = 1.5       # Fulgurite's bonus vs wraith/poltergeist
 
 # --- held-key movement ---------------------------------------------------
