@@ -1720,8 +1720,22 @@ class World:
                     inner += 1
                     m.energy -= config.ACT_COST
                     m.take_turn(self)
+        # a stun is measured in PLAYER turns, not monster ticks. take_turn gates the
+        # reeling monster out of its AI every tick above; here -- now that the player can
+        # act again -- each stun ticks down by one. this holds the stagger across a whole
+        # recovery window even when a hammer has slowed the player below the monster's
+        # speed (see _tick_stuns).
+        self._tick_stuns()
         if self.shake_t > 0:
             self.shake_t -= 1
+
+    def _tick_stuns(self):
+        """Burn one turn off every reeling monster's stun. Called once per player turn
+        (from advance and freeze_tick), so 'stunned N' means 'frozen for your next N
+        turns' regardless of how fast the monster is."""
+        for m in list(self.level.monsters):
+            if m.stunned > 0:
+                m.stunned -= 1
 
     def struggle_against_freeze(self):
         """The player tried to ACT while frozen. The turn is spent thrashing against
@@ -1759,6 +1773,7 @@ class World:
                 inner += 1
                 m.energy -= config.ACT_COST
                 m.take_turn(self)
+        self._tick_stuns()          # a frozen turn is still one of the player's turns
         if p.frozen == 0 and not self.dead:
             self.log("The ice lets go. You can move again.", config.MANA)
         if self.shake_t > 0:

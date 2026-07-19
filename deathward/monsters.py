@@ -205,7 +205,11 @@ class Monster:
         if self.weak > 0:
             self.weak -= 1        # a weakness-coated blow wearing off
         if self.stunned > 0:
-            self.stunned -= 1
+            # reeling: no action this tick. the stun is NOT decremented here -- it is
+            # counted in PLAYER turns and ticked down once per turn in World.advance /
+            # freeze_tick. counting it per monster-tick let a fast monster (or one facing
+            # a hammer-slowed player) spend the stun on one of its two ticks and act on
+            # the other; per player-turn, the stagger holds across the whole recovery.
             return
 
         p = world.player

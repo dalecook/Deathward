@@ -6140,6 +6140,62 @@ class TestHammerStunCadence(unittest.TestCase):
         self.assertFalse(any(f["kind"] == "stunstars" for f in w.fx),
                          "the off-beat blows show no stagger fx")
 
+    def test_a_faster_monster_cannot_shrug_off_the_stun(self):
+        # The hammer taxes the player's speed BELOW a Flicker's, so a single player turn
+        # spans two of the Flicker's -- and it would otherwise spend the stun on one and
+        # blink away on the other. A stun is counted in PLAYER turns, not monster ticks:
+        # the reeling Flicker is frozen for the whole recovery and cannot slip the stagger.
+        from .monsters import Monster, TEMPLATES
+        w = self._setup()
+        p = w.player
+        self.assertLess(p.speed(), TEMPLATES["flicker"].speed,
+                        "the hammer really does make you slower than a Flicker")
+        f = Monster("flicker", p.x + 1, p.y)        # adjacent, its recharge window spent
+        f.awake = True
+        f.recharge = 0
+        f.hp = f.max_hp = 999
+        w.level.monsters.append(f)
+
+        w.player_attack(f)                          # opening blow -> stagger
+        self.assertEqual(f.stunned, 1, "the blow staggered it")
+        p.energy -= config.ACT_COST
+        w.advance()                                 # the world moves while you recover
+        self.assertLessEqual(f.dist(p.x, p.y), 1,
+                             "it reels in place -- it cannot blink away while stunned")
+        self.assertEqual(f.stunned, 0, "and the stagger clears after your turn")
+
+    def test_the_stun_holds_for_a_full_player_turn_before_it_acts(self):
+        # A one-turn stun costs the monster exactly its NEXT chance to act: it is frozen
+        # through the player's recovery, then free on the turn after.
+        from .monsters import Monster
+        w = self._setup()
+        p = w.player
+        m = Monster("brute", p.x + 1, p.y)
+        m.awake = True
+        m.hp = m.max_hp = 999
+        w.level.monsters.append(m)
+        w.player_attack(m)                          # stagger it
+        hp = p.hp
+        p.energy -= config.ACT_COST
+        w.advance()                                 # turn 1: it is reeling
+        self.assertEqual(p.hp, hp, "a stunned brute cannot strike you this turn")
+        self.assertEqual(m.stunned, 0, "the stagger has now worn off")
+
+    def test_a_stunned_monster_still_takes_fire(self):
+        # The stun freezes its ACTIONS, not its wounds: burn keeps eating it while it reels.
+        from .monsters import Monster
+        w = self._setup()
+        p = w.player
+        m = Monster("brute", p.x + 1, p.y)
+        m.hp = m.max_hp = 999
+        m.burning = 3
+        m.stunned = 5                               # frozen, but on fire
+        w.level.monsters.append(m)
+        hp = m.hp
+        p.energy -= config.ACT_COST
+        w.advance()
+        self.assertLess(m.hp, hp, "fire keeps eating a stunned monster")
+
 
 class TestStunIndicator(unittest.TestCase):
     def test_draw_stun_stars_runs_without_error(self):
