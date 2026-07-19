@@ -461,6 +461,10 @@ class World:
             m.feared = max(m.feared, config.FEAR_TURNS)
             m.awake = True
             self.log("The %s recoils in terror." % self._mname(m), (120, 100, 190))
+        if "poison" in traits and m.alive:
+            m.poisoned = max(m.poisoned, config.POISON_TURNS)
+            self.log("The %s is envenomed." % self._mname(m), (150, 220, 130))
+            self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9, life=0.4)
         if "lifesteal" in traits:
             got = p.heal(dmg // 2)
             if got:

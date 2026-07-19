@@ -6346,6 +6346,30 @@ class TestElementalStatuses(unittest.TestCase):
         self.assertEqual(m.stunned, 0)
 
 
+class TestPoison(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def test_basilisk_maul_poisons_and_it_ticks(self):
+        from . import config
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("brute", w.player.x + 1, w.player.y); m.hp = m.max_hp = 999
+        m.awake = True
+        w.level.monsters.append(m)
+        w.player.weapon = WEAPONS["basilisk_maul"].copy()
+        w.player_attack(m)
+        self.assertEqual(m.poisoned, config.POISON_TURNS, "the venom takes hold")
+        hp = m.hp
+        m.take_turn(w)                        # a poisoned turn
+        self.assertEqual(m.hp, hp - config.POISON_DMG, "the venom bites each turn")
+        self.assertEqual(m.poisoned, config.POISON_TURNS - 1)
+
+
 class TestCleaveCarriesElement(unittest.TestCase):
     def _world(self):
         codex = FakeSave(); codex.world_seed = 3

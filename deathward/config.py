@@ -117,6 +117,9 @@ FREEZE_TURNS        = 1           # a freeze is one player turn of the stun syst
 FEAR_CHANCE         = 0.25        # Reaper's Whisper: chance to rout on hit
 FEAR_TURNS          = 6           # turns a frightened thing flees
 
+POISON_TURNS        = 3           # Basilisk Maul: turns the venom keeps eating
+POISON_DMG          = 2           # damage per poisoned turn
+
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole

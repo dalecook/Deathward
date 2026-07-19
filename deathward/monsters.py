@@ -168,6 +168,7 @@ class Monster:
         self.intent = None        # ("smash", x, y) | ("spit", dx, dy) -- telegraphed
         self.stunned = 0
         self.burning = 0
+        self.poisoned = 0         # a venom DoT (Basilisk Maul), ticks like burning
         self.fled = False
         self.disguised = (key == "mimic")
         self.warden_last = None
@@ -200,6 +201,11 @@ class Monster:
         if self.burning > 0:
             self.burning -= 1
             world.hurt_monster(self, 2, source="burn")
+            if not self.alive:
+                return
+        if self.poisoned > 0:
+            self.poisoned -= 1
+            world.hurt_monster(self, config.POISON_DMG, source="poison")
             if not self.alive:
                 return
         if self.weak > 0:
