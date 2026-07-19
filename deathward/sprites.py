@@ -1000,6 +1000,69 @@ def _weapon_sprite(key, s, S):
         _line(s, dark, (cx, S * 0.66), (cx, S * 0.86), S * 0.055)
         _circ(s, (196, 60, 76), cx, S * 0.88, S * 0.055)     # the ruby that drinks
         _circ(s, (255, 150, 160), cx - S * 0.015, S * 0.87, S * 0.018)
+    # --- Tier 4 magical weapons -----------------------------------------------
+    elif key == "betrayers_edge":           # twisted dagger
+        _w_blade(s, S, (210, 100, 120), (60, 40, 50), (160, 80, 100),
+                 length=0.42, width=0.055, tip=0.05)
+        _circ(s, (140, 60, 80), cx, S * 0.75, S * 0.08)     # twisted guard
+    elif key == "fulgurite":                # electric blade
+        _w_blade(s, S, (200, 220, 255), (80, 80, 100), (150, 200, 255), length=0.50)
+        for i in range(3):                  # electricity effects
+            _circ(s, (100, 150, 255), cx - S * 0.07 + i * S * 0.07, S * 0.30 + i * S * 0.10,
+                  S * 0.03)
+    elif key == "winters_edge":             # frost-covered blade
+        _w_blade(s, S, (180, 220, 255), (100, 120, 140), (200, 240, 255), length=0.52)
+        for i in range(4):                  # ice crystals
+            y = S * (0.20 + i * 0.13)
+            _circ(s, (200, 240, 255), cx - S * 0.10, y, S * 0.028)
+            _circ(s, (200, 240, 255), cx + S * 0.10, y, S * 0.028)
+    elif key == "sacrificial_dagger":       # dark, blood-stained
+        _w_blade(s, S, (100, 60, 80), (40, 30, 40), (120, 70, 90),
+                 length=0.38, width=0.045, tip=0.06)
+        _circ(s, (150, 40, 60), cx, S * 0.78, S * 0.06)     # blood drop
+    elif key == "windfang":                 # light, ethereal
+        _w_blade(s, S, (220, 200, 255), (140, 130, 160), (240, 220, 255),
+                 length=0.54, width=0.035, tip=0.02)
+        _line(s, (200, 180, 240), (cx - S * 0.12, S * 0.35), (cx - S * 0.05, S * 0.70),
+              S * 0.014)
+        _line(s, (200, 180, 240), (cx + S * 0.12, S * 0.35), (cx + S * 0.05, S * 0.70),
+              S * 0.014)
+    # --- Tier 5 magical weapons -----------------------------------------------
+    elif key == "basilisk_maul":            # heavy, scaled head
+        _line(s, (100, 80, 60), (cx - S * 0.12, S * 0.20), (cx - S * 0.12, S * 0.80),
+              S * 0.065)
+        pygame.draw.rect(s, (140, 100, 80), (cx - S * 0.22, S * 0.16, S * 0.44, S * 0.22),
+                         border_radius=int(S * 0.05))
+        for i in range(3):                  # poison scales
+            for j in range(2):
+                _circ(s, (80, 160, 80), cx - S * 0.14 + j * S * 0.28, S * 0.18 + i * S * 0.08,
+                      S * 0.035)
+    elif key == "pyroclast":                # volcanic blade
+        _w_blade(s, S, (255, 120, 40), (80, 50, 30), (220, 100, 50), length=0.52)
+        for i in range(3):                  # lava effects
+            _circ(s, (255, 180, 60), cx - S * 0.08 + i * S * 0.08, S * 0.25 + i * S * 0.12,
+                  S * 0.04)
+    elif key == "reapers_whisper":          # skeletal, dark
+        _w_blade(s, S, (140, 120, 160), (60, 40, 70), (170, 140, 190), length=0.50)
+        _circ(s, (60, 50, 70), cx - S * 0.08, S * 0.75, S * 0.065)  # skull
+        _circ(s, (60, 50, 70), cx + S * 0.08, S * 0.75, S * 0.065)
+        _circ(s, (80, 70, 90), cx, S * 0.75, S * 0.045)
+    elif key == "glacial_flail":            # chained, icy
+        _line(s, (140, 120, 100), (cx, S * 0.30), (cx, S * 0.70), S * 0.045)
+        for i in range(3):                  # chain links
+            y = S * (0.35 + i * 0.12)
+            _circ(s, (180, 200, 220), cx - S * 0.12, y, S * 0.035)
+            _circ(s, (180, 200, 220), cx + S * 0.12, y, S * 0.035)
+        pygame.draw.rect(s, (200, 220, 255), (cx - S * 0.18, S * 0.74, S * 0.36, S * 0.16),
+                         border_radius=int(S * 0.04))
+    elif key == "void_scimitar":            # curved, dark, empty
+        y_top, y_bot = S * 0.25, S * 0.78
+        pts = [(cx + S * 0.08, y_top), (cx + S * 0.30, y_top + S * 0.15),
+               (cx + S * 0.28, y_bot - S * 0.05), (cx, y_bot),
+               (cx - S * 0.20, y_bot - S * 0.10), (cx - S * 0.12, y_top + S * 0.10)]
+        _poly(s, (40, 20, 50), pts)
+        _line(s, (100, 60, 120), (cx - S * 0.16, y_top + S * 0.08), (cx - S * 0.08, y_bot),
+              S * 0.022)
 
 
 def _armour_sprite(key, s, S):

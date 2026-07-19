@@ -1685,7 +1685,7 @@ class TestTheCheatCode(unittest.TestCase):
 
         self.assertEqual(w.player.weapon.key, "kris",
                          "the cheat grants the Vampiric Kris specifically")
-        self.assertEqual(w.player.weapon.tier, 4, "and it is still a top-tier weapon")
+        self.assertEqual(w.player.weapon.tier, 5, "and it is now tier 5")
         self.assertEqual(w.player.armour.tier, 3, "the best armour in the game")
         self.assertEqual(w.player.boots.tier, 3, "the best boots in the game")
         self.assertEqual(max(g.tier for g in ARMOURS.values()), w.player.armour.tier)
@@ -1721,7 +1721,7 @@ class TestTheCheatCode(unittest.TestCase):
         got = w.grant_cheat()
 
         self.assertEqual(got, 0)
-        self.assertEqual(w.player.weapon.tier, 4, "the gear still lands")
+        self.assertEqual(w.player.weapon.tier, 5, "the gear still lands (kris is now tier 5)")
         self.assertEqual(w.player.armour.tier, 3)
 
     def test_a_part_used_potion_stack_is_topped_up_first(self):
@@ -5844,13 +5844,57 @@ class TestWeaponRoster(unittest.TestCase):
 
     def test_magical_trio_is_top_tier(self):
         from .items import WEAPONS
-        for k in ("rapier", "brand", "kris"):
+        for k in ("rapier", "brand"):
             self.assertEqual(WEAPONS[k].tier, 4)
+        self.assertEqual(WEAPONS["kris"].tier, 5)
 
     def test_iron_warhammer_is_retired(self):
         from .items import WEAPONS
         self.assertNotIn("sword", WEAPONS)
         self.assertNotIn("hammer", WEAPONS)   # the old Iron Warhammer key is gone
+
+
+class TestMagicalRoster(unittest.TestCase):
+    T4 = {
+        "rapier":             (4, 6, ("crit",), 0),
+        "brand":              (4, 8, ("burn",), 0),
+        "betrayers_edge":     (4, 6, ("enrage",), 0),
+        "fulgurite":          (4, 6, ("cleave", "shock"), 0),
+        "winters_edge":       (3, 6, ("freeze",), 0),
+        "sacrificial_dagger": (3, 5, ("lifesteal",), 0),
+        "windfang":           (5, 5, (), 20),
+    }
+    T5 = {
+        "basilisk_maul":   (5, 9, ("poison", "stun"), 0),
+        "pyroclast":       (5, 8, ("cleave", "burn"), 0),
+        "reapers_whisper": (5, 8, ("cleave", "fear"), 0),
+        "kris":            (4, 7, ("cleave", "lifesteal"), 0),
+        "glacial_flail":   (4, 7, ("cleave", "freeze"), 0),
+        "void_scimitar":   (7, 7, ("void",), 0),
+    }
+
+    def test_tier4_weapons(self):
+        from .items import WEAPONS
+        for key, (lo, hi, traits, tax) in self.T4.items():
+            w = WEAPONS[key]
+            self.assertEqual((w.lo, w.hi), (lo, hi), key)
+            self.assertEqual(w.traits, traits, key)
+            self.assertEqual(w.speed_mod, tax, key)
+            self.assertEqual(w.tier, 4, key)
+
+    def test_tier5_weapons(self):
+        from .items import WEAPONS
+        for key, (lo, hi, traits, tax) in self.T5.items():
+            w = WEAPONS[key]
+            self.assertEqual((w.lo, w.hi), (lo, hi), key)
+            self.assertEqual(w.traits, traits, key)
+            self.assertEqual(w.speed_mod, tax, key)
+            self.assertEqual(w.tier, 5, key)
+
+    def test_all_thirteen_present(self):
+        from .items import WEAPONS
+        magical = [k for k, w in WEAPONS.items() if w.tier >= 4]
+        self.assertEqual(len(magical), 13)
 
 
 class TestWeaponSprites(unittest.TestCase):

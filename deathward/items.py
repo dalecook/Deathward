@@ -113,14 +113,44 @@ WEAPONS = {"shiv": Weapon("shiv", "Rusted Shiv", 0, 1, 3)}
 WEAPONS.update(_ordinary("bone", 1, 1))
 WEAPONS.update(_ordinary("bronze", 2, 2))
 WEAPONS.update(_ordinary("steel", 3, 3))
-# --- magical (floors 8+): found unenhanced, enchantable by scroll -----------
+# --- magical (floors 8+): found unenhanced, enchantable by scroll ------------
+# Tier 4 = the effect FOCUSED (single target / fast). Tier 5 = the effect UNLEASHED
+# (borrows an ordinary attack shape -- usually cleave -- so it lands on a crowd).
 WEAPONS.update({
-    "rapier": Weapon("rapier", "Steel Rapier", 4, 4, 6, traits=("crit",),
+    # Tier 4 -----------------------------------------------------------------
+    "rapier": Weapon("rapier", "Razor Sharp Rapier", 4, 4, 6, traits=("crit",),
                      note="1 in 4 strikes doubles"),
-    "brand":  Weapon("brand", "Flame Brand", 4, 5, 10, traits=("burn",),
+    "brand":  Weapon("brand", "Flame Brand", 4, 4, 8, traits=("burn",),
                      note="sets the struck thing alight"),
-    "kris":   Weapon("kris", "Vampiric Kris", 4, 3, 7, traits=("lifesteal",),
-                     note="you heal for half of what you deal"),
+    "betrayers_edge": Weapon("betrayers_edge", "Betrayer's Edge", 4, 4, 6,
+                             traits=("enrage",),
+                             note="the struck thing turns on its own"),
+    "fulgurite": Weapon("fulgurite", "Fulgurite", 4, 4, 6, traits=("cleave", "shock"),
+                        note="cleaves; scours the incorporeal"),
+    "winters_edge": Weapon("winters_edge", "Winter's Edge", 4, 3, 6, traits=("freeze",),
+                           note="a chance to freeze where it cuts"),
+    "sacrificial_dagger": Weapon("sacrificial_dagger", "Sacrificial Dagger", 4, 3, 5,
+                                 traits=("lifesteal",),
+                                 note="you heal for half of what you deal"),
+    "windfang": Weapon("windfang", "Windfang", 4, 5, 5, traits=(),
+                       note="so light it quickens you", speed_mod=20),
+    # Tier 5 -----------------------------------------------------------------
+    "basilisk_maul": Weapon("basilisk_maul", "Basilisk Maul", 5, 5, 9,
+                            traits=("poison", "stun"),
+                            note="venom that stiffens the blood"),
+    "pyroclast": Weapon("pyroclast", "Pyroclast", 5, 5, 8, traits=("cleave", "burn"),
+                        note="cleaves and ignites all it touches"),
+    "reapers_whisper": Weapon("reapers_whisper", "Reaper's Whisper", 5, 5, 8,
+                             traits=("cleave", "fear"),
+                             note="the reaped scatter in terror"),
+    "kris": Weapon("kris", "Vampiric Kris", 5, 4, 7, traits=("cleave", "lifesteal"),
+                   note="light enough to carry through, and it drinks from each"),
+    "glacial_flail": Weapon("glacial_flail", "Glacial Flail", 5, 4, 7,
+                            traits=("cleave", "freeze"),
+                            note="freezes every adjacent foe"),
+    "void_scimitar": Weapon("void_scimitar", "Scimitar of the Void", 5, 7, 7,
+                            traits=("void",),
+                            note="a chance to unmake what it strikes"),
 })
 
 ARMOURS = {
