@@ -77,7 +77,7 @@ speed *bonus*.
 | `rapier` | Razor Sharp Rapier | rapier | 4–6 (5) | crit | 1-in-4 doubles; spiky pure damage. Reuses existing `rapier` key. |
 | `brand` | Flame Brand | sword | 4–8 (6) | burn | downgraded from 5–10. Reuses `brand` key. |
 | `betrayers_edge` | Betrayer's Edge | sword | 4–6 (5) | enrage | chance to send the target into an Orc-like rage — it attacks any adjacent creature, **including you**. |
-| `fulgurite` | Fulgurite | axe | 4–6 (5) | cleave + anti-incorporeal | cleaves; **double damage vs incorporeal** (wraith, poltergeist). The answer to armour-ignoring ghost mobs. |
+| `fulgurite` | Fulgurite | axe | 4–6 (5) | cleave + anti-incorporeal | cleaves; **×1.5 damage vs incorporeal** (wraith, poltergeist). The answer to armour-ignoring ghost mobs. |
 | `winters_edge` | Winter's Edge | sword | 3–6 (4.5) | freeze | chance to freeze (one turn, reuses the `stunned` system). Control tax on damage. |
 | `sacrificial_dagger` | Sacrificial Dagger | dagger | 3–5 (4) | lifesteal | low raw damage; sustain is the payoff. |
 | `windfang` | Windfang | sword | **5–5 flat** | haste | `speed_mod = +20`. Low, *reliable* damage + extra tempo. **Floor-8 mini-boss reward.** |
@@ -120,13 +120,13 @@ tunables.
 | **haste** | reuse | positive `weapon.speed_mod` (+20). No new code — phase 1 added `speed_mod`. |
 | **cleave + status** | new combo | the "unleashed" rule: a Tier-5 cleave also applies its status (burn/freeze/fear) to **each** cleaved target, and lifesteal heals off each. Extends the existing cleave loop. |
 | **enrage** | **new** | a `enraged` monster state: for its duration it attacks the nearest creature — **other monsters or the player** — reusing the Orc-style targeting. Chance on hit, timed. |
-| **anti-incorporeal** | **new** | a new `incorporeal` marker on wraith + poltergeist; Fulgurite deals **double** damage to them. |
+| **anti-incorporeal** | **new** | a new `incorporeal` marker on wraith + poltergeist; Fulgurite deals **×1.5** damage to them (rounded). |
 | **instakill (void)** | **new** | a % chance to remove a monster outright with **no corpse/Slain body and no dropped loot** (the void swallows it). Guard rails in §8. |
-| poison (Basilisk) | **decision** | no lingering monster poison exists today. Default: a light `poisoned` DoT modelled on `burning`; alternative: reuse the venom damage burst. Open tunable. |
+| **poison (Basilisk)** | **new** | a lingering `poisoned` DoT modelled on `burning` — the venom keeps eating after the blow. |
 
 Default tunables for the new/parametric traits (all revisited in playtest):
-freeze chance ~25% / 1 turn; enrage chance ~20% / ~6 turns; Fulgurite ×2 vs incorporeal;
-Windfang `speed_mod +20`; Void instakill 10%.
+freeze chance ~25% / 1 turn; enrage chance ~20% / ~6 turns; Fulgurite ×1.5 vs incorporeal;
+Windfang `speed_mod +20`; Void instakill 10%; Basilisk poison ~3 turns / ~2 dmg per turn.
 
 ### 6. Deep-floor weapon economy
 
@@ -204,7 +204,7 @@ but `desc()` would render "5-5 dmg". A one-line special-case rendering "5 dmg" w
   depth-decay + climbing +3; magical slot with declining presence + tier crossover;
   boss-locked exclusion); optional `desc()` flat-damage polish.
 - **`monsters.py`** — `incorporeal` marker on wraith + poltergeist; the `enraged` state
-  and its targeting; (if chosen) a `poisoned` DoT tick.
+  and its targeting; a `poisoned` DoT tick (modelled on `burning`).
 - **`world.py`** — trait resolution for the new/extended effects: freeze (apply `stunned`),
   enrage, anti-incorporeal damage multiplier, cleave-applies-status, the void instakill
   (with boss/gift immunity and no-loot removal), poison.
@@ -237,7 +237,7 @@ but `desc()` would render "5-5 dmg". A one-line special-case rendering "5 dmg" w
 - Enhanced-steel non-magical slot: floor-8 start chance and the decay-to-0-at-15 curve;
   the +3 chance-by-depth curve.
 - Void instakill 10% → lower if it evaporates too many deep elites.
-- Freeze chance/duration; enrage chance/duration; Fulgurite's ×2 vs incorporeal;
+- Freeze chance/duration; enrage chance/duration; Fulgurite's ×1.5 vs incorporeal;
   Windfang's +20 speed.
-- Basilisk's poison model: new light DoT vs. reused venom burst.
+- Basilisk's poison DoT: turns and damage per turn.
 - Every damage band in §3.
