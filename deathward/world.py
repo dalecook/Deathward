@@ -41,7 +41,7 @@ MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
 
 # damage sources that are ANOTHER MONSTER, not you. a kill from one of these earns
 # you no loot (its killer took it) and no Kodex credit -- you did not do it.
-MONSTER_SOURCES = {"orc"}
+MONSTER_SOURCES = {"orc", "enrage"}
 
 # damage sources that are a TRAP the thing blundered onto -- not a blow you struck.
 # a monster that dies to a trap is not your kill either: you get no Kodex lesson and
@@ -465,6 +465,11 @@ class World:
             m.poisoned = max(m.poisoned, config.POISON_TURNS)
             self.log("The %s is envenomed." % self._mname(m), (150, 220, 130))
             self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9, life=0.4)
+        if "enrage" in traits and m.alive and self.rng.random() < config.ENRAGE_CHANCE:
+            m.enraged = max(m.enraged, config.ENRAGE_TURNS)
+            m.awake = True
+            self.log("The %s flies into a mindless rage." % self._mname(m),
+                     (176, 120, 132))
         if "lifesteal" in traits:
             got = p.heal(dmg // 2)
             if got:

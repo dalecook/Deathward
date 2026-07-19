@@ -120,6 +120,9 @@ FEAR_TURNS          = 6           # turns a frightened thing flees
 POISON_TURNS        = 3           # Basilisk Maul: turns the venom keeps eating
 POISON_DMG          = 2           # damage per poisoned turn
 
+ENRAGE_CHANCE       = 0.20        # Betrayer's Edge: chance to send the struck thing berserk
+ENRAGE_TURNS        = 6           # turns it attacks whatever is nearest
+
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole

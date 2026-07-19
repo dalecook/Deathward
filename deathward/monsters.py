@@ -184,6 +184,7 @@ class Monster:
         self.feared = 0           # turns fleeing (a scroll of Fear)
         self.confused = 0         # turns stumbling at random (a confusion-coated blade)
         self.hammer_hits = 0      # stun-weapon blows landed on it -> the stagger cadence
+        self.enraged = 0          # turns spent attacking whatever is nearest (Betrayer's Edge)
 
     @property
     def name(self):
@@ -247,9 +248,42 @@ class Monster:
             self._wander(world)
             return
 
+        # Betrayer's Edge: it lashes at the nearest thing -- another monster, or you.
+        if self.enraged > 0:
+            self.enraged -= 1
+            self.intent = None
+            self._rampage(world)
+            return
+
         fn = getattr(self, "_ai_" + self.key, None)
         if fn:
             fn(world, p)
+
+    def _rampage(self, world):
+        """Enraged: strike the nearest creature. Another monster if one is closer than
+        the player (no kill credit -- source 'enrage'); otherwise lash at the player."""
+        p = world.player
+        pd = self.dist(p.x, p.y)
+        best, bd = None, 10 ** 9
+        for o in world.level.monsters:
+            if o is self or not o.alive:
+                continue
+            d = self.dist(o.x, o.y)
+            if d < bd:
+                best, bd = o, d
+        if best is not None and bd <= pd:
+            if bd <= 1:
+                dmg = int(round(world.rng.randint(self.t.lo, self.t.hi)))
+                world.log("The %s turns on the %s!"
+                          % (world._mname(self), world._mname(best)), (176, 120, 132))
+                world.hurt_monster(best, dmg, source="enrage")
+            else:
+                self._step_toward(world, best.x, best.y)
+            return
+        if pd <= 1:
+            self._hit(world, verb="lashes wildly at")
+        else:
+            self._step_toward(world, p.x, p.y)
 
     def _wander(self, world):
         """A single aimless step -- for a monster that has lost track of the player."""

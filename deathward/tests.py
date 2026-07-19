@@ -6463,6 +6463,44 @@ class TestWeaponBenchUI(unittest.TestCase):
         ui.draw_weapon_cheat(surf, keys, 0.7)             # must not raise
 
 
+class TestEnrage(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def test_betrayers_edge_enrages(self):
+        from . import config
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("brute", w.player.x + 1, w.player.y); m.hp = m.max_hp = 999
+        w.level.monsters.append(m)
+        w.player.weapon = WEAPONS["betrayers_edge"].copy()
+        old = config.ENRAGE_CHANCE
+        config.ENRAGE_CHANCE = 1.0
+        try:
+            w.player_attack(m)
+            self.assertEqual(m.enraged, config.ENRAGE_TURNS)
+        finally:
+            config.ENRAGE_CHANCE = old
+
+    def test_an_enraged_monster_strikes_its_neighbour(self):
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        rager = Monster("brute", p.x + 3, p.y); rager.hp = rager.max_hp = 999
+        rager.awake = True
+        victim = Monster("brute", p.x + 4, p.y); victim.hp = victim.max_hp = 999
+        w.level.monsters = [rager, victim]
+        rager.enraged = 3
+        vhp = victim.hp
+        rager.take_turn(w)          # adjacent to victim -> hits it
+        self.assertLess(victim.hp, vhp, "the enraged one turned on its neighbour")
+        self.assertEqual(rager.enraged, 2, "and the rage ticks down")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
