@@ -85,6 +85,7 @@ class Game:
         self.scroll_cheat = CheatCode([pygame.K_6, pygame.K_7])   # CTRL+67: scroll picker
         self.potion_cheat = CheatCode([pygame.K_7, pygame.K_6])   # CTRL+76: potion picker
         self.weapon_cheat = CheatCode([pygame.K_1, pygame.K_2])   # CTRL+12: weapon bench
+        self.magic_cheat = CheatCode([pygame.K_2, pygame.K_1])    # CTRL+21: magic-weapon bench
         self.weapon_pages = [[]]   # the weapon-bench pages (ordinary, tier 4, tier 5)
         self.weapon_page_labels = [""]
         self.weapon_page = 0
@@ -200,6 +201,17 @@ class Game:
         from .items import weapon_bench_pages
         self.weapon_pages = weapon_bench_pages()
         self.weapon_page_labels = ["Ordinary", "Magical -- Tier 4", "Magical -- Tier 5"]
+        self.weapon_page = 0
+        self.weapon_picks = self.weapon_pages[self.weapon_page]
+        self.state = WEAPON_PICK
+
+    def open_magic_cheat(self):
+        """CTRL+21. The magic bench: the thirteen magical weapons only, split into a
+        Tier 4 and a Tier 5 page (TAB switches). Like the weapon bench (CTRL+12) but
+        skips the ordinary weapons. A digit equips the base; SHIFT+digit its +2."""
+        from .items import weapon_bench_pages
+        self.weapon_pages = weapon_bench_pages()[1:]     # drop the ordinary page
+        self.weapon_page_labels = ["Magical -- Tier 4", "Magical -- Tier 5"]
         self.weapon_page = 0
         self.weapon_picks = self.weapon_pages[self.weapon_page]
         self.state = WEAPON_PICK
@@ -462,6 +474,7 @@ class Game:
             (self.scroll_cheat, lambda: self.open_consumable_cheat("scroll")),  # 67
             (self.potion_cheat, lambda: self.open_consumable_cheat("potion")),  # 76
             (self.weapon_cheat, lambda: self.open_weapon_cheat()),     # 12   weapon bench
+            (self.magic_cheat, lambda: self.open_magic_cheat()),       # 21   magic bench
         ]
         if held or any(c.progress for c, _ in cheats):
             done = [c.feed(k, held) for c, _ in cheats]

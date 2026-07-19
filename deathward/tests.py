@@ -6609,6 +6609,24 @@ class TestVoidScimitar(unittest.TestCase):
         self.assertLess(boss.hp, 999, "it takes ordinary damage instead")
 
 
+class TestMagicBenchCheat(unittest.TestCase):
+    """CTRL+21: a magic-only weapon bench -- like CTRL+12 but skips the ordinary weapons."""
+
+    def test_ctrl21_opens_a_magic_only_bench(self):
+        from .game import Game, WEAPON_PICK
+        from .items import WEAPONS
+        g = Game.__new__(Game)          # bypass pygame init; drive the opener directly
+        g.open_magic_cheat()
+        self.assertEqual(g.state, WEAPON_PICK)
+        covered = set().union(*g.weapon_pages)
+        magical = {k for k, w in WEAPONS.items() if w.tier >= 4}
+        self.assertEqual(covered, magical, "the magic bench reaches all 13 magical weapons")
+        self.assertEqual(len(covered), 13)
+        self.assertNotIn("bone_sword", covered, "and offers no ordinary weapons")
+        self.assertTrue(all(len(page) <= 9 for page in g.weapon_pages),
+                        "each page still fits the 1-9 digit keys")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
