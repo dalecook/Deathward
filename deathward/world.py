@@ -1117,9 +1117,9 @@ class World:
         return None
 
     def cheat_equip_weapon(self, key, bonus=0):
-        """CTRL+12 weapon bench: swap any ordinary weapon (base, or its +2 masterwork)
-        straight onto the hero. Your current weapon drops at your feet, keeping its own
-        +n, so nothing is lost and you can pick it back up."""
+        """CTRL+12 weapon bench: swap any weapon -- ordinary or magical (base, or its
+        +2 masterwork) -- straight onto the hero. Your current weapon drops at your
+        feet, keeping its own +n, so nothing is lost and you can pick it back up."""
         from .items import WEAPONS
         if key not in WEAPONS:
             return

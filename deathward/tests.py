@@ -6451,6 +6451,33 @@ class TestWeaponBench(unittest.TestCase):
         self.assertEqual(WEAPONS["steel_axe"].bonus, 0,
                          "the shared template stays pristine")
 
+    def test_bench_equips_a_magical_weapon(self):
+        w = self._world()
+        w.cheat_equip_weapon("void_scimitar", 0)
+        self.assertEqual(w.player.weapon.key, "void_scimitar")
+        self.assertEqual(w.player.weapon.traits, ("void",))
+
+    def test_bench_pages_make_every_weapon_reachable(self):
+        """Task 11: the bench maps digits 1-9 per page, so the 13 magical weapons
+        (unreachable if simply appended to a single 9-slot list) must be spread
+        across their own pages. Every WEAPONS key -- ordinary and magical -- must
+        appear on some page, and no page may exceed nine entries (or its 1-9 keys
+        couldn't reach the tail)."""
+        from .items import WEAPONS, weapon_bench_pages
+        pages = weapon_bench_pages()
+        for page in pages:
+            self.assertLessEqual(len(page), 9,
+                                 "a page longer than 9 has unreachable rows")
+        reachable = set()
+        for page in pages:
+            reachable.update(page)
+        self.assertEqual(reachable, set(WEAPONS) - {"shiv"},
+                         "every non-shiv weapon must be reachable from some page")
+        magical = {k for k, g in WEAPONS.items() if g.tier >= 4}
+        self.assertEqual(len(magical), 13)
+        self.assertTrue(magical.issubset(reachable),
+                        "all thirteen magical weapons must be reachable")
+
 
 class TestWeaponBenchUI(unittest.TestCase):
     def test_draw_weapon_cheat_runs_without_error(self):
@@ -6461,6 +6488,7 @@ class TestWeaponBenchUI(unittest.TestCase):
         keys = ["%s_%s" % (m, t) for m in ("bone", "bronze", "steel")
                 for t in ("sword", "axe", "hammer")]
         ui.draw_weapon_cheat(surf, keys, 0.7)             # must not raise
+        ui.draw_weapon_cheat(surf, keys, 0.7, "Ordinary")  # with a page label
 
 
 class TestEnrage(unittest.TestCase):

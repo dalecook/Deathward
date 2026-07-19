@@ -949,10 +949,12 @@ def draw_aim_hint(surf, ok):
          (cx, 44), 13, (110, 220, 130) if ok else (230, 90, 90), center=True)
 
 
-def draw_weapon_cheat(surf, keys, t):
-    """CTRL+12 weapon bench: the nine ordinary weapons, 1-9. A digit equips the base
-    weapon; SHIFT+digit equips its +2 masterwork. Your current weapon drops at your
-    feet. The base/+2 instruction lives at the bottom, where the eye lands last."""
+def draw_weapon_cheat(surf, keys, t, page_label=""):
+    """CTRL+12 weapon bench: up to nine weapons per page, 1-9. TAB cycles pages (the
+    nine ordinary weapons, then the magical roster split tier 4 / tier 5) so every
+    weapon stays reachable through a single digit. A digit equips the base weapon;
+    SHIFT+digit equips its +2 masterwork. Your current weapon drops at your feet.
+    The base/+2 instruction lives at the bottom, where the eye lands last."""
     from .items import WEAPONS
 
     layer = pygame.Surface((config.W, config.H), pygame.SRCALPHA)
@@ -961,8 +963,10 @@ def draw_weapon_cheat(surf, keys, t):
     cx = config.W // 2
 
     text(surf, "WEAPON BENCH", (cx, 52), 34, config.GOLD, bold=True, center=True)
-    text(surf, "[ CHEAT ]   equip any ordinary weapon -- your current one drops at your feet",
+    text(surf, "[ CHEAT ]   equip any weapon -- your current one drops at your feet",
          (cx, 88), 14, config.DIM, center=True)
+    if page_label:
+        text(surf, page_label, (cx, 106), 14, config.GOLD, bold=True, center=True)
 
     y = 122
     for idx, key in enumerate(keys):
@@ -981,7 +985,8 @@ def draw_weapon_cheat(surf, keys, t):
     text(surf, "press 1-9 to equip the base weapon", (cx, y + 12), 15, glow, center=True)
     text(surf, "hold SHIFT + 1-9 for the +2 masterwork version", (cx, y + 36), 16,
          config.GOLD, bold=True, center=True)
-    text(surf, "ESC  cancel", (cx, y + 60), 13, config.FAINT, center=True)
+    text(surf, "TAB  next page   •   ESC  cancel", (cx, y + 60), 13,
+         config.FAINT, center=True)
 
 
 def draw_arsenal(surf, keys, t):

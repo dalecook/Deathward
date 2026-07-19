@@ -206,6 +206,19 @@ def top_tier_gear(n=3):
     return {"weapon": top(WEAPONS), "armour": top(ARMOURS), "boots": top(BOOTS)}
 
 
+def weapon_bench_pages():
+    """The CTRL+12 weapon bench's pages: the nine ordinary weapons, then the magical
+    roster split into tier 4 (focused) and tier 5 (unleashed) so each page fits the
+    bench's nine keys (1-9). Roster order within a page follows WEAPONS' insertion
+    order, keeping the on-screen list stable run to run."""
+    ordinary = ["%s_%s" % (mat, typ)
+               for mat in ("bone", "bronze", "steel")
+               for typ in ("sword", "axe", "hammer")]
+    tier4 = [key for key, g in WEAPONS.items() if g.tier == 4]
+    tier5 = [key for key, g in WEAPONS.items() if g.tier == 5]
+    return [ordinary, tier4, tier5]
+
+
 # --- consumables ---------------------------------------------------------
 class Consumable:
     slot = "pack"

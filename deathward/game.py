@@ -85,7 +85,10 @@ class Game:
         self.scroll_cheat = CheatCode([pygame.K_6, pygame.K_7])   # CTRL+67: scroll picker
         self.potion_cheat = CheatCode([pygame.K_7, pygame.K_6])   # CTRL+76: potion picker
         self.weapon_cheat = CheatCode([pygame.K_1, pygame.K_2])   # CTRL+12: weapon bench
-        self.weapon_picks = []     # the ordinary weapon keys offered by the weapon bench
+        self.weapon_pages = [[]]   # the weapon-bench pages (ordinary, tier 4, tier 5)
+        self.weapon_page_labels = [""]
+        self.weapon_page = 0
+        self.weapon_picks = []     # the weapon keys offered by the current bench page
         self.arsenal = []          # the gear keys offered by the arsenal popup
         self.cheat_items = []      # the flavors offered by the scroll/potion picker
         self.cheat_items_kind = "scroll"
@@ -189,12 +192,16 @@ class Game:
         self.state = ARSENAL
 
     def open_weapon_cheat(self):
-        """CTRL+12. The weapon bench: the nine ordinary weapons, laid out 1-9. Press a
-        digit for the base weapon, or hold SHIFT for its +2 masterwork. The chosen one
-        goes straight onto you and your current weapon drops at your feet."""
-        self.weapon_picks = ["%s_%s" % (mat, typ)
-                             for mat in ("bone", "bronze", "steel")
-                             for typ in ("sword", "axe", "hammer")]
+        """CTRL+12. The weapon bench: nine ordinary weapons plus the thirteen magical
+        ones (Tasks 1-10), spread across pages of up to nine so every key 1-9 stays
+        reachable. TAB cycles pages; a digit equips the base weapon on the current
+        page, or hold SHIFT for its +2 masterwork. The chosen one goes straight onto
+        you and your current weapon drops at your feet."""
+        from .items import weapon_bench_pages
+        self.weapon_pages = weapon_bench_pages()
+        self.weapon_page_labels = ["Ordinary", "Magical -- Tier 4", "Magical -- Tier 5"]
+        self.weapon_page = 0
+        self.weapon_picks = self.weapon_pages[self.weapon_page]
         self.state = WEAPON_PICK
 
     def open_consumable_cheat(self, kind):
@@ -306,6 +313,9 @@ class Game:
         if self.state == WEAPON_PICK:
             if k == pygame.K_ESCAPE:
                 self.state = PLAY
+            elif k == pygame.K_TAB:
+                self.weapon_page = (self.weapon_page + 1) % len(self.weapon_pages)
+                self.weapon_picks = self.weapon_pages[self.weapon_page]
             elif pygame.K_1 <= k <= pygame.K_9:
                 idx = k - pygame.K_1
                 if idx < len(self.weapon_picks):
@@ -661,7 +671,8 @@ class Game:
             ui.draw_arsenal(self.screen, self.arsenal, self.t)
         elif self.state == WEAPON_PICK:
             self._draw_dungeon()
-            ui.draw_weapon_cheat(self.screen, self.weapon_picks, self.t)
+            ui.draw_weapon_cheat(self.screen, self.weapon_picks, self.t,
+                                 self.weapon_page_labels[self.weapon_page])
         elif self.state == BANISH:
             self._draw_dungeon()
             ui.draw_banish(self.screen, self.world.banishable_types(), self.codex,
