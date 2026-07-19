@@ -4,8 +4,9 @@
 **Status:** design, pending review
 **Scope:** the second of the two weapon passes. Phase 1 built the *ordinary* tier
 (floors 1–7) and the per-instance `bonus`/persistence machinery. This phase expands and
-rebalances the *magical* tier (floors 8–20): a new Tier 5, twelve named magical weapons,
-and the deep-floor loot economy that delivers them. Armour and boots remain out of scope.
+rebalances the *magical* tier (floors 8–20): a new Tier 5, thirteen named magical weapons
+(ten new), a deep-floor loot economy, and a persistence system that makes magical weapons
+absolutely unique, world-persistent artifacts. Armour and boots remain out of scope.
 
 ## Problem
 
@@ -23,6 +24,10 @@ no scarcity or reward structure to make a deep-floor weapon feel like a *find*.
   that upgrades are *tactical decisions*, not inflation.
 - **Scarcity as fiction:** the deeper you go, the fewer adventurers died there, so the
   less loot lies around — but what remains is *better* (masterwork steel, top-tier magic).
+- **Magical weapons as unique, world-persistent artifacts** — each generated at most once
+  per game and staying where it lies across lives, so the roster is a *draw without
+  replacement* and **dying becomes a tactic** for fishing the shrinking pool. This is the
+  most on-theme extension of "failure is the only progression."
 - **Weapons never a guaranteed find deep down.** A great weapon with poor armour still
   gets you killed, so the game need not hand them out; magical weapons are rare, and a run
   may see few or none.
@@ -40,8 +45,9 @@ no scarcity or reward structure to make a deep-floor weapon feel like a *find*.
   themselves belong to the [add-minibosses-floors-8-15] task. This phase defines those two
   weapons, excludes them from the found pool, and leaves a clean drop-hook; until the
   bosses exist they are reachable only via the CTRL+12 weapon-bench cheat for testing.
-- **New persistence plumbing** — phase 1 already made `bonus` per-instance and carried it
-  through corpses, the victory-keep and the save. New weapons inherit all of it for free.
+- **Armour/boots persistence** — the new magical-weapon ledger (§7) is *weapons only*.
+  Phase 1's per-instance `bonus`/corpse/victory-keep machinery is inherited for free; this
+  phase adds the ledger on top, but does not touch armour or boots persistence.
 
 ## Design
 
@@ -141,21 +147,58 @@ Phase 1's single "magical when present" rule for floors 8+ is **replaced**:
   - a **magical slot**: the rare magical roll (§7).
 - **Floors 16–20:** the magical slot only (0 or 1 weapon).
 
+**The scaling path is the enchant economy, not fresh drops.** Weapons persist and enchant,
+so the hero descends *with* their weapon and grows it via `krav` (Scroll of Enchant Weapon,
+uncapped). To keep that path alive deep, **`krav`/`dwen` stay reliably available on floors
+8–20** (may even be biased slightly deeper, since that is when carried gear most needs to
+scale). This — not a guaranteed weapon drop — is what keeps a run Warden-viable; magical
+*weapons* stay a rare treasure. (A pity-net forcing a weapon after a drought was considered
+and **deferred** — revisit after playtest.)
+
 Fiction: shallow floors are thick with the weapons of the many who died there; deep
 floors hold few, but the few are masterwork or magical.
 
-### 7. Magical rarity model
+### 7. Magical rarity, uniqueness, and persistence
 
-- **One magical slot per floor (8–20)** at a **rare** overall present-chance that gently
-  **declines with depth** (fewer adventurers died deep). Absolute numbers are tunable; the
-  intent is that a whole run may yield few or no magical weapons.
-- **If a magical weapon is present, its tier is a depth crossover:** the Tier-4 share is
-  high at floor 8 and falls toward floor 20; the Tier-5 share is low at floor 8 and rises.
-  Both remain rare in absolute terms. Net effect: your chance of finding *a Tier 4* falls
-  with depth while *a Tier 5* rises, and total magic stays scarce.
-- **The specific weapon** is then chosen within the tier from the **findable** pool —
-  i.e. **excluding the two mini-boss weapons**.
-- All draws come from the world RNG in a fixed order, independent of the Kodex.
+**Rarity (starting values — all tunable).** One magical slot per floor (8–20) at a rare,
+depth-declining present-chance; if it fires, the tier is a depth crossover (Tier-4 share
+high shallow → low deep, Tier-5 the reverse):
+
+| Floors | Magical present | Tier-5 share (of that) |
+|---|---|---|
+| 8–11 | 18% | 20% |
+| 12–15 | 15% | 40% |
+| 16–20 | 12% | 65% |
+
+Combined with the enhanced-Steel slot (70% at floor 8, −10%/floor, 0 at floor 15), this
+yields roughly **~2.8 enhanced-Steel and ~1.9 magical finds per run, a Tier-5 in ~55% of
+runs, and ~12% of runs no magical at all** — "rare, maybe none," as intended. (Floor 20 is
+the Warden arena; if the boss floor places no loot, the magical slot runs 16–19.)
+
+**Absolute uniqueness — a draw *without replacement*, across the whole game.** A magical
+weapon is generated **at most once per game**. The instant it is placed into the world it
+is **spent from the pool forever** — whether or not the player picks it up (it persists in
+place, so a second copy must never generate). The flat per-floor chance is unchanged, but
+as the pool shrinks the odds a drop is a *specific* remaining weapon rise. This makes
+**dying a tactic**: stash a weapon you don't want, dive again, and the narrowed pool fishes
+toward the one you do. A **new game** (Kodex wipe, fresh Stone) resets the whole roster.
+
+**Persistence — magicals are world objects; non-magicals are ephemeral.** Non-magical drops
+still evaporate on each life's re-deal. **Magical weapons stay exactly where they lie** — on
+the ground or on a corpse — across every life. This needs new persistent
+save state, the **magical-weapon ledger**: each magical is *in-pool*, *lying at
+`(floor, x, y, +n)`*, or *carried*. Each life, floor generation **replays the ledger**
+(re-placing lying weapons at their saved spots) and only introduces *new, in-pool* weapons
+via the rare slot. Pickup/drop moves a weapon between *carried* and a world location; dying
+moves *carried* onto the corpse. Over many lives the dungeon becomes salted with the
+artifacts of the player's past selves — thematically core.
+
+**Invariant note.** The ledger and collected-set are *power earned by doing* (like corpses
+and the victory-keep), **not knowledge** — the Kodex still never changes what generates, so
+the bit-identical proof holds. All generation draws from the world RNG in a fixed order.
+
+**The specific weapon** chosen within a tier comes from the **findable, still-in-pool**
+weapons — excluding the two mini-boss weapons and anything already generated this game.
 
 ### 8. Mini-boss weapons and the void guard rails
 
@@ -190,6 +233,13 @@ aerial wraith-kin — "the gear matches the killer"); a note for the mini-boss t
   want Kodex facts. Vampiric Kris's cleave gets an in-fiction justification: a blade so
   light, balanced and impossibly keen that a single draw carries clean through into the
   next body — and drinks from each.
+- **The collector's reward.** Picking up every *findable* magical weapon (the 11) is a
+  flagged achievement — a Kodex line and a stat: *"You have drawn every blade the deep still
+  holds."* Completing all **13** (once the two boss weapons exist) earns the **second gold
+  star**.
+- **The homage.** Every respawn greets the hero with a pop-up — *"You wake, again, and the
+  deep is patient."* — mirrored by a Kodex entry. A nod to Planescape: Torment's Mortuary,
+  and a small anchor for the game's death-as-progression soul.
 
 ### 10. Optional polish — flat-damage display
 
@@ -199,7 +249,7 @@ but `desc()` would render "5-5 dmg". A one-line special-case rendering "5 dmg" w
 
 ## Surfaces touched
 
-- **`items.py`** — twelve magical weapons (3 retuned keys + 10 new); the tier-5 constant;
+- **`items.py`** — thirteen magical weapons (3 retuned keys + 10 new); the tier-5 constant;
   `roll_floor_weapon` reworked into the two-slot deep economy (enhanced-steel slot with
   depth-decay + climbing +3; magical slot with declining presence + tier crossover;
   boss-locked exclusion); optional `desc()` flat-damage polish.
@@ -207,12 +257,22 @@ but `desc()` would render "5-5 dmg". A one-line special-case rendering "5 dmg" w
   and its targeting; a `poisoned` DoT tick (modelled on `burning`).
 - **`world.py`** — trait resolution for the new/extended effects: freeze (apply `stunned`),
   enrage, anti-incorporeal damage multiplier, cleave-applies-status, the void instakill
-  (with boss/gift immunity and no-loot removal), poison.
-- **`dungeon.py`** — placement of up to two weapons on floors 8–15; one on 16–20.
+  (with boss/gift immunity and no-loot removal), poison. **Magical drops persist** — a
+  ground-dropped magical is written to the ledger, not evaporated on the re-deal; pickup
+  removes it from the ledger.
+- **`dungeon.py`** — the two-slot deep economy (enhanced-Steel + magical); **ledger replay**
+  at generation (re-place lying magicals at their saved spots) and only new-from-pool via
+  the rare slot.
 - **`sprites.py`** — ten new weapon sprites.
-- **`codex.py`** — Kodex facts for new weapons/mechanics; confirm the tier tie-break holds
+- **`codex.py`** — the **magical-weapon ledger** and collected-set (persistent save state,
+  with save-format migration defaulting them empty); Kodex facts for new weapons/mechanics,
+  the collector's achievement, and the respawn homage line; confirm the tier tie-break holds
   at tier 5.
-- **`cheats.py` / weapon bench** — expose the twelve magical weapons (incl. the two
+- **`game.py` / `render.py`** — the respawn pop-up (*"You wake, again, and the deep is
+  patient."*).
+- **`items.py`** (loot weighting) — keep `krav`/`dwen` reliably available (slightly biased
+  deeper) so the enchant scaling path holds on floors 8–20.
+- **`cheats.py` / weapon bench** — expose the thirteen magical weapons (incl. the two
   boss-locked) for CTRL+12 testing.
 - **`tests.py`** — roster shape and bands; two-slot deep economy; steel decay to 0 at
   floor 15; +3-climbs-with-depth; magical presence decline + tier crossover; boss-locked
@@ -228,14 +288,22 @@ but `desc()` would render "5-5 dmg". A one-line special-case rendering "5 dmg" w
 - **Boss/gift immunity to void** must be covered directly (Warden, mini-boss stand-in,
   gift-carrier) — these are correctness guards, not just balance.
 - **Save compatibility:** new keys are additive; the three reused keys keep working, so
-  existing corpses/saves load unchanged.
+  existing corpses/saves load unchanged. The ledger/collected-set default empty on old saves.
 - **No-cap enchant** already renders arbitrary `+n` (phase 1) — new weapons inherit it.
+- **Ledger persistence:** a magical left on the ground (or a corpse) is still at the same
+  spot after a simulated new life; a non-magical drop is gone. A magical generated in one
+  life never re-generates later in the same game; a **new game** resets it.
+- **Enchant availability:** `krav` reliably appears on deep floors (a sanity check on the
+  scaling path).
+- **The collector's achievement** fires exactly when all findable magicals have been held.
 
 ## Open tunables (safe to settle in playtest)
 
-- Magical present-chance curve (floors 8–20) and the T4/T5 crossover weights.
-- Enhanced-steel non-magical slot: floor-8 start chance and the decay-to-0-at-15 curve;
-  the +3 chance-by-depth curve.
+- Magical present-chance and T4/T5 crossover — starting values in §7 (18/15/12%;
+  T5 share 20/40/65%).
+- Enhanced-Steel slot: 70% at floor 8, −10%/floor to 0 at 15 (starting); the +3
+  chance-by-depth curve.
+- The deferred **pity net** (guaranteed weapon after a drought) — revisit post-playtest.
 - Void instakill 10% → lower if it evaporates too many deep elites.
 - Freeze chance/duration; enrage chance/duration; Fulgurite's ×1.5 vs incorporeal;
   Windfang's +20 speed.
