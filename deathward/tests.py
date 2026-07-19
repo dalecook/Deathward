@@ -6298,6 +6298,54 @@ class TestCombinedTraits(unittest.TestCase):
         self.assertLess(bystander.hp, by0, "cleave carried into the bystander")
 
 
+class TestElementalStatuses(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def _target(self, w):
+        from .monsters import Monster
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = m.max_hp = 999
+        w.level.monsters.append(m)
+        return m
+
+    def test_winters_edge_freezes(self):
+        from . import config
+        from .items import WEAPONS
+        w = self._world(); m = self._target(w)
+        w.player.weapon = WEAPONS["winters_edge"].copy()
+        old = config.FREEZE_CHANCE
+        config.FREEZE_CHANCE = 1.0
+        try:
+            w.player_attack(m)
+            self.assertGreater(m.stunned, 0, "the frost froze it")
+        finally:
+            config.FREEZE_CHANCE = old
+
+    def test_reapers_whisper_frightens_the_primary(self):
+        from . import config
+        from .items import WEAPONS
+        w = self._world(); m = self._target(w)
+        w.player.weapon = WEAPONS["reapers_whisper"].copy()
+        old = config.FEAR_CHANCE
+        config.FEAR_CHANCE = 1.0
+        try:
+            w.player_attack(m)
+            self.assertGreater(m.feared, 0, "the reaped one is routed")
+        finally:
+            config.FEAR_CHANCE = old
+
+    def test_plain_weapon_freezes_nothing(self):
+        from .items import WEAPONS
+        w = self._world(); m = self._target(w)
+        w.player.weapon = WEAPONS["steel_sword"].copy()
+        w.player_attack(m)
+        self.assertEqual(m.stunned, 0)
+
+
 class TestWeaponBench(unittest.TestCase):
     """CTRL+12 weapon bench: swap on any ordinary weapon (base or +2), old drops."""
 

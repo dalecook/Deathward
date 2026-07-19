@@ -112,6 +112,11 @@ ACT_COST     = 100
 HAMMER_STUN_CADENCE = 3          # stun on hits 1, 1+N, 1+2N, ... against each enemy
 HAMMER_STUN_TURNS   = 1          # turns the stagger holds
 
+FREEZE_CHANCE       = 0.25        # Winter's Edge / Glacial Flail: chance to freeze on hit
+FREEZE_TURNS        = 1           # a freeze is one player turn of the stun system
+FEAR_CHANCE         = 0.25        # Reaper's Whisper: chance to rout on hit
+FEAR_TURNS          = 6           # turns a frightened thing flees
+
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole

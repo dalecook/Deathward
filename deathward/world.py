@@ -441,6 +441,35 @@ class World:
                 m.awake = True
 
     # --- combat ---------------------------------------------------------
+    def _weapon_status_on(self, m, dmg):
+        """Apply the equipped weapon's spreadable on-hit statuses to one struck
+        monster. Burn/freeze/fear/lifesteal ride a cleave onto neighbours (Task 5),
+        so this is called for the primary target and for each cleaved target.
+        Returns HP healed by lifesteal (0 otherwise)."""
+        p = self.player
+        traits = p.weapon.traits
+        if "burn" in traits and m.alive:
+            m.burning = max(m.burning, 3)
+            self.log("The %s catches fire." % self._mname(m), (255, 150, 80))
+            self.add_fx("burning", m.x, m.y, life=0.8, tiles=[(m.x, m.y)])
+        if "freeze" in traits and m.alive and self.rng.random() < config.FREEZE_CHANCE:
+            m.stunned = max(m.stunned, config.FREEZE_TURNS)
+            self.log("The %s freezes solid for a beat." % self._mname(m),
+                     (150, 210, 255))
+            self.add_fx("freeze", m.x, m.y, color=(150, 210, 255), life=0.5)
+        if "fear" in traits and m.alive and self.rng.random() < config.FEAR_CHANCE:
+            m.feared = max(m.feared, config.FEAR_TURNS)
+            m.awake = True
+            self.log("The %s recoils in terror." % self._mname(m), (120, 100, 190))
+        if "lifesteal" in traits:
+            got = p.heal(dmg // 2)
+            if got:
+                self.log("The blade drinks. You recover %d." % got, config.HEAL)
+                self.add_fx("drain", p.x, p.y, color=(226, 74, 96), life=0.5,
+                            tiles=[(m.x, m.y)])
+            return got
+        return 0
+
     def player_attack(self, m):
         p = self.player
         if p.invisible > 0:
@@ -493,14 +522,8 @@ class World:
             self.add_fx("impact", m.x, m.y, color=(176, 120, 132), radius=0.9,
                         life=0.45)
         self.hurt_monster(m, dmg, source="player")
+        self._weapon_status_on(m, dmg)
 
-        if "lifesteal" in traits:
-            got = p.heal(dmg // 2)
-            if got:
-                self.log("The kris drinks. You recover %d." % got, config.HEAL)
-                # its life, visibly crossing the gap into you
-                self.add_fx("drain", p.x, p.y, color=(226, 74, 96), life=0.5,
-                            tiles=[(m.x, m.y)])
         if "stun" in traits and m.alive:
             # a rhythm, not a gamble: the FIRST blow on a thing staggers it, then every
             # Nth blow after. Deterministic, so the control is legible -- and it costs no
@@ -513,10 +536,6 @@ class World:
                 # this same turn resolution, so a state-based indicator never shows.
                 self.add_fx("stunstars", m.x, m.y, color=config.GOLD, life=0.75)
                 self.shake(4)
-        if "burn" in traits and m.alive:
-            m.burning = max(m.burning, 3)
-            self.log("The %s catches fire." % self._mname(m), (255, 150, 80))
-            self.add_fx("burning", m.x, m.y, life=0.8, tiles=[(m.x, m.y)])
         if "cleave" in traits:
             for dx, dy in DIRS8:
                 o = self.monster_at(p.x + dx, p.y + dy)
