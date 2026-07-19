@@ -35,7 +35,7 @@ from . import config
 from .codex import CAUSE_NAME, fact_title
 from .dungeon import Chest, Corpse, Drop, Level, Slain
 from .items import ALL_GEAR, CONSUMABLES, roll_loot, roll_monster_loot
-from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier
+from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
 
 MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
 
@@ -530,6 +530,8 @@ class World:
                      % self._mname(m), (176, 120, 132))
             self.add_fx("impact", m.x, m.y, color=(176, 120, 132), radius=0.9,
                         life=0.45)
+        if "shock" in traits and is_incorporeal(m.key):
+            dmg = int(round(dmg * config.FULGURITE_INCORP_MULT))
         self.hurt_monster(m, dmg, source="player")
         self._weapon_status_on(m, dmg)
 
@@ -550,6 +552,8 @@ class World:
                 o = self.monster_at(p.x + dx, p.y + dy)
                 if o and o is not m and o.alive:
                     extra = max(1, dmg // 2)
+                    if "shock" in traits and is_incorporeal(o.key):
+                        extra = int(round(extra * config.FULGURITE_INCORP_MULT))
                     self.log("The axe carries through the %s for %d."
                              % (self._mname(o), extra), config.INK)
                     # every thing the axe carries through gets cut, visibly

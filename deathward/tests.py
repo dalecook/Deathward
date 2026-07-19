@@ -6501,6 +6501,43 @@ class TestEnrage(unittest.TestCase):
         self.assertEqual(rager.enraged, 2, "and the rage ticks down")
 
 
+class TestAntiIncorporeal(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def test_incorporeal_set(self):
+        from .monsters import is_incorporeal
+        self.assertTrue(is_incorporeal("wraith"))
+        self.assertTrue(is_incorporeal("poltergeist"))
+        self.assertFalse(is_incorporeal("brute"))
+
+    def test_fulgurite_hits_ghosts_harder(self):
+        from .items import WEAPONS
+        from .monsters import Monster
+        # test that fulgurite does x1.5 damage to incorporeal monsters
+        w = self._world()
+        w.player.weapon = WEAPONS["fulgurite"].copy()
+        # pin the damage roll
+        w.player.weapon.lo = w.player.weapon.hi = 4
+
+        # test corporeal target
+        brute = Monster("brute", w.player.x + 1, w.player.y)
+        brute.hp = brute.max_hp = 999
+        w.level.monsters = [brute]
+        w.player_attack(brute)
+        self.assertEqual(999 - brute.hp, 4, "brute takes 4 (no multiplier)")
+
+        # test incorporeal target
+        wraith = Monster("wraith", w.player.x + 1, w.player.y)
+        wraith.hp = wraith.max_hp = 999
+        w.level.monsters = [wraith]
+        w.player_attack(wraith)
+        self.assertEqual(999 - wraith.hp, 6, "wraith takes 6 (4 * 1.5)")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

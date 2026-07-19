@@ -104,6 +104,13 @@ def damage_multiplier(monster_key, source):
             return 0.25      # steel, darts, spikes -- it barely notices
     return 1.0
 
+
+INCORPOREAL = {"wraith", "poltergeist"}     # walk through walls, ignore armour
+
+
+def is_incorporeal(key):
+    return key in INCORPOREAL
+
 # what walks which floor. floor 1 is angry rats and the occasional kobold -- the
 # plague rat (faster, sicker, and it comes in numbers) does not appear until 2.
 #
