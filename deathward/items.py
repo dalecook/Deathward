@@ -37,25 +37,33 @@ import random
 class Weapon:
     slot = "weapon"
 
-    def __init__(self, key, name, tier, lo, hi, trait=None, note="",
+    def __init__(self, key, name, tier, lo, hi, traits=(), note="",
                  speed_mod=0, bonus=0):
         self.key, self.name, self.tier = key, name, tier
-        self.lo, self.hi, self.trait, self.note = lo, hi, trait, note
-        self.speed_mod = speed_mod        # a swing tax, same units as boots/armour speed
+        self.lo, self.hi, self.note = lo, hi, note
+        self.traits = tuple(traits)       # e.g. ("cleave", "burn"); () for a plain blade
+        self.speed_mod = speed_mod        # a swing tax (or, negative, a quickening)
         self.bonus = bonus                # masterwork + scroll enchant, per-instance
+
+    @property
+    def trait(self):
+        """Back-compat: the primary trait, or None. New code reads self.traits."""
+        return self.traits[0] if self.traits else None
+
+    def has(self, t):
+        return t in self.traits
 
     def roll(self, rng):
         return rng.randint(self.lo, self.hi) + self.bonus
 
     def copy(self, bonus=None):
-        return Weapon(self.key, self.name, self.tier, self.lo, self.hi, self.trait,
+        return Weapon(self.key, self.name, self.tier, self.lo, self.hi, self.traits,
                       self.note, self.speed_mod,
                       self.bonus if bonus is None else bonus)
 
-    def desc(self, bonus=0):
-        lo = self.lo + self.bonus + bonus
-        hi = self.hi + self.bonus + bonus
-        s = "%d-%d dmg" % (lo, hi)
+    def desc(self):
+        lo, hi = self.lo + self.bonus, self.hi + self.bonus
+        s = "%d dmg" % lo if lo == hi else "%d-%d dmg" % (lo, hi)
         return s + ("  |  " + self.note if self.note else "")
 
 
@@ -97,7 +105,8 @@ def _ordinary(mat, mat_tier, mat_lo):
             ("hammer", -25, "stun", "staggers the first blow, then every third")):
         key = "%s_%s" % (mat, typ)
         name = "%s %s" % (mat.capitalize(), typ.capitalize())
-        out[key] = Weapon(key, name, mat_tier, mat_lo, 5, trait, note, speed_mod=tax)
+        out[key] = Weapon(key, name, mat_tier, mat_lo, 5,
+                          traits=(trait,) if trait else (), note=note, speed_mod=tax)
     return out
 
 WEAPONS = {"shiv": Weapon("shiv", "Rusted Shiv", 0, 1, 3)}
@@ -106,12 +115,12 @@ WEAPONS.update(_ordinary("bronze", 2, 2))
 WEAPONS.update(_ordinary("steel", 3, 3))
 # --- magical (floors 8+): found unenhanced, enchantable by scroll -----------
 WEAPONS.update({
-    "rapier": Weapon("rapier", "Steel Rapier", 4, 4, 6, "crit",
-                     "1 in 4 strikes doubles"),
-    "brand":  Weapon("brand", "Flame Brand", 4, 5, 10, "burn",
-                     "sets the struck thing alight"),
-    "kris":   Weapon("kris", "Vampiric Kris", 4, 3, 7, "lifesteal",
-                     "you heal for half of what you deal"),
+    "rapier": Weapon("rapier", "Steel Rapier", 4, 4, 6, traits=("crit",),
+                     note="1 in 4 strikes doubles"),
+    "brand":  Weapon("brand", "Flame Brand", 4, 5, 10, traits=("burn",),
+                     note="sets the struck thing alight"),
+    "kris":   Weapon("kris", "Vampiric Kris", 4, 3, 7, traits=("lifesteal",),
+                     note="you heal for half of what you deal"),
 })
 
 ARMOURS = {

@@ -5750,7 +5750,7 @@ class TestWeaponInstance(unittest.TestCase):
 
     def test_copy_is_independent(self):
         from .items import Weapon
-        base = Weapon("bone_axe", "Bone Axe", 1, 1, 5, trait="cleave", speed_mod=-15)
+        base = Weapon("bone_axe", "Bone Axe", 1, 1, 5, traits=("cleave",), speed_mod=-15)
         c = base.copy(bonus=2)
         self.assertEqual(c.bonus, 2)
         self.assertEqual(base.bonus, 0, "copying does not touch the template")
@@ -5760,6 +5760,31 @@ class TestWeaponInstance(unittest.TestCase):
     def test_speed_mod_defaults_to_zero(self):
         from .items import Weapon
         self.assertEqual(Weapon("k", "n", 1, 1, 5).speed_mod, 0)
+
+
+class TestWeaponTraits(unittest.TestCase):
+    def test_traits_tuple_and_has(self):
+        from .items import Weapon
+        w = Weapon("k", "N", 4, 5, 8, traits=("cleave", "burn"))
+        self.assertEqual(w.traits, ("cleave", "burn"))
+        self.assertTrue(w.has("burn"))
+        self.assertFalse(w.has("freeze"))
+
+    def test_trait_property_is_the_first_trait(self):
+        from .items import Weapon
+        self.assertEqual(Weapon("k", "N", 1, 1, 5, traits=("cleave",)).trait, "cleave")
+        self.assertIsNone(Weapon("k", "N", 1, 1, 5).trait)
+
+    def test_copy_preserves_traits(self):
+        from .items import Weapon
+        c = Weapon("k", "N", 5, 5, 8, traits=("cleave", "burn")).copy(bonus=2)
+        self.assertEqual(c.traits, ("cleave", "burn"))
+        self.assertEqual(c.bonus, 2)
+
+    def test_flat_damage_renders_a_single_number(self):
+        from .items import Weapon
+        self.assertEqual(Weapon("k", "N", 5, 5, 5).desc(), "5 dmg")
+        self.assertEqual(Weapon("k", "N", 4, 3, 6).desc(), "3-6 dmg")
 
 
 class TestWeaponSpeedTaxAndInstanceBonus(unittest.TestCase):
