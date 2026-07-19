@@ -6346,6 +6346,46 @@ class TestElementalStatuses(unittest.TestCase):
         self.assertEqual(m.stunned, 0)
 
 
+class TestCleaveCarriesElement(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def _mob(self, w, dx, dy):
+        from .monsters import Monster
+        m = Monster("brute", w.player.x + dx, w.player.y + dy)
+        m.hp = m.max_hp = 999
+        w.level.monsters.append(m)
+        return m
+
+    def test_pyroclast_ignites_every_cleaved_body(self):
+        from .items import WEAPONS
+        w = self._world()
+        primary = self._mob(w, 1, 0)
+        neighbour = self._mob(w, 0, 1)
+        w.player.weapon = WEAPONS["pyroclast"].copy()   # ("cleave", "burn")
+        w.player_attack(primary)
+        self.assertGreater(primary.burning, 0, "primary is alight")
+        self.assertGreater(neighbour.burning, 0, "the cleaved neighbour is alight too")
+
+    def test_glacial_flail_freezes_the_cleaved(self):
+        from . import config
+        from .items import WEAPONS
+        w = self._world()
+        primary = self._mob(w, 1, 0)
+        neighbour = self._mob(w, 0, 1)
+        w.player.weapon = WEAPONS["glacial_flail"].copy()  # ("cleave", "freeze")
+        old = config.FREEZE_CHANCE
+        config.FREEZE_CHANCE = 1.0
+        try:
+            w.player_attack(primary)
+            self.assertGreater(neighbour.stunned, 0, "the cleaved neighbour froze")
+        finally:
+            config.FREEZE_CHANCE = old
+
+
 class TestWeaponBench(unittest.TestCase):
     """CTRL+12 weapon bench: swap on any ordinary weapon (base or +2), old drops."""
 

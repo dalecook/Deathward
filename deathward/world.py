@@ -547,6 +547,7 @@ class World:
                     self.add_fx("slash", o.x, o.y, color=(230, 240, 255),
                                 radius=0.9, life=0.26)
                     self.hurt_monster(o, extra, source="player")
+                    self._weapon_status_on(o, extra)
         if p.boots.trait == "kick" and m.alive:
             self._knockback(m)
 
