@@ -447,10 +447,10 @@ class World:
             p.invisible = 0          # you cannot strike from hiding and stay hidden
             self.log("You break cover to strike.", config.DIM)
         dmg = p.damage_roll(self.rng)
-        trait = p.weapon.trait
+        traits = p.weapon.traits
         crit = False
 
-        if trait == "crit" and self.rng.random() < 0.25:
+        if "crit" in traits and self.rng.random() < 0.25:
             dmg *= 2
             crit = True
 
@@ -494,14 +494,14 @@ class World:
                         life=0.45)
         self.hurt_monster(m, dmg, source="player")
 
-        if trait == "lifesteal":
+        if "lifesteal" in traits:
             got = p.heal(dmg // 2)
             if got:
                 self.log("The kris drinks. You recover %d." % got, config.HEAL)
                 # its life, visibly crossing the gap into you
                 self.add_fx("drain", p.x, p.y, color=(226, 74, 96), life=0.5,
                             tiles=[(m.x, m.y)])
-        if trait == "stun" and m.alive:
+        if "stun" in traits and m.alive:
             # a rhythm, not a gamble: the FIRST blow on a thing staggers it, then every
             # Nth blow after. Deterministic, so the control is legible -- and it costs no
             # rng draw, which keeps generation/combat reproducible.
@@ -513,11 +513,11 @@ class World:
                 # this same turn resolution, so a state-based indicator never shows.
                 self.add_fx("stunstars", m.x, m.y, color=config.GOLD, life=0.75)
                 self.shake(4)
-        if trait == "burn" and m.alive:
+        if "burn" in traits and m.alive:
             m.burning = max(m.burning, 3)
             self.log("The %s catches fire." % self._mname(m), (255, 150, 80))
             self.add_fx("burning", m.x, m.y, life=0.8, tiles=[(m.x, m.y)])
-        if trait == "cleave":
+        if "cleave" in traits:
             for dx, dy in DIRS8:
                 o = self.monster_at(p.x + dx, p.y + dy)
                 if o and o is not m and o.alive:

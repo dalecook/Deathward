@@ -6275,6 +6275,29 @@ class TestStunIndicator(unittest.TestCase):
         render.draw_stun_stars(surf, 100, 100, 1.23)      # must not raise
 
 
+class TestCombinedTraits(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def test_vampiric_kris_both_cleaves_and_lifesteals(self):
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.weapon = WEAPONS["kris"].copy()      # ("cleave", "lifesteal")
+        p.hp = max(1, p.max_hp - 20)
+        target = Monster("brute", p.x + 1, p.y); target.hp = target.max_hp = 999
+        bystander = Monster("brute", p.x + 1, p.y + 1); bystander.hp = bystander.max_hp = 999
+        w.level.monsters = [target, bystander]
+        hp0, by0 = p.hp, bystander.hp
+        w.player_attack(target)
+        self.assertGreater(p.hp, hp0, "lifesteal healed you")
+        self.assertLess(bystander.hp, by0, "cleave carried into the bystander")
+
+
 class TestWeaponBench(unittest.TestCase):
     """CTRL+12 weapon bench: swap on any ordinary weapon (base or +2), old drops."""
 
