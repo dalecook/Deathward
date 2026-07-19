@@ -505,9 +505,6 @@ class World:
 
         if ("void" in traits and m.alive and not self._void_immune(m)
                 and self.rng.random() < config.VOID_KILL_CHANCE):
-            self.log("The Scimitar passes through the %s and it is simply gone."
-                     % self._mname(m), config.MANA)
-            self.add_fx("vanish", m.x, m.y, color=(120, 100, 190), life=0.5)
             self.void_monster(m)
             return
 
