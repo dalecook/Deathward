@@ -1059,7 +1059,7 @@ class World:
             if is_magical(payload):
                 if self.codex.magical_picked_up(payload):
                     self.codex.award_collection()
-                    self.log("EVERY BLADE THE DEEP STILL HOLDS is yours. Two gold stars.",
+                    self.log("EVERY BLADE THE DEEP STILL HOLDS is yours. One gold star -- the second still waits on the deep's guardians.",
                              config.GOLD)
             name, desc = p.gear_display(g.slot)   # shows any enchant it already carried
             self.log("You put on the %s.  (%s)" % (name, desc), config.ITEM)
@@ -1134,7 +1134,7 @@ class World:
         if is_magical(key):
             if self.codex.magical_picked_up(key):
                 self.codex.award_collection()
-                self.log("EVERY BLADE THE DEEP STILL HOLDS is yours. Two gold stars.",
+                self.log("EVERY BLADE THE DEEP STILL HOLDS is yours. One gold star -- the second still waits on the deep's guardians.",
                          config.GOLD)
         name = "%s +%d" % (g.name, bonus) if bonus else g.name
         self.log("[CHEAT] You heft the %s.  (%s)" % (name, g.desc()), config.GOLD)

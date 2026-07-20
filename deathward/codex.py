@@ -86,8 +86,9 @@ FACT_LIST = [
     _f("self.magical_collector", "self", "secret",
        "EVERY BLADE THE DEEP STILL HOLDS",
        "You have drawn every magical weapon this dungeon will yield -- the whole rare "
-       "roster, gathered by one hand across many deaths. Two gold stars. There is nothing "
-       "left down there to find that you have not already held."),
+       "roster, gathered by one hand across many deaths. One gold star -- and a second "
+       "waits for the day you also wrest the two blades the deep's guardians still keep. "
+       "There is nothing left down there to find that you have not already held."),
     _f("self.the_deep_is_patient", "self", "secret",
        "YOU WAKE, AGAIN",
        "Death is not the end of the descent -- it is how you go on. You wake on the same "
