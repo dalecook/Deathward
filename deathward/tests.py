@@ -6502,6 +6502,18 @@ class TestWeaponBench(unittest.TestCase):
         self.assertTrue(magical.issubset(reachable),
                         "all thirteen magical weapons must be reachable")
 
+    def test_cheat_equipping_all_findable_magicals_grants_the_collector_award(self):
+        """The bench equips straight onto the player, bypassing the normal pickup
+        path (_take); without ledger upkeep in cheat_equip_weapon, the collector's
+        award could never be reached by cheat-testing."""
+        from .items import FINDABLE_MAGICAL_KEYS
+        w = self._world()
+        self.assertEqual(len(FINDABLE_MAGICAL_KEYS), 11)
+        for key in FINDABLE_MAGICAL_KEYS:
+            w.cheat_equip_weapon(key, 0)
+            self.assertIn(key, w.codex.magical_collected)
+        self.assertIn("self.magical_collector", w.codex.known)
+
 
 class TestWeaponBenchUI(unittest.TestCase):
     def test_draw_weapon_cheat_runs_without_error(self):
@@ -7019,6 +7031,30 @@ class TestRespawnHomage(unittest.TestCase):
         g.banner = None; g.banner_age = 0.0
         g.new_run()
         self.assertNotIn("self.the_deep_is_patient", g.codex.known)
+
+
+class TestUniquenessAcrossLives(unittest.TestCase):
+    def test_a_left_magical_persists_and_never_duplicates_across_lives(self):
+        from .items import is_magical
+        codex = FakeSave(); codex.world_seed = 11
+        # life 1: place a Kris on floor 10 and leave it
+        w1 = World(codex, seed=11); w1.new_level(10)
+        codex.magical_ground.clear(); codex.magical_generated = ["kris"]
+        codex.magical_ground["kris"] = {"depth": 10, "x": w1.player.x,
+                                        "y": w1.player.y + 2, "bonus": 0}
+        # lives 2..6: fresh World each time (living re-dealt, ledger persists)
+        for life in range(5):
+            w = World(codex, seed=11)
+            all_krises = 0
+            for depth in range(8, 20):
+                w.new_level(depth)
+                all_krises += sum(1 for d in w.level.drops
+                                  if d.kind == "gear" and d.payload == "kris")
+            self.assertEqual(all_krises, 1, "exactly one Kris exists, life %d" % life)
+        # floor 10 still holds it, at its spot
+        w = World(codex, seed=11); w.new_level(10)
+        self.assertTrue(any(d.payload == "kris" for d in w.level.drops
+                            if d.kind == "gear"))
 
 
 if __name__ == "__main__":

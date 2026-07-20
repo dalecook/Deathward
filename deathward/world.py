@@ -1131,6 +1131,11 @@ class World:
         g = WEAPONS[key].copy(bonus=bonus)
         old = self.player.equip(g)          # equip stores its own copy and returns the old
         self.codex.see_gear(key)
+        if is_magical(key):
+            if self.codex.magical_picked_up(key):
+                self.codex.award_collection()
+                self.log("EVERY BLADE THE DEEP STILL HOLDS is yours. Two gold stars.",
+                         config.GOLD)
         name = "%s +%d" % (g.name, bonus) if bonus else g.name
         self.log("[CHEAT] You heft the %s.  (%s)" % (name, g.desc()), config.GOLD)
         self.add_fx("pulse", self.player.x, self.player.y, color=config.GOLD, life=0.6)
