@@ -83,6 +83,11 @@ FACT_LIST = [
        "The stairs never ask for a toll. You may leave any floor at any moment, with "
        "any fraction of it explored. Greed is the only thing that keeps you on a "
        "floor -- and greed is a choice, not a rule."),
+    _f("self.magical_collector", "self", "secret",
+       "EVERY BLADE THE DEEP STILL HOLDS",
+       "You have drawn every magical weapon this dungeon will yield -- the whole rare "
+       "roster, gathered by one hand across many deaths. Two gold stars. There is nothing "
+       "left down there to find that you have not already held."),
 
     # --- ANGRY RAT -------------------------------------------------------
     _f("angry_rat.rule", "angry_rat", "rule", "ANGRY RAT -- WHAT IT IS",
@@ -674,6 +679,7 @@ class Codex:
             "traps_by": {},         # per-type: how many times you have seen it fire
             "steps": 0,
             "deepest_kill": {},
+            "magical_collected_all": 0,
         }
 
     # --- persistence ----------------------------------------------------
@@ -1029,6 +1035,14 @@ class Codex:
     def _grant(self, key):
         self.known.append(key)
         return FACTS[key]
+
+    def award_collection(self):
+        """Grant the collector's Kodex fact once. The fact is permanent (survives a new
+        dungeon); the collected-set that earns it is per-game."""
+        self.stats["magical_collected_all"] = 1
+        if "self.magical_collector" not in self.known:
+            self._grant("self.magical_collector")
+            self.save()
 
     def reveal_random(self, rng):
         """A Potion of Insight: learn one whole fact you did not have, for free. Any

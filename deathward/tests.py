@@ -6973,6 +6973,24 @@ class TestLedgerPickupDrop(unittest.TestCase):
                          "the +n rides down onto the floor with it")
 
 
+class TestCollectorAward(unittest.TestCase):
+    def test_collecting_every_findable_magical_awards_once(self):
+        from .items import FINDABLE_MAGICAL_KEYS
+        from .codex import FACTS
+        codex = FakeSave()
+        self.assertIn("self.magical_collector", FACTS, "the award fact exists")
+        keys = list(FINDABLE_MAGICAL_KEYS)
+        completed = [codex.magical_picked_up(k) for k in keys]
+        self.assertEqual(sum(completed), 1, "completion fires exactly once (last pickup)")
+        # the last pickup returned True -> the world would call award_collection
+        codex.award_collection()
+        self.assertIn("self.magical_collector", codex.known)
+        self.assertEqual(codex.stats.get("magical_collected_all"), 1)
+        # idempotent
+        codex.award_collection()
+        self.assertEqual(codex.known.count("self.magical_collector"), 1)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

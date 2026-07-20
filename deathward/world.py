@@ -1057,7 +1057,10 @@ class World:
             old = p.equip(g)
             self.codex.see_gear(payload)          # you have handled it -> a Kodex entry
             if is_magical(payload):
-                self.codex.magical_picked_up(payload)   # collected + off the ground
+                if self.codex.magical_picked_up(payload):
+                    self.codex.award_collection()
+                    self.log("EVERY BLADE THE DEEP STILL HOLDS is yours. Two gold stars.",
+                             config.GOLD)
             name, desc = p.gear_display(g.slot)   # shows any enchant it already carried
             self.log("You put on the %s.  (%s)" % (name, desc), config.ITEM)
 
