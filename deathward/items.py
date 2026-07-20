@@ -388,6 +388,13 @@ FINDABLE_MAGICAL = {
     5: ["basilisk_maul", "pyroclast", "reapers_whisper", "kris", "glacial_flail"],
 }
 
+FINDABLE_MAGICAL_KEYS = set(FINDABLE_MAGICAL[4]) | set(FINDABLE_MAGICAL[5])
+
+
+def is_magical(key):
+    """A magical weapon (tier 4 or 5). The single source of truth for the ledger."""
+    return key in WEAPONS and WEAPONS[key].tier >= 4
+
 
 def roll_magical(rng, depth):
     """The rare magical slot for floors 8-20. Returns (key, 0) or None. Present-chance is

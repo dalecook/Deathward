@@ -633,6 +633,13 @@ class Codex:
         self.runs = 0
         self.wins = 0
         self.corpses = {}       # depth (str) -> {"x","y","gold","weapon","gift"}
+        # the magical-weapon ledger (Plan 3). generated = every magical ever placed this
+        # GAME (the uniqueness exclude set); ground = the ones currently lying on a floor,
+        # key -> {"depth","x","y","bonus"} (re-placed each life so they persist); collected
+        # = magicals the player has ever picked up (drives the collector's award).
+        self.magical_generated = []
+        self.magical_ground = {}
+        self.magical_collected = []
         self.gifts = []         # one-time-per-GAME rewards already claimed
         self.gift_item = None   # WHICH gear the gift turned out to be, so we can
                                 # still recognise it after it has been swapped out
@@ -678,6 +685,9 @@ class Codex:
                 data = json.load(fh)
         except (OSError, ValueError):
             return
+        self._load_from(data)
+
+    def _load_from(self, data):
         self.known = [k for k in data.get("known", []) if k in FACTS]
         self.gear_seen = data.get("gear_seen", [])
         self.appearance = data.get("appearance", {})
@@ -693,6 +703,9 @@ class Codex:
         self.found_traps = data.get("found_traps", {})
         self.world_seed = data.get("world_seed")
         self.stats.update(data.get("stats", {}))
+        self.magical_generated = data.get("magical_generated", [])
+        self.magical_ground = data.get("magical_ground", {})
+        self.magical_collected = data.get("magical_collected", [])
 
         # A save cut by an older dungeon generator remembers a map that no longer
         # matches the walls. Throw the PLACE away and keep the person.
@@ -700,8 +713,8 @@ class Codex:
             self.new_dungeon()
             self.layout_migrated = True
 
-    def save(self):
-        data = {
+    def _save_dict(self):
+        return {
             "known": self.known, "gear_seen": self.gear_seen,
             "appearance": self.appearance,
             "telemetry": self.telemetry, "deaths": self.deaths,
@@ -711,10 +724,15 @@ class Codex:
             "layout_version": config.LAYOUT_VERSION,
             "found_traps": self.found_traps,
             "world_seed": self.world_seed, "stats": self.stats,
+            "magical_generated": self.magical_generated,
+            "magical_ground": self.magical_ground,
+            "magical_collected": self.magical_collected,
         }
+
+    def save(self):
         try:
             with open(config.SAVE_PATH, "w", encoding="utf-8") as fh:
-                json.dump(data, fh, indent=1)
+                json.dump(self._save_dict(), fh, indent=1)
         except OSError:
             pass
 
@@ -801,6 +819,9 @@ class Codex:
         self.maps = {}
         self.found_traps = {}
         self.corpses = {}
+        self.magical_generated = []
+        self.magical_ground = {}
+        self.magical_collected = []
         self.gifts = []
         self.gift_item = None
 
@@ -877,6 +898,33 @@ class Codex:
 
     def progress(self):
         return len(self.known), TOTAL_FACTS
+
+    # --- the magical-weapon ledger ---------------------------------------
+    def record_magical_placed(self, key, depth, x, y, bonus):
+        """A magical weapon has entered the world (rolled at generation). It never rolls
+        again (uniqueness) and lies where it was placed until picked up."""
+        if key not in self.magical_generated:
+            self.magical_generated.append(key)
+        self.magical_ground[key] = {"depth": depth, "x": x, "y": y, "bonus": bonus}
+
+    def drop_magical_to_ground(self, key, depth, x, y, bonus):
+        """The hero left a magical on the bare floor; it stays there across lives."""
+        if key not in self.magical_generated:
+            self.magical_generated.append(key)
+        self.magical_ground[key] = {"depth": depth, "x": x, "y": y, "bonus": bonus}
+
+    def magical_picked_up(self, key):
+        """The hero has a magical in hand: mark it collected, take it off the ground.
+        Returns True the first time the findable set is completed (for the award)."""
+        from .items import FINDABLE_MAGICAL_KEYS
+        self.magical_ground.pop(key, None)
+        if key not in self.magical_generated:
+            self.magical_generated.append(key)
+        was_complete = FINDABLE_MAGICAL_KEYS <= set(self.magical_collected)
+        if key not in self.magical_collected:
+            self.magical_collected.append(key)
+        now_complete = FINDABLE_MAGICAL_KEYS <= set(self.magical_collected)
+        return now_complete and not was_complete
 
     # --- corpses --------------------------------------------------------
     def write_corpse(self, depth, x, y, gold, weapon_key, gift_key, loot,

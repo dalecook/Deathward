@@ -6809,6 +6809,59 @@ class TestDeepEconomyDistribution(unittest.TestCase):
         self.assertAlmostEqual(no_magical / runs, 0.12, delta=0.05)
 
 
+class TestMagicalLedgerState(unittest.TestCase):
+    def test_is_magical_and_findable_keys(self):
+        from .items import is_magical, FINDABLE_MAGICAL_KEYS
+        self.assertTrue(is_magical("kris"))
+        self.assertTrue(is_magical("rapier"))
+        self.assertFalse(is_magical("steel_sword"))
+        self.assertFalse(is_magical("nonsense"))
+        self.assertEqual(len(FINDABLE_MAGICAL_KEYS), 11)
+        self.assertNotIn("windfang", FINDABLE_MAGICAL_KEYS)
+        self.assertNotIn("void_scimitar", FINDABLE_MAGICAL_KEYS)
+
+    def test_record_and_pickup(self):
+        codex = FakeSave()
+        codex.record_magical_placed("kris", 12, 5, 6, 0)
+        self.assertIn("kris", codex.magical_generated)
+        self.assertEqual(codex.magical_ground["kris"],
+                         {"depth": 12, "x": 5, "y": 6, "bonus": 0})
+        completed = codex.magical_picked_up("kris")
+        self.assertIn("kris", codex.magical_collected)
+        self.assertNotIn("kris", codex.magical_ground, "picked up -> no longer on ground")
+        self.assertIn("kris", codex.magical_generated, "still exists, never regenerates")
+        self.assertFalse(completed, "one of eleven is not the whole set")
+
+    def test_drop_puts_it_back_on_the_ground(self):
+        codex = FakeSave()
+        codex.record_magical_placed("kris", 12, 5, 6, 0)
+        codex.magical_picked_up("kris")
+        codex.drop_magical_to_ground("kris", 3, 1, 1, 2)
+        self.assertEqual(codex.magical_ground["kris"],
+                         {"depth": 3, "x": 1, "y": 1, "bonus": 2})
+
+    def test_save_load_round_trips_the_ledger(self):
+        from .codex import Codex
+        codex = FakeSave()
+        codex.record_magical_placed("brand", 9, 2, 2, 0)
+        codex.magical_picked_up("brand")
+        data = {}
+        # exercise the real serialize/deserialize path via a temp Codex
+        c2 = Codex.__new__(Codex)
+        c2.__init__()
+        c2._load_from(codex._save_dict())   # helper below
+        self.assertIn("brand", c2.magical_generated)
+        self.assertIn("brand", c2.magical_collected)
+
+    def test_new_dungeon_resets_the_ledger(self):
+        codex = FakeSave()
+        codex.record_magical_placed("kris", 12, 5, 6, 0)
+        codex.new_dungeon()
+        self.assertEqual(codex.magical_generated, [])
+        self.assertEqual(codex.magical_ground, {})
+        self.assertEqual(codex.magical_collected, [])
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
