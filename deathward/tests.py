@@ -999,10 +999,16 @@ class TestPersistentStone(unittest.TestCase):
         return tuple(tuple(row) for row in lvl.grid)
 
     def _contents(self, lvl):
+        # magical weapons are the one exception to "re-dealt every run" (Task 3: they
+        # persist where they lie, same as a corpse) -- carve them out here so this stays
+        # a measure of the LIVING, not the heirlooms salted through the floor.
+        from .items import is_magical
+        living_drops = [d for d in lvl.drops
+                        if not (d.kind == "gear" and is_magical(d.payload))]
         return (tuple(sorted((m.key, m.x, m.y) for m in lvl.monsters)),
                 tuple(sorted((t.key, t.x, t.y) for t in lvl.traps)),
                 tuple(sorted((c.x, c.y) for c in lvl.chests)),
-                tuple(sorted((d.kind, str(d.payload), d.x, d.y) for d in lvl.drops)))
+                tuple(sorted((d.kind, str(d.payload), d.x, d.y) for d in living_drops)))
 
     def test_the_stone_is_identical_on_every_respawn(self):
         codex = FakeSave()
@@ -6896,6 +6902,39 @@ class TestMagicalLedgerState(unittest.TestCase):
         self.assertEqual(codex.magical_generated, [])
         self.assertEqual(codex.magical_ground, {})
         self.assertEqual(codex.magical_collected, [])
+
+
+class TestMagicalPersistence(unittest.TestCase):
+    def _world(self, seed=5):
+        codex = FakeSave(); codex.world_seed = seed
+        return World(codex, seed=seed), codex
+
+    def test_a_ground_magical_reappears_next_life_at_its_spot(self):
+        from .items import is_magical
+        w, codex = self._world()
+        w.new_level(10)
+        # find (or force) a magical lying on floor 10
+        codex.magical_ground.clear(); codex.magical_generated = []
+        codex.record_magical_placed("kris", 10, w.player.x, w.player.y + 2, 0)
+        # a NEW life: fresh World, same codex (the living is re-dealt, the ledger persists)
+        w2 = World(codex, seed=w.seed)
+        w2.new_level(10)
+        krises = [d for d in w2.level.drops
+                  if d.kind == "gear" and d.payload == "kris"]
+        self.assertEqual(len(krises), 1, "the Kris is still lying on floor 10")
+        self.assertEqual((krises[0].x, krises[0].y),
+                         (w.player.x, w.player.y + 2), "exactly where it was left")
+        self.assertEqual(krises[0].bonus, 0)
+
+    def test_the_ground_ledger_holds_only_magicals(self):
+        from .items import is_magical
+        w, codex = self._world()
+        # generate several deep floors; whatever lands in the ground ledger is magical
+        for depth in range(8, 16):
+            w.new_level(depth)
+        for key in codex.magical_ground:
+            self.assertTrue(is_magical(key),
+                            "%s should never be in the magical ground ledger" % key)
 
 
 if __name__ == "__main__":
