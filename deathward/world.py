@@ -1762,7 +1762,9 @@ class World:
     def advance(self):
         """Run the world forward until the player can act again."""
         guard = 0
+        ticked = False
         while self.player.energy < config.ACT_COST and not self.dead and not self.won:
+            ticked = True
             guard += 1
             if guard > 500:
                 break
@@ -1782,8 +1784,12 @@ class World:
         # reeling monster out of its AI every tick above; here -- now that the player can
         # act again -- each stun ticks down by one. this holds the stagger across a whole
         # recovery window even when a hammer has slowed the player below the monster's
-        # speed (see _tick_stuns).
-        self._tick_stuns()
+        # speed (see _tick_stuns). BUT only when the world actually moved: a fast player
+        # (Windwalkers) banks free actions whose advance() runs ZERO ticks -- no monster
+        # got a turn, so ticking a stun there would let the player's own free move waste
+        # their freeze. Only tick stuns on turns where time actually passed.
+        if ticked:
+            self._tick_stuns()
         if self.shake_t > 0:
             self.shake_t -= 1
 

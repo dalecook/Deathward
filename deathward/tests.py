@@ -6627,6 +6627,43 @@ class TestMagicBenchCheat(unittest.TestCase):
                         "each page still fits the 1-9 digit keys")
 
 
+class TestStunHoldsThroughAFreeAction(unittest.TestCase):
+    """A fast player's banked/free action is an advance() with ZERO world ticks -- no
+    monster gets a turn. A stun must NOT tick down then, or Windwalkers (or any haste)
+    wastes a Winter's Edge freeze on the player's own free move instead of the monster's
+    turn. Dual of the hammer-stun fix (which handles a SLOW player)."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def test_a_zero_tick_free_action_does_not_burn_the_stun(self):
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = m.max_hp = 999
+        m.stunned = 1
+        w.level.monsters = [m]
+        w.player.energy = config.ACT_COST      # already able to act -> advance() does 0 ticks
+        w.advance()
+        self.assertEqual(m.stunned, 1,
+                         "no world time passed, so the freeze must still be in force")
+
+    def test_a_real_recovery_turn_still_burns_one_stun(self):
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        m.hp = m.max_hp = 999
+        m.stunned = 1
+        w.level.monsters = [m]
+        w.player.energy = 0                    # must recover -> advance() runs >= 1 tick
+        w.advance()
+        self.assertEqual(m.stunned, 0,
+                         "a real player turn (the world ticked) still ticks the stun down")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
