@@ -6708,6 +6708,48 @@ class TestRollMagical(unittest.TestCase):
                 self.assertEqual(r[1], 0, "magical weapons are found at +0")
 
 
+class TestRollDeepSteel(unittest.TestCase):
+    def test_none_on_floor_15_and_deeper(self):
+        import random
+        from .items import roll_deep_steel
+        for depth in (15, 16, 20):
+            for s in range(50):
+                self.assertIsNone(roll_deep_steel(random.Random(s), depth),
+                                  "the enhanced-steel slot is spent by floor 15")
+
+    def test_present_chance_decays(self):
+        import random
+        from .items import roll_deep_steel
+        def rate(depth):
+            hits = sum(roll_deep_steel(random.Random(s), depth) is not None
+                       for s in range(4000))
+            return hits / 4000.0
+        self.assertAlmostEqual(rate(8), 0.70, delta=0.04)
+        self.assertAlmostEqual(rate(11), 0.40, delta=0.04)
+        self.assertAlmostEqual(rate(14), 0.10, delta=0.03)
+
+    def test_always_enhanced_steel_never_plus_zero(self):
+        import random
+        from .items import roll_deep_steel
+        for depth in range(8, 15):
+            for s in range(300):
+                r = roll_deep_steel(random.Random(s), depth)
+                if r:
+                    key, bonus = r
+                    self.assertTrue(key.startswith("steel_"), key)
+                    self.assertIn(bonus, (1, 2, 3), "enhanced only")
+
+    def test_plus3_chance_climbs_with_depth(self):
+        import random
+        from .items import roll_deep_steel
+        def plus3(depth):
+            present = [r for r in (roll_deep_steel(random.Random(s), depth)
+                                   for s in range(6000)) if r]
+            return sum(1 for _, b in present if b == 3) / len(present)
+        self.assertLess(plus3(8), 0.12)      # ~5%
+        self.assertGreater(plus3(14), 0.25)  # ~35%
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

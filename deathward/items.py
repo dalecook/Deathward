@@ -399,6 +399,24 @@ def roll_magical(rng, depth):
     return (rng.choice(FINDABLE_MAGICAL[tier]), 0)
 
 
+def roll_deep_steel(rng, depth):
+    """The non-magical slot on floors 8-14: an ENHANCED Steel weapon (never +0), the
+    masterwork a strong adventurer carried down before dying. Present-chance decays from
+    70% at floor 8 to 0 at floor 15; the +3 chance climbs with depth. Returns
+    ("steel_<type>", bonus) with bonus in (1, 2, 3), or None. Draws only from (rng, depth)."""
+    if depth >= 15:
+        return None
+    present = 0.70 * (15 - depth) / 7.0          # 70% at 8 ... 10% at 14 ... 0 at 15
+    if rng.random() >= present:
+        return None
+    wtype = rng.choice(["sword", "axe", "hammer"])
+    if rng.random() < (depth - 7) * 0.05:        # +3 masterwork: 5% at 8 ... 35% at 14
+        bonus = 3
+    else:
+        bonus = 2 if rng.random() < 0.35 else 1
+    return ("steel_%s" % wtype, bonus)
+
+
 def roll_floor_weapon(rng, depth):
     """The one weapon a floor may hold, decided at generation. Returns (key, bonus) or
     None. Depends only on (rng, depth) -- never on the Kodex -- so blind and omniscient
