@@ -120,6 +120,10 @@ class Game:
             self.codex.new_dungeon()
         self.codex.runs += 1
         self.world = World(self.codex)
+        if keep is None and not fresh_dungeon and self.codex.deaths > 0:
+            self.world.log("You wake, again, and the deep is patient.", config.MANA)
+            if "self.the_deep_is_patient" not in self.codex.known:
+                self.codex._grant("self.the_deep_is_patient")
         if keep and self.victory_gear:
             from .items import ALL_GEAR
             key = self.victory_gear.get(keep)

@@ -88,6 +88,11 @@ FACT_LIST = [
        "You have drawn every magical weapon this dungeon will yield -- the whole rare "
        "roster, gathered by one hand across many deaths. Two gold stars. There is nothing "
        "left down there to find that you have not already held."),
+    _f("self.the_deep_is_patient", "self", "secret",
+       "YOU WAKE, AGAIN",
+       "Death is not the end of the descent -- it is how you go on. You wake on the same "
+       "cold stone you woke on last time, and the time before, and the deep waits with "
+       "the patience of something that has never once been in a hurry."),
 
     # --- ANGRY RAT -------------------------------------------------------
     _f("angry_rat.rule", "angry_rat", "rule", "ANGRY RAT -- WHAT IT IS",

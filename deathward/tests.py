@@ -6991,6 +6991,36 @@ class TestCollectorAward(unittest.TestCase):
         self.assertEqual(codex.known.count("self.magical_collector"), 1)
 
 
+class TestRespawnHomage(unittest.TestCase):
+    """The Planescape: Torment homage -- every respawn after a death greets the
+    hero with the same line, and teaches the lore fact the first time."""
+
+    def test_respawn_after_death_speaks_the_homage(self):
+        from .game import Game, PLAY
+        from .codex import FACTS
+        self.assertIn("self.the_deep_is_patient", FACTS)
+        g = Game.__new__(Game)
+        g.codex = FakeSave()
+        g.codex.deaths = 1                 # a death has happened -> this is a respawn
+        g.victory_gear = None
+        g.banner = None; g.banner_age = 0.0
+        g.new_run()
+        msgs = " ".join(m[0] if isinstance(m, tuple) else str(m)
+                        for m in g.codex.messages)
+        self.assertIn("the deep is patient", msgs.lower())
+        self.assertIn("self.the_deep_is_patient", g.codex.known)
+
+    def test_a_fresh_new_game_does_not_speak_the_homage(self):
+        from .game import Game
+        g = Game.__new__(Game)
+        g.codex = FakeSave()
+        g.codex.deaths = 0                 # brand new game, nobody has died yet
+        g.victory_gear = None
+        g.banner = None; g.banner_age = 0.0
+        g.new_run()
+        self.assertNotIn("self.the_deep_is_patient", g.codex.known)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
