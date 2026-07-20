@@ -396,18 +396,21 @@ def is_magical(key):
     return key in WEAPONS and WEAPONS[key].tier >= 4
 
 
-def roll_magical(rng, depth):
-    """The rare magical slot for floors 8-20. Returns (key, 0) or None. Present-chance is
-    low and declines with depth (fewer adventurers died this deep); if a magical is
-    present, its tier is a depth crossover -- Tier-5's share rises with depth -- and the
-    specific weapon is drawn from the findable pool. Draws only from (rng, depth), never
-    the Kodex, so blind and omniscient runs stay bit-identical."""
+def roll_magical(rng, depth, exclude=()):
+    """The rare magical slot for floors 8-20. `exclude` is the set of magical keys already
+    generated this game (absolute uniqueness): the chosen tier is filtered to its still-in-
+    pool weapons, and if that tier is exhausted no magical drops. Draws only from
+    (rng, depth) and `exclude` -- run-history, never the Kodex -- so blind and omniscient
+    runs stay bit-identical."""
     present = 0.18 if depth <= 11 else 0.15 if depth <= 15 else 0.12
     if rng.random() >= present:
         return None
     t5_share = 0.20 if depth <= 11 else 0.40 if depth <= 15 else 0.65
     tier = 5 if rng.random() < t5_share else 4
-    return (rng.choice(FINDABLE_MAGICAL[tier]), 0)
+    pool = [k for k in FINDABLE_MAGICAL[tier] if k not in exclude]
+    if not pool:
+        return None
+    return (rng.choice(pool), 0)
 
 
 def roll_deep_steel(rng, depth):
@@ -444,12 +447,13 @@ def roll_ordinary(rng, depth):
     return ("%s_%s" % (material, wtype), bonus)
 
 
-def roll_floor_weapons(rng, depth):
+def roll_floor_weapons(rng, depth, exclude=()):
     """Every weapon a floor places at generation, as a list of (key, bonus) -- 0, 1, or 2.
     Floors 1-7: the single ordinary weapon. Floors 8-14: an enhanced-Steel find AND a rare
     magical (up to two). Floors 15-20: the rare magical only (the steel slot is spent by
     15). Deterministic on (rng, depth), never the Kodex, so a seed's floors are identical
-    for a blind and an omniscient hero."""
+    for a blind and an omniscient hero. `exclude` is the already-generated magical set,
+    threaded to the magical slot for uniqueness."""
     if depth <= 7:
         w = roll_ordinary(rng, depth)
         return [w] if w else []
@@ -457,7 +461,7 @@ def roll_floor_weapons(rng, depth):
     steel = roll_deep_steel(rng, depth)            # None on floors 15+
     if steel:
         out.append(steel)
-    magical = roll_magical(rng, depth)
+    magical = roll_magical(rng, depth, exclude=exclude)
     if magical:
         out.append(magical)
     return out

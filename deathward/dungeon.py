@@ -26,7 +26,7 @@ see a monster, it can see you.
 import random
 
 from . import config
-from .items import gear_pool, roll_chest, roll_floor_weapons, roll_loot
+from .items import gear_pool, is_magical, roll_chest, roll_floor_weapons, roll_loot
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
 
@@ -488,7 +488,7 @@ class Level:
         # gated on Kodex state) and separate from the floor-1 gear GIFT below: the gift is
         # a once-per-GAME armour/boots upgrade (gear_pool no longer includes weapons), so
         # the two coexist without overlap.
-        for wkey, wbonus in roll_floor_weapons(rng, d):
+        for wkey, wbonus in roll_floor_weapons(rng, d, exclude=codex.magical_generated):
             # floor 1's single Bone Axe goes as far from the gate as the level allows (a
             # reward for exploring); the deep floors' finds land on any free tile.
             spot = self._far_room_spot() if d == 1 else None
@@ -496,6 +496,9 @@ class Level:
                 spot = self._free_tile(avoid_start=True)
             if spot:
                 self.drops.append(Drop(spot[0], spot[1], "gear", wkey, bonus=wbonus))
+                if is_magical(wkey):
+                    # it now EXISTS: never rolls again, and lies here until picked up.
+                    codex.record_magical_placed(wkey, d, spot[0], spot[1], wbonus)
 
         # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. There is exactly one guaranteed gear
         # upgrade down here, placed as far from the gate as the level allows, so it

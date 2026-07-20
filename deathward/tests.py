@@ -6809,6 +6809,42 @@ class TestDeepEconomyDistribution(unittest.TestCase):
         self.assertAlmostEqual(no_magical / runs, 0.12, delta=0.05)
 
 
+class TestMagicalUniqueness(unittest.TestCase):
+    def test_roll_magical_never_returns_an_excluded_key(self):
+        import random
+        from .items import roll_magical
+        exclude = {"kris", "basilisk_maul", "pyroclast", "reapers_whisper", "glacial_flail"}
+        for s in range(2000):
+            r = roll_magical(random.Random(s), 18, exclude=exclude)  # depth 18 -> T5-heavy
+            if r:
+                self.assertNotIn(r[0], exclude)
+
+    def test_fully_excluded_tier_yields_no_magical(self):
+        import random
+        from .items import roll_magical, FINDABLE_MAGICAL
+        allmag = set(FINDABLE_MAGICAL[4]) | set(FINDABLE_MAGICAL[5])
+        for s in range(500):
+            self.assertIsNone(roll_magical(random.Random(s), 12, exclude=allmag),
+                              "with every magical spent, the slot is dormant")
+
+    def test_generation_records_placed_magicals_and_never_repeats(self):
+        # Descend a fresh game across floors 8-20 many times over; a magical key must
+        # never be PLACED twice across the whole game (uniqueness).
+        seen = set()
+        codex = FakeSave(); codex.world_seed = 7
+        w = World(codex, seed=7)
+        from .items import is_magical
+        # walk every deep floor once, forcing generation
+        for depth in range(8, 20):
+            w.new_level(depth)
+            for d in w.level.drops:
+                if d.kind == "gear" and is_magical(d.payload):
+                    self.assertNotIn(d.payload, seen, "a magical generated twice")
+                    seen.add(d.payload)
+        # every placed magical was recorded as generated
+        self.assertTrue(set(codex.magical_generated) >= seen)
+
+
 class TestMagicalLedgerState(unittest.TestCase):
     def test_is_magical_and_findable_keys(self):
         from .items import is_magical, FINDABLE_MAGICAL_KEYS
