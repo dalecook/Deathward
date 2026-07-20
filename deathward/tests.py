@@ -6786,6 +6786,29 @@ class TestEnchantScrollAvailability(unittest.TestCase):
             self.assertIn(f, SCROLL_POOL, "shallow scrolls stay in the common pool")
 
 
+class TestDeepEconomyDistribution(unittest.TestCase):
+    def test_per_run_magical_and_steel_counts(self):
+        import random
+        from .items import roll_floor_weapons, WEAPONS
+        runs = 4000
+        magical_per_run, steel_per_run, no_magical = 0, 0, 0
+        for s in range(runs):
+            rng = random.Random(s)
+            mags = steels = 0
+            for depth in range(8, 21):
+                for key, _ in roll_floor_weapons(rng, depth):
+                    if WEAPONS[key].tier >= 4:
+                        mags += 1
+                    elif key.startswith("steel_"):
+                        steels += 1
+            magical_per_run += mags
+            steel_per_run += steels
+            no_magical += (mags == 0)
+        self.assertAlmostEqual(magical_per_run / runs, 1.9, delta=0.3)
+        self.assertAlmostEqual(steel_per_run / runs, 2.8, delta=0.4)
+        self.assertAlmostEqual(no_magical / runs, 0.12, delta=0.05)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
