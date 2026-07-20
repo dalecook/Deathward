@@ -6768,6 +6768,24 @@ class TestRollDeepSteel(unittest.TestCase):
         self.assertGreater(plus3(14), 0.25)  # ~35%
 
 
+class TestEnchantScrollAvailability(unittest.TestCase):
+    def test_deep_scrolls_include_enchant_scrolls_reliably(self):
+        import random
+        from .items import roll_consumable
+        n = 6000
+        enchant = sum(roll_consumable(random.Random(s), 12, "scroll") in ("krav", "dwen")
+                      for s in range(n))
+        self.assertGreater(enchant / n, 0.13, "enchant scrolls are reliably in reach deep")
+
+    def test_shallow_scrolls_are_not_biased(self):
+        import random
+        from .items import roll_consumable, SCROLL_POOL
+        # on floor 3 the enchant bias must not fire (krav/dwen are not in the common pool)
+        for s in range(400):
+            f = roll_consumable(random.Random(s), 3, "scroll")
+            self.assertIn(f, SCROLL_POOL, "shallow scrolls stay in the common pool")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

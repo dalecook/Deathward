@@ -352,6 +352,10 @@ def roll_consumable(rng, depth, kind):
     """One potion (kind='potion') or scroll (kind='scroll'), rarity gated by depth.
     Falls back to the common pool for any tier that has nothing in it yet."""
     common = POTION_POOL if kind == "potion" else SCROLL_POOL
+    # the enchant scrolls are the deep-game scaling path -- keep them reliably in reach
+    # from floor 8. drawn from (rng, depth) only, so it does not break bit-identicality.
+    if kind == "scroll" and depth >= 8 and rng.random() < 0.15:
+        return rng.choice(["krav", "dwen"])
     tier = _consumable_tier(rng, depth)
     if tier == "common":
         return rng.choice(common)
