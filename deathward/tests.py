@@ -5911,53 +5911,31 @@ class TestWeaponSprites(unittest.TestCase):
 class TestWeaponGeneration(unittest.TestCase):
     def test_floor_one_is_always_an_unenhanced_bone_axe(self):
         import random
-        from .items import roll_floor_weapon
+        from .items import roll_floor_weapons
         for seed in range(50):
-            self.assertEqual(roll_floor_weapon(random.Random(seed), 1),
-                             ("bone_axe", 0))
+            self.assertEqual(roll_floor_weapons(random.Random(seed), 1),
+                             [("bone_axe", 0)])
 
     def test_material_bands(self):
         import random
-        from .items import roll_floor_weapon
+        from .items import roll_floor_weapons
         def mats(depth):
             out = set()
             for seed in range(400):
-                r = roll_floor_weapon(random.Random(seed), depth)
-                if r:
-                    out.add(r[0].split("_")[0])
+                got = roll_floor_weapons(random.Random(seed), depth)
+                for key, _ in got:
+                    out.add(key.split("_")[0])
             return out
         self.assertEqual(mats(2), {"bone"})
         self.assertEqual(mats(3) | mats(4), {"bronze"})
         self.assertEqual(mats(6), {"steel"})
 
-    def test_floor_eight_plus_is_magical(self):
-        import random
-        from .items import roll_floor_weapon
-        got = set()
-        for seed in range(400):
-            r = roll_floor_weapon(random.Random(seed), 8)
-            if r:
-                self.assertEqual(r[1], 0, "magical weapons are found unenhanced")
-                got.add(r[0])
-        self.assertTrue(got <= {"rapier", "brand", "kris"})
-
-    def test_present_probability_falls_with_depth(self):
-        import random
-        from .items import roll_floor_weapon
-        def rate(depth):
-            hits = sum(roll_floor_weapon(random.Random(s), depth) is not None
-                       for s in range(2000))
-            return hits / 2000.0
-        self.assertAlmostEqual(rate(5), 0.80, delta=0.04)
-        self.assertAlmostEqual(rate(12), 0.70, delta=0.04)
-        self.assertAlmostEqual(rate(18), 0.60, delta=0.04)
-
     def test_enhancement_chance_climbs(self):
         import random
-        from .items import roll_floor_weapon
+        from .items import roll_floor_weapons
         def enh_rate(depth):
-            present = [r for r in (roll_floor_weapon(random.Random(s), depth)
-                                   for s in range(4000)) if r]
+            present = [w for s in range(4000)
+                       for w in roll_floor_weapons(random.Random(s), depth)]
             return sum(1 for _, b in present if b > 0) / len(present)
         self.assertLess(enh_rate(2), 0.16)     # ~10%
         self.assertGreater(enh_rate(7), 0.50)  # ~60%
@@ -5967,6 +5945,44 @@ class TestWeaponGeneration(unittest.TestCase):
         for depth in (1, 5, 10, 20):
             self.assertFalse(any(k in WEAPONS for k in gear_pool(depth)),
                              "weapons are generation-placed, never in the gear pool")
+
+
+class TestFloorWeaponsList(unittest.TestCase):
+    def test_floor_one_is_a_single_bone_axe(self):
+        import random
+        from .items import roll_floor_weapons
+        for s in range(30):
+            self.assertEqual(roll_floor_weapons(random.Random(s), 1), [("bone_axe", 0)])
+
+    def test_floors_1_to_7_place_at_most_one(self):
+        import random
+        from .items import roll_floor_weapons
+        for depth in range(1, 8):
+            for s in range(80):
+                self.assertLessEqual(len(roll_floor_weapons(random.Random(s), depth)), 1)
+
+    def test_deep_floors_8_to_14_can_place_two(self):
+        import random
+        from .items import roll_floor_weapons
+        seen_two = False
+        for s in range(400):
+            got = roll_floor_weapons(random.Random(s), 10)
+            self.assertLessEqual(len(got), 2)
+            if len(got) == 2:
+                seen_two = True
+                keys = [k for k, _ in got]
+                self.assertTrue(any(k.startswith("steel_") for k in keys),
+                                "one of the two is the enhanced-steel find")
+        self.assertTrue(seen_two, "floors 8-14 sometimes yield both a steel and a magical")
+
+    def test_floors_16_plus_are_magical_only(self):
+        import random
+        from .items import roll_floor_weapons, WEAPONS
+        for s in range(400):
+            got = roll_floor_weapons(random.Random(s), 18)
+            self.assertLessEqual(len(got), 1, "no steel slot this deep")
+            for key, _ in got:
+                self.assertGreaterEqual(WEAPONS[key].tier, 4, "only magical this deep")
 
 
 class TestFloorWeaponPlacement(unittest.TestCase):
@@ -5984,7 +6000,7 @@ class TestFloorWeaponPlacement(unittest.TestCase):
             self.assertEqual(drops[0].payload, "bone_axe")
             self.assertEqual(drops[0].bonus, 0)
 
-    def test_no_floor_holds_more_than_one_weapon(self):
+    def test_no_floor_holds_more_than_two_weapons(self):
         from .dungeon import Level
         import random
         for depth in range(1, 21):
@@ -5992,8 +6008,10 @@ class TestFloorWeaponPlacement(unittest.TestCase):
                 codex = FakeSave()
                 codex.world_seed = seed
                 lvl = Level(depth, random.Random(seed * 31 + depth), codex)
-                self.assertLessEqual(len(self._weapon_drops(lvl)), 1,
-                                     "at most one weapon per floor at depth %d" % depth)
+                n = len(self._weapon_drops(lvl))
+                cap = 1 if depth <= 7 else 2
+                self.assertLessEqual(n, cap,
+                                     "at most %d weapon(s) per floor at depth %d" % (cap, depth))
 
     def test_weapons_no_longer_come_from_chests(self):
         from .dungeon import Level

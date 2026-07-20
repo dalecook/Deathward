@@ -360,7 +360,7 @@ def roll_consumable(rng, depth, kind):
 
 def gear_pool(depth):
     """Armour and boots that can drop at a given depth. Weapons are NOT here -- they are
-    placed one-per-floor at generation time (see roll_floor_weapon)."""
+    placed at generation time (see roll_floor_weapons)."""
     pool = []
     for table in (ARMOURS, BOOTS):
         for key, g in table.items():
@@ -417,28 +417,39 @@ def roll_deep_steel(rng, depth):
     return ("steel_%s" % wtype, bonus)
 
 
-def roll_floor_weapon(rng, depth):
-    """The one weapon a floor may hold, decided at generation. Returns (key, bonus) or
-    None. Depends only on (rng, depth) -- never on the Kodex -- so blind and omniscient
-    runs of a seed stay bit-identical.
-
-    Floor 1 always yields an unenhanced Bone Axe (the safety valve + the cleave lesson).
-    Floors 2-7 are ordinary, material banded by depth, with a depth-scaled masterwork
-    chance. Floors 8+ are magical, always unenhanced.
-    """
+def roll_ordinary(rng, depth):
+    """Floors 1-7: the one ordinary weapon a floor may hold (Plan 1 of the rebalance).
+    Floor 1 is a guaranteed unenhanced Bone Axe. Returns (key, bonus) or None. Unchanged
+    behaviour from the original roll_floor_weapon for these floors."""
     if depth == 1:
         return ("bone_axe", 0)
-    present = 0.80 if depth <= 8 else 0.70 if depth <= 15 else 0.60
-    if rng.random() >= present:
+    if rng.random() >= 0.80:
         return None
+    material = "bone" if depth <= 2 else "bronze" if depth <= 4 else "steel"
+    wtype = rng.choice(["sword", "axe", "hammer"])
+    bonus = 0
+    if rng.random() < (depth - 1) * 0.10:          # 10% on 2 ... 60% on 7
+        bonus = 2 if rng.random() < 0.25 else 1
+    return ("%s_%s" % (material, wtype), bonus)
+
+
+def roll_floor_weapons(rng, depth):
+    """Every weapon a floor places at generation, as a list of (key, bonus) -- 0, 1, or 2.
+    Floors 1-7: the single ordinary weapon. Floors 8-14: an enhanced-Steel find AND a rare
+    magical (up to two). Floors 15-20: the rare magical only (the steel slot is spent by
+    15). Deterministic on (rng, depth), never the Kodex, so a seed's floors are identical
+    for a blind and an omniscient hero."""
     if depth <= 7:
-        material = "bone" if depth <= 2 else "bronze" if depth <= 4 else "steel"
-        wtype = rng.choice(["sword", "axe", "hammer"])
-        bonus = 0
-        if rng.random() < (depth - 1) * 0.10:      # 10% on 2 ... 60% on 7
-            bonus = 2 if rng.random() < 0.25 else 1
-        return ("%s_%s" % (material, wtype), bonus)
-    return (rng.choice(["rapier", "brand", "kris"]), 0)
+        w = roll_ordinary(rng, depth)
+        return [w] if w else []
+    out = []
+    steel = roll_deep_steel(rng, depth)            # None on floors 15+
+    if steel:
+        out.append(steel)
+    magical = roll_magical(rng, depth)
+    if magical:
+        out.append(magical)
+    return out
 
 
 def roll_loot(rng, depth):

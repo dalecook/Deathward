@@ -26,7 +26,7 @@ see a monster, it can see you.
 import random
 
 from . import config
-from .items import gear_pool, roll_chest, roll_floor_weapon, roll_loot
+from .items import gear_pool, roll_chest, roll_floor_weapons, roll_loot
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
 
@@ -480,16 +480,17 @@ class Level:
                 kind, payload = roll_loot(rng, d)
                 self.drops.append(Drop(spot[0], spot[1], kind, payload))
 
-        # THE FLOOR'S ONE WEAPON. Scarce and generation-placed: at most one per floor,
-        # sometimes none, decided by roll_floor_weapon. Floor 1 is a guaranteed Bone Axe,
-        # placed as far from the gate as the level allows -- a reward for exploring, and
-        # the safety valve against a run of empty floors stranding you on the shiv. This
-        # is unconditional (never gated on Kodex state) and separate from the floor-1
-        # gear GIFT below: the gift is a once-per-GAME armour/boots upgrade (gear_pool no
-        # longer includes weapons), so the two coexist without overlap.
-        wp = roll_floor_weapon(rng, d)
-        if wp:
-            wkey, wbonus = wp
+        # THE FLOOR'S WEAPONS. Scarce and generation-placed: floors 1-7 hold at most one,
+        # decided by roll_floor_weapons; floors 8-14 can hold two (an enhanced-Steel find
+        # plus a rare magical). Floor 1 is a guaranteed Bone Axe, placed as far from the
+        # gate as the level allows -- a reward for exploring, and the safety valve against
+        # a run of empty floors stranding you on the shiv. This is unconditional (never
+        # gated on Kodex state) and separate from the floor-1 gear GIFT below: the gift is
+        # a once-per-GAME armour/boots upgrade (gear_pool no longer includes weapons), so
+        # the two coexist without overlap.
+        for wkey, wbonus in roll_floor_weapons(rng, d):
+            # floor 1's single Bone Axe goes as far from the gate as the level allows (a
+            # reward for exploring); the deep floors' finds land on any free tile.
             spot = self._far_room_spot() if d == 1 else None
             if spot is None:
                 spot = self._free_tile(avoid_start=True)
