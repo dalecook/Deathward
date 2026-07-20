@@ -6937,6 +6937,42 @@ class TestMagicalPersistence(unittest.TestCase):
                             "%s should never be in the magical ground ledger" % key)
 
 
+class TestLedgerPickupDrop(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=5)
+        w.level.monsters = []
+        return w
+
+    def test_picking_up_a_magical_marks_it_collected_and_off_the_ground(self):
+        from .dungeon import Drop
+        w = self._world()
+        w.codex.record_magical_placed("kris", w.depth, w.player.x, w.player.y, 0)
+        w.level.drops.append(Drop(w.player.x, w.player.y, "gear", "kris", bonus=0))
+        opts = w.loot_options()
+        idx = next(i for i, o in enumerate(opts)
+                   if o["kind"] == "gear" and o["payload"] == "kris")
+        w._consume_option(opts[idx])
+        self.assertEqual(w.player.weapon.key, "kris")
+        self.assertIn("kris", w.codex.magical_collected)
+        self.assertNotIn("kris", w.codex.magical_ground)
+
+    def test_dropping_a_magical_records_it_on_the_ground(self):
+        from .items import WEAPONS
+        w = self._world()
+        w.player.weapon = WEAPONS["kris"].copy(bonus=2)
+        # swap to a plain weapon; the Kris drops to the floor
+        from .dungeon import Drop
+        w.level.drops.append(Drop(w.player.x, w.player.y, "gear", "steel_sword", bonus=0))
+        opts = w.loot_options()
+        idx = next(i for i, o in enumerate(opts)
+                   if o["kind"] == "gear" and o["payload"] == "steel_sword")
+        w._consume_option(opts[idx])
+        self.assertIn("kris", w.codex.magical_ground)
+        self.assertEqual(w.codex.magical_ground["kris"]["bonus"], 2,
+                         "the +n rides down onto the floor with it")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

@@ -34,7 +34,7 @@ import random
 from . import config
 from .codex import CAUSE_NAME, fact_title
 from .dungeon import Chest, Corpse, Drop, Level, Slain
-from .items import ALL_GEAR, CONSUMABLES, roll_loot, roll_monster_loot
+from .items import ALL_GEAR, CONSUMABLES, is_magical, roll_loot, roll_monster_loot
 from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
 
 MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
@@ -1056,6 +1056,8 @@ class World:
                 g = g.copy(bonus=bonus)          # carry the found/kept +n into the swap
             old = p.equip(g)
             self.codex.see_gear(payload)          # you have handled it -> a Kodex entry
+            if is_magical(payload):
+                self.codex.magical_picked_up(payload)   # collected + off the ground
             name, desc = p.gear_display(g.slot)   # shows any enchant it already carried
             self.log("You put on the %s.  (%s)" % (name, desc), config.ITEM)
 
@@ -1143,6 +1145,8 @@ class World:
         p = self.player
         spot = self._open_tile_near(p.x, p.y) or (p.x, p.y)
         self.level.drops.append(Drop(spot[0], spot[1], "gear", gear_key))
+        if is_magical(gear_key):
+            self.codex.record_magical_placed(gear_key, self.depth, spot[0], spot[1], 0)
         self.log("[CHEAT] A %s clatters onto the floor beside you."
                  % ALL_GEAR[gear_key].name, config.GOLD)
         self.add_fx("pulse", spot[0], spot[1], color=config.GOLD, life=0.6)
@@ -1268,18 +1272,25 @@ class World:
         NOTE: a weapon returned to a container's loot LIST loses its +n this phase (the
         loot-tuple format is 2-wide); a weapon returned to bare GROUND keeps it. The
         death-corpse's own weapon slot preserves +n (see leave_corpse). The loot-list
-        edge is closed when armour/boots join the per-instance model."""
-        if sink is not None and hasattr(sink, "loot"):
+        edge is closed when armour/boots join the per-instance model.
+
+        A magical never goes into a container's loot list -- it would be re-dealt away
+        as an ephemeral chest/body drop and lost to the Kodex ledger. It always lands on
+        the persistent bare ground instead, and that drop is recorded."""
+        p = self.player
+        magical = is_magical(gear.key)
+        if sink is not None and hasattr(sink, "loot") and not magical:
             sink.loot.append(("gear", gear.key))
             where = ("chest" if isinstance(sink, Chest)
                      else "body" if isinstance(sink, Slain)
                      else "your own body")
             self.log("You leave the %s in the %s." % (gear.name, where), config.DIM)
         else:
-            p = self.player
             bonus = getattr(gear, "bonus", 0)
             self.level.drops.append(Drop(p.x, p.y, "gear", gear.key, bonus=bonus))
             self.log("You drop the %s at your feet." % gear.name, config.DIM)
+            if magical:
+                self.codex.drop_magical_to_ground(gear.key, self.depth, p.x, p.y, bonus)
 
     def use_item(self, index):
         """`index` is a SLOT, 0-5. The number you press is the slot you drink from --
