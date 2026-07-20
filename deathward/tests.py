@@ -6664,6 +6664,50 @@ class TestStunHoldsThroughAFreeAction(unittest.TestCase):
                          "a real player turn (the world ticked) still ticks the stun down")
 
 
+class TestRollMagical(unittest.TestCase):
+    def test_findable_pool_excludes_the_boss_weapons(self):
+        from .items import FINDABLE_MAGICAL, WEAPONS
+        pool = set(FINDABLE_MAGICAL[4]) | set(FINDABLE_MAGICAL[5])
+        self.assertNotIn("windfang", pool, "Windfang is a mini-boss drop, never found")
+        self.assertNotIn("void_scimitar", pool, "the Void Scimitar is a mini-boss drop")
+        # every findable key is a real magical weapon of the stated tier
+        for tier in (4, 5):
+            for key in FINDABLE_MAGICAL[tier]:
+                self.assertEqual(WEAPONS[key].tier, tier, key)
+        self.assertEqual(len(pool), 11, "7 T4 + 6 T5 minus the two boss-locked = 11")
+
+    def test_present_chance_by_band(self):
+        import random
+        from .items import roll_magical
+        def rate(depth):
+            hits = sum(roll_magical(random.Random(s), depth) is not None
+                       for s in range(4000))
+            return hits / 4000.0
+        self.assertAlmostEqual(rate(9), 0.18, delta=0.03)
+        self.assertAlmostEqual(rate(13), 0.15, delta=0.03)
+        self.assertAlmostEqual(rate(18), 0.12, delta=0.03)
+
+    def test_tier5_share_climbs_with_depth(self):
+        import random
+        from .items import roll_magical, WEAPONS
+        def t5_share(depth):
+            present = [r for r in (roll_magical(random.Random(s), depth)
+                                   for s in range(6000)) if r]
+            t5 = sum(1 for k, _ in present if WEAPONS[k].tier == 5)
+            return t5 / len(present)
+        self.assertAlmostEqual(t5_share(9), 0.20, delta=0.05)
+        self.assertAlmostEqual(t5_share(13), 0.40, delta=0.05)
+        self.assertAlmostEqual(t5_share(18), 0.65, delta=0.05)
+
+    def test_found_magicals_are_unenhanced(self):
+        import random
+        from .items import roll_magical
+        for s in range(500):
+            r = roll_magical(random.Random(s), 12)
+            if r:
+                self.assertEqual(r[1], 0, "magical weapons are found at +0")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

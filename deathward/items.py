@@ -375,6 +375,30 @@ def gear_pool(depth):
     return pool
 
 
+# The magical weapons a floor can actually DROP. The two mini-boss rewards -- Windfang
+# (T4) and the Scimitar of the Void (T5) -- are excluded: they come only from beating a
+# mini-boss, never from the floor.
+FINDABLE_MAGICAL = {
+    4: ["rapier", "brand", "betrayers_edge", "fulgurite", "winters_edge",
+        "sacrificial_dagger"],
+    5: ["basilisk_maul", "pyroclast", "reapers_whisper", "kris", "glacial_flail"],
+}
+
+
+def roll_magical(rng, depth):
+    """The rare magical slot for floors 8-20. Returns (key, 0) or None. Present-chance is
+    low and declines with depth (fewer adventurers died this deep); if a magical is
+    present, its tier is a depth crossover -- Tier-5's share rises with depth -- and the
+    specific weapon is drawn from the findable pool. Draws only from (rng, depth), never
+    the Kodex, so blind and omniscient runs stay bit-identical."""
+    present = 0.18 if depth <= 11 else 0.15 if depth <= 15 else 0.12
+    if rng.random() >= present:
+        return None
+    t5_share = 0.20 if depth <= 11 else 0.40 if depth <= 15 else 0.65
+    tier = 5 if rng.random() < t5_share else 4
+    return (rng.choice(FINDABLE_MAGICAL[tier]), 0)
+
+
 def roll_floor_weapon(rng, depth):
     """The one weapon a floor may hold, decided at generation. Returns (key, bonus) or
     None. Depends only on (rng, depth) -- never on the Kodex -- so blind and omniscient
