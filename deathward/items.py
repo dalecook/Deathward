@@ -169,15 +169,22 @@ ARMOURS = {
 }
 
 BOOTS = {
-    "sandals":  Boots("sandals", "Worn Sandals", 0, 0),
-    "swift":    Boots("swift", "Swift Boots", 1, 25),
-    "soft":     Boots("soft", "Padded Soles", 1, 10, "softsole",
+    # --- ordinary (floors 1-7): a fast<->tanky tradeoff, no traits. Keys are
+    # boots_-prefixed so leather/plate do not clobber the armour of the same name
+    # in the flat ALL_GEAR namespace.
+    "sandals":      Boots("sandals", "Worn Sandals", 0, 0),
+    "boots_leather": Boots("boots_leather", "Leather Boots", 1, 10),
+    "boots_mail":    Boots("boots_mail", "Mail Boots", 2, 0, defense=1),
+    "boots_plate":   Boots("boots_plate", "Plate Boots", 3, -10, defense=2),
+    # --- magical (floors 8+): the exotic five, relocated intact (Plan 2 reworks)
+    "swift":    Boots("swift", "Swift Boots", 4, 25),
+    "soft":     Boots("soft", "Padded Soles", 4, 10, "softsole",
                       "too light to set off a pressure plate"),
-    "blink":    Boots("blink", "Boots of Blinking", 2, 15, "blink",
+    "blink":    Boots("blink", "Boots of Blinking", 4, 15, "blink",
                       "SHIFT+dir to leap three tiles"),
-    "ironshod": Boots("ironshod", "Ironshod Boots", 2, 5, "kick",
+    "ironshod": Boots("ironshod", "Ironshod Boots", 4, 5, "kick",
                       "your blows knock the struck thing back"),
-    "wind":     Boots("wind", "Windwalkers", 3, 40),
+    "wind":     Boots("wind", "Windwalkers", 5, 40),
 }
 
 ALL_GEAR = {}

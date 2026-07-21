@@ -1693,7 +1693,7 @@ class TestTheCheatCode(unittest.TestCase):
                          "the cheat grants the Vampiric Kris specifically")
         self.assertEqual(w.player.weapon.tier, 5, "and it is now tier 5")
         self.assertEqual(w.player.armour.tier, 3, "the best armour in the game")
-        self.assertEqual(w.player.boots.tier, 3, "the best boots in the game")
+        self.assertEqual(w.player.boots.tier, 5, "the best boots in the game")
         self.assertEqual(max(g.tier for g in ARMOURS.values()), w.player.armour.tier)
         self.assertEqual(max(g.tier for g in BOOTS.values()), w.player.boots.tier)
         self.assertEqual(w.player.boots.key, "wind", "the Windwalkers")
@@ -7084,6 +7084,31 @@ class TestBootsRebalance(unittest.TestCase):
         self.assertIn("-10 spd", armoured.desc())
         plain = Boots("p", "Plain", 1, 10)
         self.assertNotIn("def", plain.desc())
+
+    def test_ordinary_boots_are_a_speed_defense_tradeoff(self):
+        from .items import BOOTS
+        expect = {                # key: (tier, speed, defense)
+            "sandals":      (0,   0, 0),
+            "boots_leather": (1,  10, 0),
+            "boots_mail":    (2,   0, 1),
+            "boots_plate":   (3, -10, 2),
+        }
+        for key, (tier, spd, dfn) in expect.items():
+            b = BOOTS[key]
+            self.assertEqual((b.tier, b.speed, b.defense), (tier, spd, dfn), key)
+            self.assertIsNone(b.trait, "ordinary boots carry no trait: %s" % key)
+
+    def test_the_five_exotic_boots_relocate_to_magical_tiers_intact(self):
+        from .items import BOOTS
+        self.assertEqual(BOOTS["wind"].tier, 5, "Windwalkers is the T5 magical boot")
+        for key in ("swift", "blink", "soft", "ironshod"):
+            self.assertEqual(BOOTS[key].tier, 4, "%s is a T4 magical boot" % key)
+        # stats and traits are carried over untouched by the relocation
+        self.assertEqual(BOOTS["swift"].speed, 25)
+        self.assertEqual(BOOTS["wind"].speed, 40)
+        self.assertEqual(BOOTS["blink"].trait, "blink")
+        self.assertEqual(BOOTS["soft"].trait, "softsole")
+        self.assertEqual(BOOTS["ironshod"].trait, "kick")
 
 
 if __name__ == "__main__":

@@ -1200,6 +1200,32 @@ def _boots_sprite(key, s, S):
             _poly(s, wing, [(cx - S * 0.18, y), (cx - S * 0.40, y - S * 0.03),
                             (cx - S * 0.16, y + S * 0.045)])
         _line(s, (140, 220, 226), (cx - S * 0.14, S * 0.36), (cx, S * 0.36), S * 0.025)
+    elif key == "boots_leather":            # plain brown work boot
+        boot((150, 100, 62), (96, 62, 36))
+        _line(s, (188, 140, 96), (cx - S * 0.16, S * 0.34),
+              (cx, S * 0.34), S * 0.028)                    # cuff stitch
+        for i in range(3):                                  # laces up the front
+            y = S * (0.40 + i * 0.09)
+            _line(s, (206, 168, 120), (cx - S * 0.14, y),
+                  (cx - S * 0.02, y), S * 0.02)
+    elif key == "boots_mail":               # steel-grey, ringed chain mesh
+        steel = (128, 136, 150)
+        boot(steel, (84, 90, 104))
+        for r in range(3):
+            for c in range(3):
+                _circ(s, _shade(steel, 1.35),
+                      cx - S * 0.14 + c * S * 0.11,
+                      S * (0.36 + r * 0.11), S * 0.022)
+    elif key == "boots_plate":              # bright, heavy, ridged steel
+        steel = (178, 184, 198)
+        boot(steel, (118, 124, 138))
+        cap = (208, 214, 226)
+        _poly(s, cap, [(cx + S * 0.04, S * 0.58), (cx + S * 0.30, S * 0.58),
+                       (cx + S * 0.30, S * 0.78), (cx + S * 0.04, S * 0.78)])  # toecap
+        for i in range(3):                                  # ridged shin plates
+            y = S * (0.30 + i * 0.09)
+            _line(s, _shade(steel, 0.65), (cx - S * 0.18, y),
+                  (cx + S * 0.02, y), S * 0.02)
 
 
 _GEAR_DRAW = {"weapon": _weapon_sprite, "armour": _armour_sprite, "boots": _boots_sprite}
