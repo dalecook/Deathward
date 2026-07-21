@@ -101,7 +101,8 @@ class Player:
 
     @property
     def defense(self):
-        d = self.armour.defense + self.enchants.get(self.armour.key, 0)
+        d = (self.armour.defense + self.enchants.get(self.armour.key, 0)
+             + self.boots.defense)
         if self.stoneskin > 0:
             d += self.STONESKIN_DEF
         if self.heroism > 0:

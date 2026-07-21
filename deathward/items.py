@@ -84,12 +84,15 @@ class Armour:
 class Boots:
     slot = "boots"
 
-    def __init__(self, key, name, tier, speed, trait=None, note=""):
+    def __init__(self, key, name, tier, speed, trait=None, note="", defense=0):
         self.key, self.name, self.tier = key, name, tier
         self.speed, self.trait, self.note = speed, trait, note
+        self.defense = defense            # armoured boots (mail/plate); 0 for the rest
 
     def desc(self):
         s = "%+d spd" % self.speed
+        if self.defense:
+            s += ", %+d def" % self.defense
         return s + ("  |  " + self.note if self.note else "")
 
 

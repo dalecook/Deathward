@@ -7057,6 +7057,35 @@ class TestUniquenessAcrossLives(unittest.TestCase):
                             if d.kind == "gear"))
 
 
+class TestBootsRebalance(unittest.TestCase):
+    def test_boots_defense_folds_into_player_defense_and_wraiths_ignore_it(self):
+        from .items import Boots
+        from .monsters import Monster
+        w = World(FakeSave(), seed=3)
+        w.level.monsters = []
+        base = w.player.defense                      # rags(0) + sandals(0) = 0
+        w.player.boots = Boots("tst", "Test Boots", 1, 0, defense=2)
+        self.assertEqual(w.player.defense, base + 2,
+                         "boots defense adds into player.defense")
+        rat = Monster("rat", w.player.x, w.player.y)
+        hp = w.player.hp
+        for _ in range(10):
+            w.monster_attacks_player(rat, 2)         # 2 dmg fully soaked by +2 boots def
+        self.assertEqual(w.player.hp, hp,
+                         "a 2-point boots defense shrugs off a 2-damage rat")
+        wraith = Monster("wraith", w.player.x, w.player.y)
+        w.monster_attacks_player(wraith, 4, ignore_armour=True)
+        self.assertLess(w.player.hp, hp, "a wraith ignores boots defense")
+
+    def test_boots_desc_shows_defense_only_when_present(self):
+        from .items import Boots
+        armoured = Boots("a", "Armoured", 1, -10, defense=2)
+        self.assertIn("+2 def", armoured.desc())
+        self.assertIn("-10 spd", armoured.desc())
+        plain = Boots("p", "Plain", 1, 10)
+        self.assertNotIn("def", plain.desc())
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
