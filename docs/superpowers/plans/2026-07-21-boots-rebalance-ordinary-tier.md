@@ -123,16 +123,19 @@ git commit -m "Boots gain a defense field, folded into player.defense"
 
 ---
 
-### Task 2: Rebuild the `BOOTS` table — ordinary tier + magical relocation
+### Task 2: Rebuild the `BOOTS` table + sprites — ordinary tier + magical relocation
 
 **Files:**
 - Modify: `deathward/items.py:168-178` (the `BOOTS` dict)
+- Modify: `deathward/sprites.py:1146-1202` (`_boots_sprite` — add three ordinary-boot sprites)
 - Modify: `deathward/tests.py:1696` (an existing assertion that hard-codes the best-boots tier)
 - Test: `deathward/tests.py` (add methods to `TestBootsRebalance`)
 
 **Interfaces:**
 - Consumes: `Boots(..., defense=…)` from Task 1.
-- Produces: the final `BOOTS` roster — ordinary `leather`(T1,+10/0), `mail`(T2,0/+1), `plate`(T3,−10/+2); magical `swift`/`soft`/`blink`/`ironshod`(T4), `wind`(T5). `sandals`(T0) unchanged. Later tasks rely on these tiers.
+- Produces: the final `BOOTS` roster — ordinary `boots_leather`(T1,+10/0), `boots_mail`(T2,0/+1), `boots_plate`(T3,−10/+2); magical `swift`/`soft`/`blink`/`ironshod`(T4), `wind`(T5). `sandals`(T0) unchanged. **The three ordinary keys are `boots_`-prefixed.** Later tasks reference these exact keys.
+
+**Why the prefix (do not skip this):** `items.py` builds `ALL_GEAR` by flat-updating WEAPONS, then ARMOURS, then BOOTS (`items.py:180-183`). Bare `leather`/`plate` boot keys would silently overwrite `ARMOURS["leather"]` (Leather Jerkin) and `ARMOURS["plate"]` (Warden Plate), breaking every `ALL_GEAR[key]` lookup — sprites, corpse records, vendor, UI. The `boots_` prefix keeps the internal key unique; the *displayed* name stays "Leather Boots" / "Mail Boots" / "Plate Boots". `mail` does not collide today, but it is prefixed too for consistency and because the future armour rework will want a bare `mail`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -141,11 +144,11 @@ Add these two methods to `TestBootsRebalance` in `deathward/tests.py`:
 ```python
     def test_ordinary_boots_are_a_speed_defense_tradeoff(self):
         from .items import BOOTS
-        expect = {           # key: (tier, speed, defense)
-            "sandals": (0,   0, 0),
-            "leather": (1,  10, 0),
-            "mail":    (2,   0, 1),
-            "plate":   (3, -10, 2),
+        expect = {                # key: (tier, speed, defense)
+            "sandals":      (0,   0, 0),
+            "boots_leather": (1,  10, 0),
+            "boots_mail":    (2,   0, 1),
+            "boots_plate":   (3, -10, 2),
         }
         for key, (tier, spd, dfn) in expect.items():
             b = BOOTS[key]
@@ -168,7 +171,7 @@ Add these two methods to `TestBootsRebalance` in `deathward/tests.py`:
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_ordinary_boots_are_a_speed_defense_tradeoff TestBootsRebalance.test_the_five_exotic_boots_relocate_to_magical_tiers_intact -v`
-Expected: FAIL — `KeyError: 'leather'` (and the tier assertions fail).
+Expected: FAIL — `KeyError: 'boots_leather'` (and the tier assertions fail).
 
 - [ ] **Step 3: Rebuild the `BOOTS` dict**
 
@@ -176,11 +179,13 @@ In `deathward/items.py`, replace the `BOOTS` dict (lines 168–178):
 
 ```python
 BOOTS = {
-    # --- ordinary (floors 1-7): a fast<->tanky tradeoff, no traits -----------
-    "sandals":  Boots("sandals", "Worn Sandals", 0, 0),
-    "leather":  Boots("leather", "Leather Boots", 1, 10),
-    "mail":     Boots("mail", "Mail Boots", 2, 0, defense=1),
-    "plate":    Boots("plate", "Plate Boots", 3, -10, defense=2),
+    # --- ordinary (floors 1-7): a fast<->tanky tradeoff, no traits. Keys are
+    # boots_-prefixed so leather/plate do not clobber the armour of the same name
+    # in the flat ALL_GEAR namespace.
+    "sandals":      Boots("sandals", "Worn Sandals", 0, 0),
+    "boots_leather": Boots("boots_leather", "Leather Boots", 1, 10),
+    "boots_mail":    Boots("boots_mail", "Mail Boots", 2, 0, defense=1),
+    "boots_plate":   Boots("boots_plate", "Plate Boots", 3, -10, defense=2),
     # --- magical (floors 8+): the exotic five, relocated intact (Plan 2 reworks)
     "swift":    Boots("swift", "Swift Boots", 4, 25),
     "soft":     Boots("soft", "Padded Soles", 4, 10, "softsole",
@@ -203,21 +208,61 @@ Re-tiering Windwalkers from 3 to 5 breaks one existing test. In `deathward/tests
 
 (Lines 1697–1699, which compare against `max(g.tier for g in BOOTS.values())` and assert the key is `"wind"`, remain correct.)
 
-- [ ] **Step 5: Run the new tests and the touched existing test to verify they pass**
+- [ ] **Step 5: Run the two new tests to verify they pass**
 
 Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_ordinary_boots_are_a_speed_defense_tradeoff TestBootsRebalance.test_the_five_exotic_boots_relocate_to_magical_tiers_intact -v`
 Expected: PASS (2 tests).
 
-Then re-run the grant-cheat test that owns line 1696 (its class is `TestGrantCheat`; if unsure of the class name, run the whole file):
+The full suite is **still red at this point** — the three new boots have no sprite yet, so `test_every_piece_of_gear_has_its_own_sprite` fails ("boots_leather renders as an empty tile"). That failure is the RED for the next step. Confirm it:
 
-Run: `py -3.13 -m deathward.tests`
-Expected: the full suite passes (no regressions from the re-tier).
+Run: `py -3.13 -m deathward.tests TestGearSprites.test_every_piece_of_gear_has_its_own_sprite -v` (if the class name differs, run `py -3.13 -m deathward.tests` and find the failing sprite test)
+Expected: FAIL — a new boot renders as an empty tile.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Add sprites for the three ordinary boots**
+
+In `deathward/sprites.py`, inside `_boots_sprite`, add three `elif` branches after the `wind` branch (after line 1202, before the function ends). They reuse the local `boot(col, sole)` helper and the module primitives `_poly`/`_line`/`_circ`/`_shade`:
+
+```python
+    elif key == "boots_leather":            # plain brown work boot
+        boot((150, 100, 62), (96, 62, 36))
+        _line(s, (188, 140, 96), (cx - S * 0.16, S * 0.34),
+              (cx, S * 0.34), S * 0.028)                    # cuff stitch
+        for i in range(3):                                  # laces up the front
+            y = S * (0.40 + i * 0.09)
+            _line(s, (206, 168, 120), (cx - S * 0.14, y),
+                  (cx - S * 0.02, y), S * 0.02)
+    elif key == "boots_mail":               # steel-grey, ringed chain mesh
+        steel = (128, 136, 150)
+        boot(steel, (84, 90, 104))
+        for r in range(3):
+            for c in range(3):
+                _circ(s, _shade(steel, 1.35),
+                      cx - S * 0.14 + c * S * 0.11,
+                      S * (0.36 + r * 0.11), S * 0.022)
+    elif key == "boots_plate":              # bright, heavy, ridged steel
+        steel = (178, 184, 198)
+        boot(steel, (118, 124, 138))
+        cap = (208, 214, 226)
+        _poly(s, cap, [(cx + S * 0.04, S * 0.58), (cx + S * 0.30, S * 0.58),
+                       (cx + S * 0.30, S * 0.78), (cx + S * 0.04, S * 0.78)])  # toecap
+        for i in range(3):                                  # ridged shin plates
+            y = S * (0.30 + i * 0.09)
+            _line(s, _shade(steel, 0.65), (cx - S * 0.18, y),
+                  (cx + S * 0.02, y), S * 0.02)
+```
+
+Note: `test_every_piece_of_gear_has_its_own_sprite` compares whole-image pixels for distinctness and non-blankness. The colours above are chosen to stay distinct from the existing boots (swift=blue, soft=grey felt, ironshod=dark+iron, wind=white) and from each other. If the test still reports a clash or blank, nudge the specific RGB values or add a detail line to break the tie — keep the intended motif (brown leather / grey ringed mail / bright ridged plate).
+
+- [ ] **Step 7: Run the sprite tests and the full suite to verify green**
+
+Run: `py -3.13 -m deathward.tests` (baseline after Task 1 was 481 green; expect 483 now — the 481 plus the 2 new BOOTS tests, with the sprite tests still passing)
+Expected: the full suite passes, output pristine. In particular `test_every_piece_of_gear_has_its_own_sprite` and `test_the_leather_jerkin_is_brown_and_the_scale_vest_is_grey` pass (the armour Leather Jerkin keeps key `leather`, so it is still brown).
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add deathward/items.py deathward/tests.py
-git commit -m "Ordinary boots tier (leather/mail/plate); relocate the five exotic boots to T4/T5"
+git add deathward/items.py deathward/sprites.py deathward/tests.py
+git commit -m "Ordinary boots tier (leather/mail/plate) + sprites; relocate exotic boots to T4/T5"
 ```
 
 ---
@@ -245,10 +290,10 @@ Add this method to `TestBootsRebalance` in `deathward/tests.py`:
             self.assertFalse(pool & magical,
                              "no magical boots on floor %d" % depth)
         # ordinary gates: leather from 1, mail from 3, plate from 5
-        self.assertIn("leather", gear_pool(1))
-        self.assertNotIn("mail", gear_pool(1))
-        self.assertIn("mail", gear_pool(3))
-        self.assertIn("plate", gear_pool(5))
+        self.assertIn("boots_leather", gear_pool(1))
+        self.assertNotIn("boots_mail", gear_pool(1))
+        self.assertIn("boots_mail", gear_pool(3))
+        self.assertIn("boots_plate", gear_pool(5))
         # deep floors make the magical boots findable again
         self.assertTrue(set(gear_pool(8)) & magical,
                         "magical boots are reachable on floor 8")
@@ -394,25 +439,25 @@ Add this method to `TestBootsRebalance` in `deathward/tests.py`:
         from .items import BOOTS
         w = World(FakeSave(), seed=4)
         w.player.boots = BOOTS["sandals"]                # the bare starter (T0)
-        spot = w.drop_gear_near("leather")
+        spot = w.drop_gear_near("boots_leather")
         self.assertIsNotNone(spot)
         w.player.x, w.player.y = spot
         w.take_all()
-        self.assertEqual(w.player.boots.key, "leather",
+        self.assertEqual(w.player.boots.key, "boots_leather",
                          "the first boot is auto-equipped over the bare starter")
         # now wearing a chosen boot: the sweep must NOT swap in a heavier plate
-        spot = w.drop_gear_near("plate")
+        spot = w.drop_gear_near("boots_plate")
         self.assertIsNotNone(spot)
         w.player.x, w.player.y = spot
         w.take_all()
-        self.assertEqual(w.player.boots.key, "leather",
+        self.assertEqual(w.player.boots.key, "boots_leather",
                          "the all-sweep never trades a chosen boot behind your back")
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_the_sweep_takes_a_boot_over_the_starter_but_never_downgrades_a_choice -v`
-Expected: FAIL — the second `take_all` swaps leather (T1) for plate (T3) because `g.tier > cur.tier`, so `w.player.boots.key == "plate"`.
+Expected: FAIL — the second `take_all` swaps boots_leather (T1) for boots_plate (T3) because `g.tier > cur.tier`, so `w.player.boots.key == "boots_plate"`.
 
 - [ ] **Step 3: Special-case boots in the auto sweep**
 
