@@ -26,7 +26,8 @@ see a monster, it can see you.
 import random
 
 from . import config
-from .items import gear_pool, is_magical, roll_chest, roll_floor_weapons, roll_loot
+from .items import (gear_pool, is_magical, roll_chest, roll_floor_boots,
+                    roll_floor_weapons, roll_loot)
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
 
@@ -520,12 +521,20 @@ class Level:
                     # it now EXISTS: never rolls again, and lies here until picked up.
                     codex.record_magical_placed(wkey, d, spot[0], spot[1], wbonus)
 
+        # THE FLOOR'S ORDINARY BOOT. Like the weapons: scarce, generation-placed, at most one
+        # per floor -- never from the generic loot pool, never sold or gifted. Banded to floors
+        # 2-15 by roll_floor_boots; placed on any free tile away from the gate.
+        for bkey in roll_floor_boots(rng, d):
+            spot = self._free_tile(avoid_start=True)
+            if spot:
+                self.drops.append(Drop(spot[0], spot[1], "gear", bkey))
+
         # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. There is exactly one guaranteed gear
         # upgrade down here, placed as far from the gate as the level allows, so it
         # is a reward for exploring rather than a handout at the door. It is claimed
         # once per GAME: it must not regrow on every respawn, or death becomes a way
-        # to farm it. (Armour/boots only now -- gear_pool excludes weapons; the floor's
-        # weapon is placed unconditionally above.)
+        # to farm it. (Armour only now -- gear_pool excludes weapons and ordinary boots,
+        # both generation-placed above; the floor's weapon is placed unconditionally.)
         if d == 1 and not codex.gift_claimed("floor1"):
             pool = gear_pool(1)
             if pool:

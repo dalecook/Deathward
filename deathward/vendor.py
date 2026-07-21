@@ -62,7 +62,8 @@ class Vendor:
         self._stock_up(rng, depth)
 
     def _stock_up(self, rng, depth):
-        # ordinary gear only -- magical boots are found, never bought (as with weapons)
+        # armour only now -- boots are found-only: ordinary boots never enter gear_pool, and
+        # the tier<=3 filter keeps magical boots (tier 4-5) out too (as with weapons)
         pool = [k for k in gear_pool(depth) if ALL_GEAR[k].tier <= 3]
         if pool:
             for _ in range(rng.randint(1, 2)):

@@ -7206,6 +7206,39 @@ class TestBootsRebalance(unittest.TestCase):
         self.assertEqual(w.player.boots.key, "boots_leather",
                          "the all-sweep never trades a chosen boot behind your back")
 
+    def test_generated_floors_hold_at_most_one_ordinary_boot_and_none_shallow_or_deep(self):
+        import random
+        from .dungeon import Level
+        ordinary = {"boots_leather", "boots_mail", "boots_plate"}
+        for depth in (1, 2, 6, 12, 15, 16, 20):
+            for s in range(40):
+                codex = FakeSave()
+                codex.world_seed = s
+                lvl = Level(depth, random.Random(s), codex)
+                boots = [d for d in lvl.drops
+                         if d.kind == "gear" and d.payload in ordinary]
+                self.assertLessEqual(len(boots), 1,
+                                     "floor %d placed more than one ordinary boot" % depth)
+                if depth == 1 or depth >= 16:
+                    self.assertEqual(boots, [],
+                                     "floor %d must hold no ordinary boot" % depth)
+
+    def test_every_ordinary_boot_is_findable_across_the_mid_floors(self):
+        import random
+        from .dungeon import Level
+        ordinary = {"boots_leather", "boots_mail", "boots_plate"}
+        found = set()
+        for depth in range(2, 16):
+            for s in range(80):
+                codex = FakeSave()
+                codex.world_seed = s
+                lvl = Level(depth, random.Random(s), codex)
+                for d in lvl.drops:
+                    if d.kind == "gear" and d.payload in ordinary:
+                        found.add(d.payload)
+        self.assertEqual(found, ordinary,
+                         "every ordinary boot should be findable on the mid floors")
+
 
 if __name__ == "__main__":
     pygame.init()
