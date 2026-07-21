@@ -7141,6 +7141,24 @@ class TestBootsRebalance(unittest.TestCase):
                             "vendor stock stays ordinary: %s at depth %d"
                             % (payload, depth))
 
+    def test_the_sweep_takes_a_boot_over_the_starter_but_never_downgrades_a_choice(self):
+        from .items import BOOTS
+        w = World(FakeSave(), seed=4)
+        w.player.boots = BOOTS["sandals"]                # the bare starter (T0)
+        spot = w.drop_gear_near("boots_leather")
+        self.assertIsNotNone(spot)
+        w.player.x, w.player.y = spot
+        w.take_all()
+        self.assertEqual(w.player.boots.key, "boots_leather",
+                         "the first boot is auto-equipped over the bare starter")
+        # now wearing a chosen boot: the sweep must NOT swap in a heavier plate
+        spot = w.drop_gear_near("boots_plate")
+        self.assertIsNotNone(spot)
+        w.player.x, w.player.y = spot
+        w.take_all()
+        self.assertEqual(w.player.boots.key, "boots_leather",
+                         "the all-sweep never trades a chosen boot behind your back")
+
 
 if __name__ == "__main__":
     pygame.init()
