@@ -7110,22 +7110,69 @@ class TestBootsRebalance(unittest.TestCase):
         self.assertEqual(BOOTS["soft"].trait, "softsole")
         self.assertEqual(BOOTS["ironshod"].trait, "kick")
 
-    def test_gear_pool_keeps_magical_boots_out_of_the_shallows(self):
+    def test_gear_pool_excludes_ordinary_boots_and_still_gates_magical(self):
         from .items import gear_pool
+        ordinary = {"boots_leather", "boots_mail", "boots_plate"}
         magical = {"swift", "blink", "soft", "ironshod", "wind"}
-        for depth in (1, 3, 5, 7):
+        for depth in range(1, 21):
             pool = set(gear_pool(depth))
-            self.assertFalse(pool & magical,
+            self.assertFalse(pool & ordinary,
+                             "ordinary boots are found-only, never in gear_pool "
+                             "(floor %d)" % depth)
+        # magical boots: still absent shallow, present deep (Plan 1 behaviour, unchanged)
+        for depth in (1, 3, 5, 7):
+            self.assertFalse(set(gear_pool(depth)) & magical,
                              "no magical boots on floor %d" % depth)
-        # ordinary gates: leather from 1, mail from 3, plate from 5
-        self.assertIn("boots_leather", gear_pool(1))
-        self.assertNotIn("boots_mail", gear_pool(1))
-        self.assertIn("boots_mail", gear_pool(3))
-        self.assertIn("boots_plate", gear_pool(5))
-        # deep floors make the magical boots findable again
-        self.assertTrue(set(gear_pool(8)) & magical,
-                        "magical boots are reachable on floor 8")
+        self.assertTrue(set(gear_pool(8)) & magical, "magical boots reachable on floor 8")
         self.assertIn("wind", gear_pool(10))
+        # armour is untouched -- the pool is not empty, and the Leather Jerkin (armour,
+        # key 'leather') is still there, distinct from the boot key 'boots_leather'
+        self.assertIn("leather", gear_pool(1))
+
+    def test_roll_floor_boots_never_on_floor_one_or_past_fifteen(self):
+        import random
+        from .items import roll_floor_boots
+        for depth in (1, 16, 17, 20):
+            for s in range(60):
+                self.assertEqual(roll_floor_boots(random.Random(s), depth), [],
+                                 "no ordinary boot on floor %d" % depth)
+
+    def test_roll_floor_boots_places_at_most_one(self):
+        import random
+        from .items import roll_floor_boots
+        for depth in range(1, 21):
+            for s in range(60):
+                self.assertLessEqual(len(roll_floor_boots(random.Random(s), depth)), 1)
+
+    def test_roll_floor_boots_respects_the_bands(self):
+        import random
+        from .items import roll_floor_boots
+        def seen(depth):
+            out = set()
+            for s in range(400):
+                out |= set(roll_floor_boots(random.Random(s), depth))
+            return out
+        self.assertEqual(seen(2), {"boots_leather"})
+        self.assertEqual(seen(4), {"boots_leather", "boots_mail"})
+        self.assertEqual(seen(6), {"boots_leather", "boots_mail", "boots_plate"})
+        self.assertEqual(seen(10), {"boots_leather", "boots_mail", "boots_plate"})
+        self.assertEqual(seen(11), {"boots_mail", "boots_plate"})   # leather gone after 10
+        self.assertEqual(seen(15), {"boots_mail", "boots_plate"})
+        self.assertEqual(seen(16), set())
+
+    def test_roll_floor_boots_present_about_half_the_time_and_is_deterministic(self):
+        import random
+        from .items import roll_floor_boots
+        present = sum(1 for s in range(4000)
+                      if roll_floor_boots(random.Random(s), 6))    # floor 6: all bands valid
+        rate = present / 4000
+        self.assertGreater(rate, 0.44, "present-rate should be ~50%% (got %.3f)" % rate)
+        self.assertLess(rate, 0.56, "present-rate should be ~50%% (got %.3f)" % rate)
+        # same (seed, depth) -> same result: no hidden state, no Kodex read
+        for s in range(50):
+            for depth in (2, 6, 12, 15):
+                self.assertEqual(roll_floor_boots(random.Random(s), depth),
+                                 roll_floor_boots(random.Random(s), depth))
 
     def test_vendor_never_stocks_a_magical_boot(self):
         import random

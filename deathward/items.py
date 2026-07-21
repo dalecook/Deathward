@@ -373,23 +373,21 @@ def roll_consumable(rng, depth, kind):
 
 
 def gear_pool(depth):
-    """Armour and boots that can drop at a given depth. Weapons are NOT here -- they are
-    placed at generation time (see roll_floor_weapons). Ordinary boots (tier 1-3) follow
-    the same shallow gates as armour; magical boots (tier 4-5) surface only on floor 8+,
-    mirroring the ordinary/magical split the weapons use."""
+    """Armour and MAGICAL boots that the generic loot tables and the vendor may surface at a
+    given depth. Weapons and ORDINARY boots are NOT here -- both are placed once at floor
+    generation (roll_floor_weapons / roll_floor_boots), scarce and one-per-floor. Armour keeps
+    its tier 1/2/3 shallow gates; magical boots (tier 4-5) surface only on floor 8+."""
     pool = []
-    for table in (ARMOURS, BOOTS):
-        for key, g in table.items():
-            if g.tier == 0:
-                continue
-            if g.tier == 1 and depth >= 1:
-                pool.append(key)
-            elif g.tier == 2 and depth >= 3:
-                pool.append(key)
-            elif g.tier == 3 and depth >= 5:
-                pool.append(key)
-            elif g.tier >= 4 and depth >= 8:
-                pool.append(key)
+    for key, g in ARMOURS.items():
+        if g.tier == 1 and depth >= 1:
+            pool.append(key)
+        elif g.tier == 2 and depth >= 3:
+            pool.append(key)
+        elif g.tier == 3 and depth >= 5:
+            pool.append(key)
+    for key, g in BOOTS.items():
+        if g.tier >= 4 and depth >= 8:       # magical boots only; ordinary boots are found-only
+            pool.append(key)
     return pool
 
 
@@ -479,6 +477,29 @@ def roll_floor_weapons(rng, depth, exclude=()):
     if magical:
         out.append(magical)
     return out
+
+
+# The ordinary boots a floor may place: at most ONE, found-only, generation-placed like the
+# weapons (never from the generic loot pool). Banded by depth -- lower unlocks carried from the
+# ordinary tier, upper cutoffs so the deep floors are magical territory: none on floor 1 or past
+# floor 15. When several are valid the choice is UNIFORM -- ordinary boots are a speed<->defense
+# tradeoff, not a power ladder, so you find one of the currently-available options and decide.
+ORDINARY_BOOT_BANDS = (
+    ("boots_leather", 2, 10),
+    ("boots_mail", 3, 15),
+    ("boots_plate", 5, 15),
+)
+
+
+def roll_floor_boots(rng, depth):
+    """The floor's single ordinary boot, or none -- a list of 0 or 1 boot keys. 50% present-
+    chance on a floor with any valid boot (floors 2-15); the boot is chosen uniformly among
+    those valid at this depth. Deterministic on (rng, depth); reads nothing else, so blind and
+    omniscient runs of a seed stay bit-identical."""
+    valid = [key for key, lo, hi in ORDINARY_BOOT_BANDS if lo <= depth <= hi]
+    if not valid or rng.random() >= 0.50:
+        return []
+    return [rng.choice(valid)]
 
 
 def roll_loot(rng, depth):
