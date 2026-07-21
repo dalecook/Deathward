@@ -15,7 +15,7 @@
 - **Do not touch the GPL license header** at the top of any file.
 - **Do not touch weapons or armour** — only the boots slot and its distribution. Leather/mail/plate as *armour* is a future task.
 - **Interim magical tier is throwaway:** the T4/T5 split of the existing five boots is provisional; keep their current stats and traits exactly as they are. The creative rework is Plan 2.
-- **Running tests:** whole suite `python -m deathward.tests` (run from the repo root); a single test `python -m deathward.tests <ClassName>.<test_method> -v`.
+- **Running tests — use `py -3.13`, NOT `python`.** Plain `python`/`py` resolve to Python 3.14, which has no `pygame` and cannot import the test module. Whole suite: `py -3.13 -m deathward.tests` (run from the repo root; runs the `__main__` block which does `pygame.init()` then `unittest.main`). A single test: `py -3.13 -m deathward.tests <ClassName>.<test_method> -v` (the trailing name is passed through to `unittest.main`). Baseline before this plan: ~480 tests, green.
 
 ---
 
@@ -66,7 +66,7 @@ class TestBootsRebalance(unittest.TestCase):
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `python -m deathward.tests TestBootsRebalance -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance -v`
 Expected: FAIL — `TypeError: __init__() got an unexpected keyword argument 'defense'`.
 
 - [ ] **Step 3: Add the `defense` field to `Boots`**
@@ -111,7 +111,7 @@ The wraith path in `world.py:672` skips the whole `dmg - p.defense` subtraction 
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `python -m deathward.tests TestBootsRebalance -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance -v`
 Expected: PASS (2 tests).
 
 - [ ] **Step 6: Commit**
@@ -167,7 +167,7 @@ Add these two methods to `TestBootsRebalance` in `deathward/tests.py`:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_ordinary_boots_are_a_speed_defense_tradeoff TestBootsRebalance.test_the_five_exotic_boots_relocate_to_magical_tiers_intact -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_ordinary_boots_are_a_speed_defense_tradeoff TestBootsRebalance.test_the_five_exotic_boots_relocate_to_magical_tiers_intact -v`
 Expected: FAIL — `KeyError: 'leather'` (and the tier assertions fail).
 
 - [ ] **Step 3: Rebuild the `BOOTS` dict**
@@ -205,12 +205,12 @@ Re-tiering Windwalkers from 3 to 5 breaks one existing test. In `deathward/tests
 
 - [ ] **Step 5: Run the new tests and the touched existing test to verify they pass**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_ordinary_boots_are_a_speed_defense_tradeoff TestBootsRebalance.test_the_five_exotic_boots_relocate_to_magical_tiers_intact -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_ordinary_boots_are_a_speed_defense_tradeoff TestBootsRebalance.test_the_five_exotic_boots_relocate_to_magical_tiers_intact -v`
 Expected: PASS (2 tests).
 
 Then re-run the grant-cheat test that owns line 1696 (its class is `TestGrantCheat`; if unsure of the class name, run the whole file):
 
-Run: `python -m deathward.tests`
+Run: `py -3.13 -m deathward.tests`
 Expected: the full suite passes (no regressions from the re-tier).
 
 - [ ] **Step 6: Commit**
@@ -257,7 +257,7 @@ Add this method to `TestBootsRebalance` in `deathward/tests.py`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_gear_pool_keeps_magical_boots_out_of_the_shallows -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_gear_pool_keeps_magical_boots_out_of_the_shallows -v`
 Expected: FAIL — `AssertionError: ... magical boots are reachable on floor 8` (tier-4/5 boots are currently never added to the pool).
 
 - [ ] **Step 3: Add the tier-4/5 depth gate**
@@ -290,7 +290,7 @@ def gear_pool(depth):
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_gear_pool_keeps_magical_boots_out_of_the_shallows -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_gear_pool_keeps_magical_boots_out_of_the_shallows -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -334,7 +334,7 @@ Add this method to `TestBootsRebalance` in `deathward/tests.py`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_vendor_never_stocks_a_magical_boot -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_vendor_never_stocks_a_magical_boot -v`
 Expected: FAIL — a deep vendor stocks a tier-4/5 boot from `gear_pool(depth)` on at least one seed.
 
 - [ ] **Step 3: Filter the vendor's gear pool to ordinary tiers**
@@ -363,7 +363,7 @@ Then in `_stock_up` (lines 64–72), filter the pool to tier ≤ 3:
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_vendor_never_stocks_a_magical_boot -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_vendor_never_stocks_a_magical_boot -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -411,7 +411,7 @@ Add this method to `TestBootsRebalance` in `deathward/tests.py`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_the_sweep_takes_a_boot_over_the_starter_but_never_downgrades_a_choice -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_the_sweep_takes_a_boot_over_the_starter_but_never_downgrades_a_choice -v`
 Expected: FAIL — the second `take_all` swaps leather (T1) for plate (T3) because `g.tier > cur.tier`, so `w.player.boots.key == "plate"`.
 
 - [ ] **Step 3: Special-case boots in the auto sweep**
@@ -438,12 +438,12 @@ In `deathward/world.py`, replace the `auto` gear branch (lines 911–917):
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `python -m deathward.tests TestBootsRebalance.test_the_sweep_takes_a_boot_over_the_starter_but_never_downgrades_a_choice -v`
+Run: `py -3.13 -m deathward.tests TestBootsRebalance.test_the_sweep_takes_a_boot_over_the_starter_but_never_downgrades_a_choice -v`
 Expected: PASS.
 
 - [ ] **Step 5: Run the whole suite to confirm no regressions**
 
-Run: `python -m deathward.tests`
+Run: `py -3.13 -m deathward.tests`
 Expected: the full suite passes.
 
 - [ ] **Step 6: Commit**
@@ -460,4 +460,4 @@ git commit -m "Take-all sweep leaves boots as a manual choice once off the start
 - **Read tasks in order.** Each builds on the last; the `BOOTS` table is final after Task 2, distribution after Task 3.
 - **The `config` module** is already imported in `world.py` (used for `config.DIM`); no new import is needed in Task 5.
 - **`FakeSave`** (defined at `deathward/tests.py:44`, a `Codex` subclass) and `World(FakeSave(), seed=N)` are the standard test fixtures — reuse them as shown.
-- If `python -m deathward.tests <Class>.<method>` reports "no tests ran" for a single method, run the whole class (`python -m deathward.tests TestBootsRebalance -v`) or the whole file (`python -m deathward.tests`).
+- If `py -3.13 -m deathward.tests <Class>.<method>` reports "no tests ran" for a single method, run the whole class (`py -3.13 -m deathward.tests TestBootsRebalance -v`) or the whole file (`py -3.13 -m deathward.tests`).
