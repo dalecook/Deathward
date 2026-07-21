@@ -7110,6 +7110,23 @@ class TestBootsRebalance(unittest.TestCase):
         self.assertEqual(BOOTS["soft"].trait, "softsole")
         self.assertEqual(BOOTS["ironshod"].trait, "kick")
 
+    def test_gear_pool_keeps_magical_boots_out_of_the_shallows(self):
+        from .items import gear_pool
+        magical = {"swift", "blink", "soft", "ironshod", "wind"}
+        for depth in (1, 3, 5, 7):
+            pool = set(gear_pool(depth))
+            self.assertFalse(pool & magical,
+                             "no magical boots on floor %d" % depth)
+        # ordinary gates: leather from 1, mail from 3, plate from 5
+        self.assertIn("boots_leather", gear_pool(1))
+        self.assertNotIn("boots_mail", gear_pool(1))
+        self.assertIn("boots_mail", gear_pool(3))
+        self.assertIn("boots_plate", gear_pool(5))
+        # deep floors make the magical boots findable again
+        self.assertTrue(set(gear_pool(8)) & magical,
+                        "magical boots are reachable on floor 8")
+        self.assertIn("wind", gear_pool(10))
+
 
 if __name__ == "__main__":
     pygame.init()

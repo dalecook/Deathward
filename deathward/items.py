@@ -374,7 +374,9 @@ def roll_consumable(rng, depth, kind):
 
 def gear_pool(depth):
     """Armour and boots that can drop at a given depth. Weapons are NOT here -- they are
-    placed at generation time (see roll_floor_weapons)."""
+    placed at generation time (see roll_floor_weapons). Ordinary boots (tier 1-3) follow
+    the same shallow gates as armour; magical boots (tier 4-5) surface only on floor 8+,
+    mirroring the ordinary/magical split the weapons use."""
     pool = []
     for table in (ARMOURS, BOOTS):
         for key, g in table.items():
@@ -385,6 +387,8 @@ def gear_pool(depth):
             elif g.tier == 2 and depth >= 3:
                 pool.append(key)
             elif g.tier == 3 and depth >= 5:
+                pool.append(key)
+            elif g.tier >= 4 and depth >= 8:
                 pool.append(key)
     return pool
 
