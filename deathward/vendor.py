@@ -25,8 +25,8 @@ deeper and lose it to the next thing that kills you.
 """
 
 from . import config
-from .items import (ARMOURS, BOOTS, CONSUMABLES, POTION_POOL, SCROLL_POOL, WEAPONS,
-                    gear_pool)
+from .items import (ALL_GEAR, ARMOURS, BOOTS, CONSUMABLES, POTION_POOL, SCROLL_POOL,
+                    WEAPONS, gear_pool)
 
 # what it will sell you, roughly. deeper stock costs a little more.
 GEAR_PRICE = {1: 60, 2: 130, 3: 220}
@@ -62,7 +62,8 @@ class Vendor:
         self._stock_up(rng, depth)
 
     def _stock_up(self, rng, depth):
-        pool = gear_pool(depth)
+        # ordinary gear only -- magical boots are found, never bought (as with weapons)
+        pool = [k for k in gear_pool(depth) if ALL_GEAR[k].tier <= 3]
         if pool:
             for _ in range(rng.randint(1, 2)):
                 self.stock.append(("gear", rng.choice(pool)))

@@ -7127,6 +7127,20 @@ class TestBootsRebalance(unittest.TestCase):
                         "magical boots are reachable on floor 8")
         self.assertIn("wind", gear_pool(10))
 
+    def test_vendor_never_stocks_a_magical_boot(self):
+        import random
+        from .items import ALL_GEAR
+        from .vendor import Vendor
+        for depth in (5, 8, 12, 19):
+            for seed in range(40):
+                v = Vendor(0, 0, depth, random.Random(seed))
+                for kind, payload in v.stock:
+                    if kind == "gear":
+                        self.assertLessEqual(
+                            ALL_GEAR[payload].tier, 3,
+                            "vendor stock stays ordinary: %s at depth %d"
+                            % (payload, depth))
+
 
 if __name__ == "__main__":
     pygame.init()
