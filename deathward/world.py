@@ -691,6 +691,18 @@ class World:
             self.add_fx("impact", p.x, p.y, color=config.BLOOD,
                         radius=0.7 + min(0.8, dmg / 14.0), life=0.38)
             self.hurt_player(dmg, m.key)
+            if p.boots.trait == "slipstep" and not self.dead:
+                p.slipstep_hits += 1
+                if p.slipstep_hits % config.SLIPSTEP_HIT_CADENCE == 0:
+                    spot = self.blink_tile_near(p.x, p.y, config.SLIPSTEP_BLINK_DIST,
+                                                config.SLIPSTEP_BLINK_DIST)
+                    if spot:
+                        p.x, p.y = spot
+                        self.level.compute_fov(p.x, p.y)
+                        self.log("Your boots wrench you clear!", config.MANA)
+                        self.add_fx("freeze", p.x, p.y, color=(150, 226, 206), life=0.5)
+                    if m.alive:
+                        m.stunned = max(m.stunned, config.HAMMER_STUN_TURNS)
         if p.armour.trait == "thorns" and raw > 0 and m.alive:
             self.hurt_monster(m, 2, source="thorns")
             if m.alive:

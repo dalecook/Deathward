@@ -7283,6 +7283,31 @@ class TestMagicalBoots(unittest.TestCase):
             self.assertNotEqual((m.x, m.y), orig,
                                 "every adjacent enemy should be shoved, not just the target")
 
+    def test_slipstep_blinks_and_stuns_on_the_fourth_hit(self):
+        from .items import BOOTS, ARMOURS
+        from .monsters import Monster
+        from .dungeon import FLOOR
+        w = World(FakeSave(), seed=9)
+        w.level.monsters = []
+        w.player.boots = BOOTS["slipstep"]
+        w.player.armour = ARMOURS["rags"]              # 0 def: every blow lands in full
+        w.player.hp = 50                               # survive four hits
+        px, py = w.player.x, w.player.y
+        for dy in range(-2, 3):                         # open room to blink into
+            for dx in range(-2, 3):
+                w.level.grid[py + dy][px + dx] = FLOOR
+        m = Monster("rat", px + 1, py)                  # adjacent, not on the player
+        w.level.monsters = [m]
+        start = (px, py)
+        for _ in range(3):                              # first three damaging hits: no blink
+            w.monster_attacks_player(m, 3)
+            self.assertEqual((w.player.x, w.player.y), start, "no blink before the 4th hit")
+            self.assertEqual(m.stunned, 0, "no stun before the 4th hit")
+        w.monster_attacks_player(m, 3)                  # the fourth hit: blink + stun
+        self.assertNotEqual((w.player.x, w.player.y), start,
+                            "the 4th hit blinks the player away")
+        self.assertGreaterEqual(m.stunned, 1, "the 4th hit stuns the attacker")
+
 
 if __name__ == "__main__":
     pygame.init()

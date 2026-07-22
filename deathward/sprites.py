@@ -1239,6 +1239,12 @@ def _boots_sprite(key, s, S):
         _poly(s, bolt, [(cx - S * 0.02, S * 0.28), (cx - S * 0.14, S * 0.50),
                         (cx - S * 0.02, S * 0.48), (cx - S * 0.10, S * 0.68),
                         (cx + S * 0.12, S * 0.42), (cx + S * 0.00, S * 0.44)])
+    elif key == "slipstep":                 # teal, with a motion afterimage
+        boot((80, 180, 150), (48, 120, 100))
+        ghost = (150, 226, 206)
+        for i in range(3):                  # trailing streak behind the heel
+            x = cx - S * (0.24 + i * 0.06)
+            _line(s, ghost, (x, S * 0.40), (x, S * 0.70), S * 0.02)
 
 
 _GEAR_DRAW = {"weapon": _weapon_sprite, "armour": _armour_sprite, "boots": _boots_sprite}

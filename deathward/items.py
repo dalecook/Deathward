@@ -189,6 +189,8 @@ BOOTS = {
                          "you drift above the floor -- no trap can find your feet"),
     "thor":     Boots("thor", "Thor's Boots", 5, 10, "thor",
                       "every blow scatters all that stands near you"),
+    "slipstep": Boots("slipstep", "Slipstep", 5, 10, "slipstep",
+                      "every fourth wound flings you clear and staggers the striker"),
 }
 
 ALL_GEAR = {}

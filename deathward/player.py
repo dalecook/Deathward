@@ -74,6 +74,7 @@ class Player:
         self.phoenix = False      # a Phoenix draught: the next death is refused, once
         self.enchants = {}        # gear-key -> permanent +bonus (enchant scrolls)
         self.frozen = 0           # beholder: turns you cannot act while the world does
+        self.slipstep_hits = 0    # Slipstep boots: damaging hits taken, for the every-4th escape
         # a NEGATIVE potion, once identified, is not swallowed -- it is wiped down the
         # blade and spent on the very next strike you land. one coat, one strike, and
         # you have to decide which enemy gets it. None, or the potion's effect string
