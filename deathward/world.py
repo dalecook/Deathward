@@ -102,6 +102,8 @@ class World:
         self.aiming = None        # a targeting mode is open ("teleport" | "banish"); the
                                   # UI raises a cursor/picker, turn ends on confirm
         self.aiming_flavor = None  # the scroll that opened it, in case we must refund it
+        self.player_region = None      # which region the player is in (a Room, or None=corridors)
+        self.region_alerted = False    # stealth latch: a monster in the region has spotted you
         # Purely cosmetic effects, decaying in REAL time even though the game is
         # turn-based. A fire glyph that takes 9 hp off you and shows you nothing is
         # just an unexplained wound -- you have to SEE the thing that burned you, or
@@ -188,6 +190,8 @@ class World:
         spot = self.level.entrance if arrive == "entrance" else self.level.stairs
         self.player.x, self.player.y = spot or self.level.entrance
         self.level.compute_fov(self.player.x, self.player.y)
+        self.player_region = None
+        self.region_alerted = False
         self.codex.best_depth = max(self.codex.best_depth, depth)
         if depth == config.DEPTH_MAX:
             self.log("Something enormous shifts in the dark below you.", config.BLOOD)
@@ -308,10 +312,35 @@ class World:
         hook and future stealth would fold in here."""
         return self.player.invisible > 0
 
+    def region_of(self, x, y):
+        """The stealth region a tile belongs to: the Room that contains it, or None for
+        the corridors -- Option A treats the whole corridor network as a single region."""
+        for r in self.level.rooms:
+            if r.contains(x, y):
+                return r
+        return None
+
+    def _update_stealth_alert(self):
+        """Maintain the room-alert latch. On entering a new region the alarm is off; while
+        the player is in a region, any awake monster IN that region raises it (and it stays
+        raised until the player leaves the region). Cheap, deterministic -- no RNG, no Kodex."""
+        region = self.region_of(self.player.x, self.player.y)
+        if region is not self.player_region:
+            self.player_region = region
+            self.region_alerted = False
+        if not self.region_alerted and any(
+                m.awake and self.region_of(m.x, m.y) is region
+                for m in self.level.monsters):
+            self.region_alerted = True
+
     def player_wake_radius(self):
         """How close a monster must be (within FOV) to notice the player. Stealth boots
-        shrink it; everything else uses the normal MONSTER_SIGHT."""
-        return self.player.boots.wake_radius or config.MONSTER_SIGHT
+        shrink it -- but only until a monster in the player's region raises the alarm, after
+        which stealth is off (the normal MONSTER_SIGHT) until the player leaves the region."""
+        r = self.player.boots.wake_radius
+        if not r or self.region_alerted:
+            return config.MONSTER_SIGHT
+        return r
 
     def monster_can_see_player(self, m):
         # symmetric FOV: if the player can see it, it can see the player. unless the
@@ -1860,6 +1889,7 @@ class World:
             self.player.energy += self.player.speed()
             for m in list(self.level.monsters):
                 m.energy += m.speed
+            self._update_stealth_alert()
             for m in list(self.level.monsters):
                 inner = 0
                 while (m.energy >= config.ACT_COST and m.alive and not self.dead

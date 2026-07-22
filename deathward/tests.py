@@ -7416,6 +7416,62 @@ class TestBootsStealth(unittest.TestCase):
         self.assertFalse(codex.knows("dart.rule"),
                          "featherfall never sprang it, so there was nothing to learn")
 
+    def test_region_of_is_the_room_or_the_corridors(self):
+        w = World(FakeSave(), seed=3)
+        room = w.level.rooms[0]
+        self.assertIs(w.region_of(room.cx, room.cy), room, "a room tile -> that Room")
+        # a monster in the same room shares the region; the corridors are one region (None)
+        self.assertIs(w.region_of(room.cx, room.cy), w.region_of(room.x, room.y))
+
+    def test_a_waking_monster_in_your_region_raises_the_alarm(self):
+        from .items import BOOTS
+        from .monsters import Monster
+        w = World(FakeSave(), seed=3)
+        w.player.boots = BOOTS["whisperstep"]         # wake radius 2
+        room = w.level.rooms[0]
+        w.player.x, w.player.y = room.cx, room.cy
+        m = Monster("rat", room.cx, room.cy)          # same region, and it has spotted you
+        m.awake = True
+        w.level.monsters = [m]
+        w._update_stealth_alert()
+        self.assertTrue(w.region_alerted, "an awake monster in your region raises the alarm")
+        self.assertEqual(w.player_wake_radius(), config.MONSTER_SIGHT,
+                         "alerted -> stealth is off, monsters wake at the normal range")
+
+    def test_a_sleeping_region_keeps_you_hidden(self):
+        from .items import BOOTS
+        from .monsters import Monster
+        w = World(FakeSave(), seed=3)
+        w.player.boots = BOOTS["whisperstep"]
+        room = w.level.rooms[0]
+        w.player.x, w.player.y = room.cx, room.cy
+        m = Monster("rat", room.cx, room.cy); m.awake = False
+        w.level.monsters = [m]
+        w._update_stealth_alert()
+        self.assertFalse(w.region_alerted)
+        self.assertEqual(w.player_wake_radius(), 2, "no alarm -> your stealth radius holds")
+
+    def test_leaving_the_alerted_region_clears_the_alarm(self):
+        from .items import BOOTS
+        w = World(FakeSave(), seed=3)
+        w.player.boots = BOOTS["whisperstep"]
+        start = w.region_of(w.player.x, w.player.y)
+        w.player_region = start
+        w.region_alerted = True
+        # find a walkable tile in a DIFFERENT region and step there
+        dest = None
+        for yy in range(w.level.h):
+            for xx in range(w.level.w):
+                if w.walkable(xx, yy) and w.region_of(xx, yy) is not start:
+                    dest = (xx, yy)
+                    break
+            if dest:
+                break
+        self.assertIsNotNone(dest, "the map has more than one region")
+        w.player.x, w.player.y = dest
+        w._update_stealth_alert()
+        self.assertFalse(w.region_alerted, "leaving the region drops the alarm")
+
 
 if __name__ == "__main__":
     pygame.init()
