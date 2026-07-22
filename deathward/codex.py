@@ -1100,6 +1100,7 @@ class Codex:
         self.stats["magical_boots_collected_all"] = 1
         if "self.magical_boot_collector" not in self.known:
             self._grant("self.magical_boot_collector")
+            self.save()
 
     def reveal_random(self, rng):
         """A Potion of Insight: learn one whole fact you did not have, for free. Any
