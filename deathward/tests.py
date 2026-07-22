@@ -7347,16 +7347,24 @@ class TestMagicalBoots(unittest.TestCase):
         self.assertGreater(rate, 0.68, "≈75%% of blows land (got %.3f)" % rate)
         self.assertLess(rate, 0.82, "≈75%% of blows land (got %.3f)" % rate)
 
-    def test_boots_cheat_cycles_through_every_boot(self):
-        from .items import BOOTS
+    def test_boots_bench_cheat_equips_a_chosen_boot(self):
         w = World(FakeSave(), seed=17)
-        seen = set()
-        for _ in range(len(BOOTS)):
-            key = w.cheat_cycle_boots()
-            self.assertEqual(w.player.boots.key, key, "the cheat equips what it returns")
-            seen.add(key)
-        self.assertEqual(seen, set(BOOTS),
-                         "every boot -- ordinary and magical -- is reachable by cycling")
+        w.cheat_equip_boots("phantom")
+        self.assertEqual(w.player.boots.key, "phantom", "the bench laces on the pick")
+        w.cheat_equip_boots("boots_plate")
+        self.assertEqual(w.player.boots.key, "boots_plate", "and swaps to the next pick")
+
+    def test_ctrl56_opens_a_boots_bench_reaching_every_boot(self):
+        from .game import Game, WEAPON_PICK
+        from .items import BOOTS
+        g = Game.__new__(Game)          # bypass pygame init; drive the opener directly
+        g.open_boots_cheat()
+        self.assertEqual(g.state, WEAPON_PICK)
+        self.assertEqual(g.bench_slot, "boots")
+        covered = set().union(*g.weapon_pages)
+        self.assertEqual(covered, set(BOOTS), "the boots bench reaches every boot")
+        self.assertTrue(all(len(p) <= 9 for p in g.weapon_pages),
+                        "each page still fits the 1-9 digit keys")
 
 
 if __name__ == "__main__":

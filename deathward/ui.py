@@ -949,28 +949,30 @@ def draw_aim_hint(surf, ok):
          (cx, 44), 13, (110, 220, 130) if ok else (230, 90, 90), center=True)
 
 
-def draw_weapon_cheat(surf, keys, t, page_label=""):
-    """CTRL+12 weapon bench: up to nine weapons per page, 1-9. TAB cycles pages (the
-    nine ordinary weapons, then the magical roster split tier 4 / tier 5) so every
-    weapon stays reachable through a single digit. A digit equips the base weapon;
-    SHIFT+digit equips its +2 masterwork. Your current weapon drops at your feet.
-    The base/+2 instruction lives at the bottom, where the eye lands last."""
-    from .items import WEAPONS
+def draw_weapon_cheat(surf, keys, t, page_label="", slot="weapon"):
+    """CTRL+12/21 weapon bench and CTRL+56 boots bench: up to nine pieces per page, 1-9.
+    TAB cycles pages so every piece stays reachable through a single digit. A digit equips
+    the base piece; for weapons, SHIFT+digit equips its +2 masterwork. Your current piece
+    drops at your feet. The instruction lives at the bottom, where the eye lands last."""
+    from .items import ALL_GEAR
 
+    boots = slot == "boots"
     layer = pygame.Surface((config.W, config.H), pygame.SRCALPHA)
     layer.fill((6, 6, 10, 238))
     surf.blit(layer, (0, 0))
     cx = config.W // 2
 
-    text(surf, "WEAPON BENCH", (cx, 52), 34, config.GOLD, bold=True, center=True)
-    text(surf, "[ CHEAT ]   equip any weapon -- your current one drops at your feet",
+    noun = "boots" if boots else "weapon"
+    text(surf, "BOOTS BENCH" if boots else "WEAPON BENCH", (cx, 52), 34, config.GOLD,
+         bold=True, center=True)
+    text(surf, "[ CHEAT ]   equip any %s -- your current one drops at your feet" % noun,
          (cx, 88), 14, config.DIM, center=True)
     if page_label:
         text(surf, page_label, (cx, 106), 14, config.GOLD, bold=True, center=True)
 
     y = 122
     for idx, key in enumerate(keys):
-        g = WEAPONS.get(key)
+        g = ALL_GEAR.get(key)
         row = pygame.Rect(cx - 310, y, 620, 40)
         pygame.draw.rect(surf, (16, 19, 26), row, border_radius=6)
         pygame.draw.rect(surf, config.GOLD, row, 1, border_radius=6)
@@ -982,10 +984,11 @@ def draw_weapon_cheat(surf, keys, t, page_label=""):
 
     g2 = _pulse(t, 0.8)
     glow = (int(150 + 60 * g2), int(150 + 60 * g2), int(160 + 60 * g2))
-    text(surf, "press 1-9 to equip the base weapon", (cx, y + 12), 15, glow, center=True)
-    text(surf, "hold SHIFT + 1-9 for the +2 masterwork version", (cx, y + 36), 16,
-         config.GOLD, bold=True, center=True)
-    text(surf, "TAB  next page   •   ESC  cancel", (cx, y + 60), 13,
+    text(surf, "press 1-9 to equip the base %s" % noun, (cx, y + 12), 15, glow, center=True)
+    if not boots:
+        text(surf, "hold SHIFT + 1-9 for the +2 masterwork version", (cx, y + 36), 16,
+             config.GOLD, bold=True, center=True)
+    text(surf, "TAB  next page   •   ESC  cancel", (cx, y + (60 if not boots else 36)), 13,
          config.FAINT, center=True)
 
 

@@ -86,11 +86,12 @@ class Game:
         self.potion_cheat = CheatCode([pygame.K_7, pygame.K_6])   # CTRL+76: potion picker
         self.weapon_cheat = CheatCode([pygame.K_1, pygame.K_2])   # CTRL+12: weapon bench
         self.magic_cheat = CheatCode([pygame.K_2, pygame.K_1])    # CTRL+21: magic-weapon bench
-        self.boots_cheat = CheatCode([pygame.K_5, pygame.K_6])    # CTRL+56: boots tester (cycle)
-        self.weapon_pages = [[]]   # the weapon-bench pages (ordinary, tier 4, tier 5)
+        self.boots_cheat = CheatCode([pygame.K_5, pygame.K_6])    # CTRL+56: boots bench
+        self.weapon_pages = [[]]   # the bench pages (weapon or boots -- see bench_slot)
         self.weapon_page_labels = [""]
         self.weapon_page = 0
-        self.weapon_picks = []     # the weapon keys offered by the current bench page
+        self.weapon_picks = []     # the gear keys offered by the current bench page
+        self.bench_slot = "weapon" # which slot the WEAPON_PICK bench equips: weapon | boots
         self.arsenal = []          # the gear keys offered by the arsenal popup
         self.cheat_items = []      # the flavors offered by the scroll/potion picker
         self.cheat_items_kind = "scroll"
@@ -208,6 +209,7 @@ class Game:
         self.weapon_page_labels = ["Ordinary", "Magical -- Tier 4", "Magical -- Tier 5"]
         self.weapon_page = 0
         self.weapon_picks = self.weapon_pages[self.weapon_page]
+        self.bench_slot = "weapon"
         self.state = WEAPON_PICK
 
     def open_magic_cheat(self):
@@ -219,6 +221,19 @@ class Game:
         self.weapon_page_labels = ["Magical -- Tier 4", "Magical -- Tier 5"]
         self.weapon_page = 0
         self.weapon_picks = self.weapon_pages[self.weapon_page]
+        self.bench_slot = "weapon"
+        self.state = WEAPON_PICK
+
+    def open_boots_cheat(self):
+        """CTRL+56. The boots bench: every boot, split into an Ordinary page and the
+        magical Tier 4 / Tier 5 pages (TAB switches). A digit laces the chosen boot
+        straight onto you and your current pair drops at your feet."""
+        from .items import boots_bench_pages
+        self.weapon_pages = boots_bench_pages()
+        self.weapon_page_labels = ["Ordinary", "Magical -- Tier 4", "Magical -- Tier 5"]
+        self.weapon_page = 0
+        self.weapon_picks = self.weapon_pages[self.weapon_page]
+        self.bench_slot = "boots"
         self.state = WEAPON_PICK
 
     def open_consumable_cheat(self, kind):
@@ -336,8 +351,11 @@ class Game:
             elif pygame.K_1 <= k <= pygame.K_9:
                 idx = k - pygame.K_1
                 if idx < len(self.weapon_picks):
-                    self.world.cheat_equip_weapon(self.weapon_picks[idx],
-                                                  2 if shift else 0)
+                    if self.bench_slot == "boots":
+                        self.world.cheat_equip_boots(self.weapon_picks[idx])
+                    else:
+                        self.world.cheat_equip_weapon(self.weapon_picks[idx],
+                                                      2 if shift else 0)
                     self.state = PLAY
             return
 
@@ -480,7 +498,7 @@ class Game:
             (self.potion_cheat, lambda: self.open_consumable_cheat("potion")),  # 76
             (self.weapon_cheat, lambda: self.open_weapon_cheat()),     # 12   weapon bench
             (self.magic_cheat, lambda: self.open_magic_cheat()),       # 21   magic bench
-            (self.boots_cheat, lambda: w.cheat_cycle_boots()),         # 56   boots tester
+            (self.boots_cheat, lambda: self.open_boots_cheat()),       # 56   boots bench
         ]
         if held or any(c.progress for c, _ in cheats):
             done = [c.feed(k, held) for c, _ in cheats]
@@ -691,7 +709,8 @@ class Game:
         elif self.state == WEAPON_PICK:
             self._draw_dungeon()
             ui.draw_weapon_cheat(self.screen, self.weapon_picks, self.t,
-                                 self.weapon_page_labels[self.weapon_page])
+                                 self.weapon_page_labels[self.weapon_page],
+                                 self.bench_slot)
         elif self.state == BANISH:
             self._draw_dungeon()
             ui.draw_banish(self.screen, self.world.banishable_types(), self.codex,

@@ -1185,16 +1185,13 @@ class World:
         if old:
             self._put_back(old, None)       # onto the floor at your feet, +n intact
 
-    def cheat_cycle_boots(self):
-        """CTRL+56 boots tester: step to the next pair of boots in the roster and lace
-        them on, so you can walk each one -- ordinary or magical -- through the deep
-        floors. Cycles through every boot; the old pair drops at your feet, so nothing is
-        lost and you can pick it back up. Returns the key now worn."""
+    def cheat_equip_boots(self, key):
+        """CTRL+56 boots bench: lace on any boot -- ordinary or magical -- straight onto
+        the hero, so you can walk each one through the deep floors. Your current pair drops
+        at your feet, so nothing is lost and you can pick it back up."""
         from .items import BOOTS
-        keys = list(BOOTS)
-        cur = self.player.boots.key
-        i = keys.index(cur) if cur in keys else -1
-        key = keys[(i + 1) % len(keys)]
+        if key not in BOOTS:
+            return
         g = BOOTS[key]
         old = self.player.equip(g)          # equip stores the boot and returns the old
         self.codex.see_gear(key)            # you have handled it -> a Kodex entry
@@ -1202,7 +1199,6 @@ class World:
         self.add_fx("pulse", self.player.x, self.player.y, color=config.GOLD, life=0.6)
         if old:
             self._put_back(old, None)       # onto the floor at your feet
-        return key
 
     def drop_gear_near(self, gear_key):
         """CTRL+87 arsenal tester: lay a chosen piece of gear on an open tile right
