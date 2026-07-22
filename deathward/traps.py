@@ -70,12 +70,8 @@ class Trap:
                       config.MANA)
             return
         if is_player and self.key in PRESSURE:
-            # you never press the plate (soft soles) or you are not on it at all
-            # (levitation). either way the pit and the dart wait for someone heavier.
-            if world.player.boots.trait == "softsole":
-                world.log("Your padded soles rest on the plate without a sound.",
-                          config.HEAL)
-                return
+            # you are not on it at all (levitation). the pit and the dart wait for
+            # someone heavier.
             if world.player.levitate > 0:
                 world.log("You drift over the plate. Your feet never touch it.",
                           config.MANA)

@@ -5494,21 +5494,6 @@ class TestTrapDiscovery(unittest.TestCase):
         codex.stats["traps_by"]["spike"] = 3
         self.assertEqual(codex.reveal_on_trap("spike").key, "spike.counter")
 
-    def test_a_trap_you_cannot_see_still_teaches_you_nothing(self):
-        """Soft soles mean the plate never fires -- and a trap that never fires
-        cannot teach you anything. That is the trade."""
-        from .items import BOOTS
-        from .traps import Trap
-        codex = FakeSave()
-        w = World(codex, seed=3)
-        w.level.monsters = []
-        w.player.boots = BOOTS["soft"]
-        dx, dy = self._floor_next_to(w)
-        w.level.traps = [Trap("dart", w.player.x + dx, w.player.y + dy)]
-        w.player_move(dx, dy)
-        self.assertFalse(codex.knows("dart.rule"),
-                         "the plate never fired, so there was nothing to learn")
-
 
 class TestTrapsAndGear(unittest.TestCase):
     def test_an_unknown_trap_still_fires(self):
@@ -5521,25 +5506,6 @@ class TestTrapsAndGear(unittest.TestCase):
         self.assertLess(w.player.hp, hp,
                         "an un-codexed trap must still hurt -- invisibility is the "
                         "player's problem, not the trap's")
-
-    def test_soft_soles_do_not_press_plates_but_do_not_stop_fire(self):
-        from .traps import Trap
-        w = World(FakeSave(), seed=3)
-        w.player.boots = BOOTS["soft"]
-        w.level.monsters = []
-        w.level.traps = [Trap("dart", w.player.x + 1, w.player.y)]
-        hp = w.player.hp
-        w.player_move(1, 0)
-        self.assertEqual(w.player.hp, hp, "padded soles must not set off a plate")
-
-        w2 = World(FakeSave(), seed=3)
-        w2.player.boots = BOOTS["soft"]
-        w2.level.monsters = []
-        w2.level.traps = [Trap("glyph", w2.player.x + 1, w2.player.y)]
-        hp2 = w2.player.hp
-        w2.player_move(1, 0)
-        self.assertLess(w2.player.hp, hp2,
-                        "a fire glyph is not weight-triggered; soles must not save you")
 
     def test_armour_subtracts_flat_and_wraiths_ignore_it(self):
         from .items import ARMOURS
@@ -7107,7 +7073,7 @@ class TestBootsRebalance(unittest.TestCase):
         self.assertEqual(BOOTS["swift"].speed, 25)
         self.assertEqual(BOOTS["wind"].speed, 40)
         self.assertEqual(BOOTS["blink"].trait, "blink")
-        self.assertEqual(BOOTS["soft"].trait, "softsole")
+        self.assertEqual(BOOTS["soft"].wake_radius, 4, "Padded Soles are now a stealth boot")
         self.assertEqual(BOOTS["ironshod"].trait, "kick")
 
     def test_gear_pool_excludes_ordinary_boots_and_still_gates_magical(self):
@@ -7389,6 +7355,66 @@ class TestMagicalBoots(unittest.TestCase):
         brute.take_turn(w)                               # its next turn lands no blow
         self.assertEqual(w.player.hp, hp,
                          "the interrupted brute cannot smash the tile you never left")
+
+
+class TestBootsStealth(unittest.TestCase):
+    def _arena(self, boots_key, seed=3):
+        # a carved-open patch so line of sight is clear and distances are exact
+        from .items import BOOTS
+        from .dungeon import FLOOR
+        w = World(FakeSave(), seed=seed)
+        w.level.monsters = []
+        w.player.boots = BOOTS[boots_key]
+        px, py = w.player.x, w.player.y
+        for dy in range(-8, 9):
+            for dx in range(-8, 9):
+                if 0 <= py + dy < w.level.h and 0 <= px + dx < w.level.w:
+                    w.level.grid[py + dy][px + dx] = FLOOR
+        w.level.compute_fov(px, py)
+        return w, px, py
+
+    def test_padded_soles_and_whisperstep_carry_a_wake_radius(self):
+        from .items import BOOTS
+        self.assertEqual(BOOTS["soft"].wake_radius, 4, "Padded Soles halve the ~9 wake range")
+        self.assertEqual(BOOTS["soft"].tier, 4)
+        self.assertIsNone(BOOTS["soft"].trait, "Padded Soles lose softsole")
+        self.assertEqual(BOOTS["whisperstep"].wake_radius, 2)
+        self.assertEqual((BOOTS["whisperstep"].tier, BOOTS["whisperstep"].speed), (5, 10))
+        self.assertEqual(BOOTS["sandals"].wake_radius, 0, "ordinary boots are not stealthy")
+
+    def test_stealth_shrinks_the_range_a_monster_wakes_at(self):
+        from .monsters import Monster
+        # Whisperstep: radius 2. A visible rat at distance 4 must NOT be able to notice you;
+        # one at distance 2 must.
+        w, px, py = self._arena("whisperstep")
+        far = Monster("rat", px + 4, py)
+        near = Monster("rat", px + 2, py)
+        w.level.monsters = [far, near]
+        w.level.compute_fov(px, py)
+        self.assertFalse(w.monster_can_see_player(far), "beyond your stealth radius -> unseen")
+        self.assertTrue(w.monster_can_see_player(near), "within it -> spotted")
+        # a plain-booted player is noticed at the normal range
+        w2, px2, py2 = self._arena("sandals")
+        r = Monster("rat", px2 + 4, py2)
+        w2.level.monsters = [r]
+        w2.level.compute_fov(px2, py2)
+        self.assertTrue(w2.monster_can_see_player(r), "no stealth -> the normal ~9 range")
+
+    def test_featherfall_still_teaches_nothing_from_a_trap_it_never_springs(self):
+        # (repurposed from the old softsole test: an unfired trap teaches nothing)
+        from .items import BOOTS
+        from .traps import Trap
+        from .dungeon import FLOOR
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.player.boots = BOOTS["featherfall"]
+        px, py = w.player.x, w.player.y
+        w.level.grid[py][px + 1] = FLOOR                 # a clear step east onto the trap
+        w.level.traps = [Trap("dart", px + 1, py)]
+        w.player_move(1, 0)
+        self.assertFalse(codex.knows("dart.rule"),
+                         "featherfall never sprang it, so there was nothing to learn")
 
 
 if __name__ == "__main__":

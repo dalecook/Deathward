@@ -308,6 +308,11 @@ class World:
         hook and future stealth would fold in here."""
         return self.player.invisible > 0
 
+    def player_wake_radius(self):
+        """How close a monster must be (within FOV) to notice the player. Stealth boots
+        shrink it; everything else uses the normal MONSTER_SIGHT."""
+        return self.player.boots.wake_radius or config.MONSTER_SIGHT
+
     def monster_can_see_player(self, m):
         # symmetric FOV: if the player can see it, it can see the player. unless the
         # player is hidden -- then nothing acquires them.
@@ -315,7 +320,8 @@ class World:
             return False
         if not self.in_bounds(m.x, m.y):
             return False
-        return self.level.visible[m.y][m.x] and m.dist(self.player.x, self.player.y) <= 9
+        return (self.level.visible[m.y][m.x]
+                and m.dist(self.player.x, self.player.y) <= self.player_wake_radius())
 
     def line_clear(self, x0, y0, x1, y1, maxdist):
         """Straight orthogonal line, unobstructed by walls, within range."""

@@ -28,6 +28,7 @@ FPS = 60
 MAP_W, MAP_H = 64, 40
 DEPTH_MAX = 20
 FOV_RADIUS = 8
+MONSTER_SIGHT = 9         # how close (in tiles, within FOV) a monster notices the player
 
 SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "deathward_save.json")
 

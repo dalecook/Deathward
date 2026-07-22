@@ -1264,6 +1264,12 @@ def _boots_sprite(key, s, S):
         _poly(s, ghost, [(cx - S * 0.14, S * 0.24), (cx + S * 0.10, S * 0.24),
                          (cx + S * 0.10, S * 0.62), (cx + S * 0.36, S * 0.62),
                          (cx + S * 0.36, S * 0.78), (cx - S * 0.14, S * 0.78)])
+    elif key == "whisperstep":              # muffled grey-violet, a soft hush
+        boot((120, 116, 140), (78, 74, 96))
+        for i in range(3):                  # faint sound-rings fading off the heel
+            r = S * (0.10 + i * 0.06)
+            pygame.draw.arc(s, (176, 170, 200), (cx - S * 0.36, S * 0.34, r * 2, r * 2),
+                            0.6, 2.5, max(1, int(S * 0.015)))
 
 
 _GEAR_DRAW = {"weapon": _weapon_sprite, "armour": _armour_sprite, "boots": _boots_sprite}

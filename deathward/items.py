@@ -84,10 +84,12 @@ class Armour:
 class Boots:
     slot = "boots"
 
-    def __init__(self, key, name, tier, speed, trait=None, note="", defense=0):
+    def __init__(self, key, name, tier, speed, trait=None, note="", defense=0,
+                 wake_radius=0):
         self.key, self.name, self.tier = key, name, tier
         self.speed, self.trait, self.note = speed, trait, note
         self.defense = defense            # armoured boots (mail/plate); 0 for the rest
+        self.wake_radius = wake_radius    # stealth boots: tiles a monster wakes within; 0 = normal
 
     def desc(self):
         s = "%+d spd" % self.speed
@@ -178,8 +180,8 @@ BOOTS = {
     "boots_plate":   Boots("boots_plate", "Plate Boots", 3, -10, defense=2),
     # --- magical (floors 8+): the exotic five, relocated intact (Plan 2 reworks)
     "swift":    Boots("swift", "Sandals of Mercury", 4, 25),
-    "soft":     Boots("soft", "Padded Soles", 4, 10, "softsole",
-                      "too light to set off a pressure plate"),
+    "soft":     Boots("soft", "Padded Soles", 4, 10,
+                      note="so quiet that monsters notice you only up close", wake_radius=4),
     "blink":    Boots("blink", "Boots of Blinking", 4, 15, "blink",
                       "SHIFT+dir to leap three tiles"),
     "ironshod": Boots("ironshod", "Ironshod Boots", 4, 5, "kick",
@@ -195,6 +197,9 @@ BOOTS = {
                       "every blow scatters all that stands near you"),
     "slipstep": Boots("slipstep", "Slipstep", 5, 10, "slipstep",
                       "every fourth wound flings you clear and staggers the striker"),
+    "whisperstep": Boots("whisperstep", "Whisperstep", 5, 10,
+                         note="you pass like a rumour -- nothing wakes until you are on it",
+                         wake_radius=2),
     "phantom":  Boots("phantom", "Phantom Boots", 4, 0, "phantom",
                       "sometimes the blow finds only the ghost of you"),
 }
