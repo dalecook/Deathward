@@ -40,6 +40,18 @@ from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorpore
 
 MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
 
+
+def _rng_to_list(rng):
+    """random.Random.getstate() is (version, tuple-of-ints, gauss-or-None).
+    Flatten the inner tuple to a list so it survives json.dump."""
+    version, state, gauss = rng.getstate()
+    return [version, list(state), gauss]
+
+
+def _rng_from_list(data):
+    version, state, gauss = data
+    return (version, tuple(state), gauss)
+
 # damage sources that are ANOTHER MONSTER, not you. a kill from one of these earns
 # you no loot (its killer took it) and no Kodex credit -- you did not do it.
 MONSTER_SOURCES = {"orc", "enrage"}
@@ -70,9 +82,12 @@ from .vendor import Vendor, price_of, sell_price_of
 
 
 class World:
-    def __init__(self, codex, seed=None):
+    def __init__(self, codex, seed=None, restore=None):
         self.codex = codex
-        self.seed = seed if seed is not None else random.randrange(1 << 30)
+        if restore is not None:
+            self.seed = restore["seed"]
+        else:
+            self.seed = seed if seed is not None else random.randrange(1 << 30)
         self.rng = random.Random(self.seed)      # the LIVING: re-dealt every run
         # the STONE: cut once, the first time this game is played, and kept until a
         # new game. every floor's rooms and corridors are derived from it. it is
@@ -85,7 +100,7 @@ class World:
         # generated on its own rng inside the codex, so it cannot perturb the stone above.
         if not codex.appearance:
             codex.roll_appearances(codex.world_seed)
-        self.player = Player()
+        # --- fields common to a fresh run and a resumed one ---
         self.tick = 0
         self.dead = False
         self.won = False
@@ -110,11 +125,51 @@ class World:
         # just an unexplained wound -- you have to SEE the thing that burned you, or
         # you cannot learn from it, and learning from it is the entire game.
         self.fx = []
-        # the gear you start the run in is gear you have "seen" -- it earns its entry
-        for g in (self.player.weapon, self.player.armour, self.player.boots):
-            self.codex.see_gear(g.key)
-        self.new_level(1)
-        self.log("You descend to floor 1.", config.STAIRS)
+        if restore is not None:
+            self._resume(restore)
+        else:
+            self.player = Player()
+            # the gear you start the run in is gear you have "seen" -- it earns its entry
+            for g in (self.player.weapon, self.player.armour, self.player.boots):
+                self.codex.see_gear(g.key)
+            self.new_level(1)
+            self.log("You descend to floor 1.", config.STAIRS)
+
+    def _resume(self, data):
+        self.rng.setstate(_rng_from_list(data["rng"]))
+        self.player = Player.from_dict(data["player"])
+        self.tick = data["tick"]
+        self.vendor_pct = data["vendor_pct"]
+        self.run_kills = data["run_kills"]
+        self.region_alerted = data["region_alerted"]
+        self.depth = data["depth"]
+        for sd, lvd in data["levels"].items():
+            d = int(sd)
+            self.levels[d] = Level(d, self.rng, self.codex, restore=lvd)
+        self.level = self.levels[self.depth]
+        self.player_region = None
+        if data["player_region"] is not None:
+            rx, ry = data["player_region"]
+            for r in self.level.rooms:
+                if (r.cx, r.cy) == (rx, ry):
+                    self.player_region = r
+                    break
+        self.level.compute_fov(self.player.x, self.player.y)
+
+    def to_dict(self):
+        return {
+            "seed": self.seed,
+            "depth": self.depth,
+            "tick": self.tick,
+            "vendor_pct": self.vendor_pct,
+            "run_kills": self.run_kills,
+            "region_alerted": self.region_alerted,
+            "player_region": ([self.player_region.cx, self.player_region.cy]
+                              if self.player_region is not None else None),
+            "rng": _rng_to_list(self.rng),
+            "player": self.player.to_dict(),
+            "levels": {str(d): lv.to_dict() for d, lv in self.levels.items()},
+        }
 
     # --- the vendor -----------------------------------------------------
     def _vendor_step(self, new_depth, going_down):

@@ -7849,6 +7849,53 @@ class TestLevelSerialization(unittest.TestCase):
                          "restoring a floor must not deal from the run RNG")
 
 
+class TestWorldSerialization(unittest.TestCase):
+    """A whole run — position, gear, floor state, and the exact RNG cursor —
+    survives a round-trip, and the restored run deals its next floor identically."""
+
+    def test_world_round_trips_position_gear_and_rng(self):
+        import json
+        from .world import World
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        w.player.x, w.player.y = w.level.entrance
+        w.player.gold = 55
+        w.tick = 12
+        w.vendor_pct = 30
+        w.run_kills = 3
+
+        blob = w.to_dict()
+        json.dumps(blob)
+        w2 = World(codex, restore=blob)
+
+        self.assertEqual(w2.depth, w.depth)
+        self.assertEqual((w2.player.x, w2.player.y), (w.player.x, w.player.y))
+        self.assertEqual(w2.player.gold, 55)
+        self.assertEqual(w2.tick, 12)
+        self.assertEqual(w2.vendor_pct, 30)
+        self.assertEqual(w2.run_kills, 3)
+        self.assertEqual(w2.player.weapon.key, w.player.weapon.key)
+        self.assertEqual(w2.level.grid, w.level.grid)
+        # the RNG cursor is exactly where it was: the next draw matches
+        self.assertEqual(w2.rng.getstate(), w.rng.getstate())
+        self.assertEqual(w2.rng.random(), w.rng.random())
+
+    def test_resumed_run_descends_into_an_identical_next_floor(self):
+        # RNG continuity: a floor first entered AFTER a suspend/resume has the
+        # same contents it would have had without the interruption.
+        from .world import World
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        w2 = World(codex, restore=w.to_dict())
+
+        w.new_level(2)
+        w2.new_level(2)
+        self.assertEqual([m.key for m in w2.level.monsters],
+                         [m.key for m in w.level.monsters])
+        self.assertEqual([(d.x, d.y, d.kind) for d in w2.level.drops],
+                         [(d.x, d.y, d.kind) for d in w.level.drops])
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
