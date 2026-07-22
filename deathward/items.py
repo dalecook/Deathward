@@ -187,6 +187,8 @@ BOOTS = {
     "wind":     Boots("wind", "Windwalkers", 5, 40),
     "featherfall": Boots("featherfall", "Featherfall", 5, 25, "featherfall",
                          "you drift above the floor -- no trap can find your feet"),
+    "thor":     Boots("thor", "Thor's Boots", 5, 10, "thor",
+                      "every blow scatters all that stands near you"),
 }
 
 ALL_GEAR = {}

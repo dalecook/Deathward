@@ -570,6 +570,11 @@ class World:
                     self._weapon_status_on(o, extra)
         if p.boots.trait == "kick" and m.alive:
             self._knockback(m)
+        if p.boots.trait == "thor":
+            for dx, dy in DIRS8:
+                o = self.monster_at(p.x + dx, p.y + dy)
+                if o and o.alive:
+                    self._knockback(o)
 
     def _knockback(self, m):
         dx = (m.x > self.player.x) - (m.x < self.player.x)

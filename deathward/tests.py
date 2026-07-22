@@ -7261,6 +7261,28 @@ class TestMagicalBoots(unittest.TestCase):
                              "featherfall must not spring the %s" % kind)
             self.assertFalse(t.sprung, "the %s should not go off" % kind)
 
+    def test_thor_knocks_back_every_adjacent_enemy(self):
+        from .items import BOOTS
+        from .monsters import Monster
+        from .dungeon import FLOOR
+        w = World(FakeSave(), seed=7)
+        w.level.monsters = []
+        w.player.boots = BOOTS["thor"]
+        px, py = w.player.x, w.player.y
+        for dy in range(-2, 3):                        # carve open room to be shoved into
+            for dx in range(-2, 3):
+                w.level.grid[py + dy][px + dx] = FLOOR
+        placed = []
+        for (dx, dy) in ((1, 0), (0, 1), (1, 1)):
+            m = Monster("rat", px + dx, py + dy)
+            m.hp = m.max_hp = 999                       # they survive the blow, so they can be shoved
+            w.level.monsters.append(m)
+            placed.append(((px + dx, py + dy), m))
+        w.player_attack(placed[0][1])                   # strike the eastern rat
+        for orig, m in placed:
+            self.assertNotEqual((m.x, m.y), orig,
+                                "every adjacent enemy should be shoved, not just the target")
+
 
 if __name__ == "__main__":
     pygame.init()
