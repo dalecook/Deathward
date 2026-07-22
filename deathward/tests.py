@@ -7796,6 +7796,59 @@ class TestRecordSerialization(unittest.TestCase):
         self.assertTrue(all(isinstance(s, tuple) for s in w.stock))
 
 
+class TestLevelSerialization(unittest.TestCase):
+    """A floor's dynamic state — dealt monsters, taken loot, a sprung trap, the
+    contents you've laid eyes on — round-trips, while its stone regenerates
+    identically from the seed."""
+
+    def test_level_restores_dynamic_state_over_regenerated_stone(self):
+        import json
+        from .world import World
+        from .dungeon import Level, Drop
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        lv = w.level
+
+        # perturb the live state: wound & wake a monster, drop loot, spring a
+        # trap, mark a tile's contents seen.
+        if lv.monsters:
+            lv.monsters[0].hp = 1
+            lv.monsters[0].awake = True
+        lv.drops.append(Drop(lv.entrance[0], lv.entrance[1], "gold", 7))
+        if lv.traps:
+            lv.traps[0].sprung = True
+        lv.seen[lv.entrance[1]][lv.entrance[0]] = True
+
+        blob = lv.to_dict()
+        json.dumps(blob)
+        restored = Level(lv.depth, w.rng, codex, restore=blob)
+
+        # stone is identical (same seed) ...
+        self.assertEqual(restored.grid, lv.grid)
+        self.assertEqual(restored.entrance, lv.entrance)
+        self.assertEqual(restored.stairs, lv.stairs)
+        # ... dynamic state overlays faithfully
+        self.assertEqual(len(restored.monsters), len(lv.monsters))
+        if lv.monsters:
+            self.assertEqual(restored.monsters[0].hp, 1)
+            self.assertTrue(restored.monsters[0].awake)
+        self.assertTrue(any(d.kind == "gold" and d.payload == 7
+                            for d in restored.drops))
+        sprung = {(t.x, t.y) for t in restored.traps if t.sprung}
+        self.assertEqual(sprung, {(t.x, t.y) for t in lv.traps if t.sprung})
+        self.assertTrue(restored.seen[lv.entrance[1]][lv.entrance[0]])
+
+    def test_restore_does_not_consume_the_run_rng(self):
+        from .world import World
+        from .dungeon import Level
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        before = w.rng.getstate()
+        Level(w.level.depth, w.rng, codex, restore=w.level.to_dict())
+        self.assertEqual(w.rng.getstate(), before,
+                         "restoring a floor must not deal from the run RNG")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

@@ -194,7 +194,7 @@ class Level:
                       down. The map is memorised; the danger is not.
     """
 
-    def __init__(self, depth, rng, codex):
+    def __init__(self, depth, rng, codex, restore=None):
         self.depth = depth
         self.rng = rng                                    # contents: per RUN
         self.lrng = random.Random(codex.layout_seed(depth))   # stone: per GAME
@@ -222,7 +222,10 @@ class Level:
         # them. Nothing but your own line of sight ever sets this -- no scroll does.
         # It is per-run, because the contents are re-dealt every run.
         self.seen = [[False] * self.w for _ in range(self.h)]
-        self._generate(codex)
+        if restore is None:
+            self._generate(codex)
+        else:
+            self._restore(codex, restore)
 
     # --- generation -----------------------------------------------------
     def _carve_room(self, r):
@@ -440,6 +443,47 @@ class Level:
         self._replay_magicals(persisted_boots)
 
         self._place_corpse(codex)
+
+    def _restore(self, codex, data):
+        """Parallel to _generate: cut the same stone, then overlay the saved
+        dynamic state instead of dealing a fresh floor. The run RNG is untouched."""
+        from .monsters import Monster
+        from .vendor import Vendor
+        self._cut_stone(codex)
+        self.monsters = [Monster.from_dict(m) for m in data["monsters"]]
+        self.drops = [Drop.from_dict(d) for d in data["drops"]]
+        self.chests = [Chest.from_dict(c) for c in data["chests"]]
+        self.slain = [Slain.from_dict(s) for s in data["slain"]]
+        self.vendor = Vendor.from_dict(data["vendor"]) if data["vendor"] else None
+        # traps were re-cut by _cut_stone (same stone); restore which have sprung
+        sprung = {(t["key"], t["x"], t["y"]) for t in data["traps"] if t["sprung"]}
+        for tr in self.traps:
+            if (tr.key, tr.x, tr.y) in sprung:
+                tr.sprung = True
+        # the fog of CONTENTS you had laid eyes on this run
+        self.seen = [row[:] for row in data["seen"]]
+        # the hoard marker: re-link to the room at the saved centre
+        self.hoard = None
+        if data["hoard"] is not None:
+            hx, hy = data["hoard"]
+            for r in self.rooms:
+                if (r.cx, r.cy) == (hx, hy):
+                    self.hoard = r
+                    break
+        self._place_corpse(codex)
+
+    def to_dict(self):
+        return {
+            "depth": self.depth,
+            "monsters": [m.to_dict() for m in self.monsters],
+            "drops": [d.to_dict() for d in self.drops],
+            "chests": [c.to_dict() for c in self.chests],
+            "slain": [s.to_dict() for s in self.slain],
+            "vendor": self.vendor.to_dict() if self.vendor else None,
+            "traps": [t.to_dict() for t in self.traps],
+            "hoard": [self.hoard.cx, self.hoard.cy] if self.hoard else None,
+            "seen": [row[:] for row in self.seen],
+        }
 
     def _replay_magicals(self, persisted):
         """Magical weapons AND boots persist where they lie, across every life -- the
