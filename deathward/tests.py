@@ -7695,6 +7695,54 @@ class TestPlayerSerialization(unittest.TestCase):
                                    ["a scroll", 1], None, None, None])
 
 
+class TestMonsterSerialization(unittest.TestCase):
+    """A monster's live state — wounds, wakefulness, a telegraphed intent, every
+    status timer — survives a round-trip through a dict."""
+
+    def test_monster_round_trips_with_all_dynamic_state(self):
+        import json
+        from .monsters import Monster
+        m = Monster("brute", 5, 6)
+        m.hp = 7
+        m.energy = 1
+        m.awake = True
+        m.intent = ("smash", 5, 7)
+        m.stunned = 2
+        m.burning = 3
+        m.poisoned = 1
+        m.weak = 2
+        m.feared = 4
+        m.confused = 1
+        m.hammer_hits = 2
+        m.enraged = 3
+        m.recharge = 1
+        m.ray_armed = True
+        m.fled = True
+        m.warden_last = "spit"
+        m.feed = 0.5
+
+        blob = m.to_dict()
+        json.dumps(blob)                      # JSON-safe
+        n = Monster.from_dict(blob)
+
+        self.assertEqual(n.key, "brute")
+        self.assertEqual((n.x, n.y), (5, 6))
+        self.assertEqual(n.max_hp, m.max_hp)
+        for k in ("hp", "energy", "awake", "stunned", "burning", "poisoned",
+                  "weak", "feared", "confused", "hammer_hits", "enraged",
+                  "recharge", "ray_armed", "fled", "warden_last", "feed"):
+            self.assertEqual(getattr(n, k), getattr(m, k), k)
+        self.assertEqual(n.intent, ("smash", 5, 7))
+        self.assertIsInstance(n.intent, tuple)
+
+    def test_a_sleeping_monster_with_no_intent_round_trips(self):
+        from .monsters import Monster
+        m = Monster("rat", 2, 2)          # starts asleep, intent None
+        n = Monster.from_dict(m.to_dict())
+        self.assertFalse(n.awake)
+        self.assertIsNone(n.intent)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

@@ -161,6 +161,15 @@ def spawn_roster(depth):
     return roster
 
 
+# Every plain scalar field of a live monster that round-trips verbatim. `key`
+# rebuilds the derived template (t/speed/name); `intent` is handled specially.
+_MONSTER_STATE = (
+    "x", "y", "hp", "max_hp", "energy", "awake", "stunned", "burning",
+    "poisoned", "fled", "disguised", "warden_last", "feed", "recharge",
+    "ray_armed", "weak", "feared", "confused", "hammer_hits", "enraged",
+)
+
+
 class Monster:
     def __init__(self, key, x, y):
         t = TEMPLATES[key]
@@ -203,6 +212,21 @@ class Monster:
 
     def dist(self, x, y):
         return max(abs(self.x - x), abs(self.y - y))   # chebyshev: 8-way grid
+
+    # --- serialization --------------------------------------------------
+    def to_dict(self):
+        d = {k: getattr(self, k) for k in _MONSTER_STATE}
+        d["key"] = self.key
+        d["intent"] = list(self.intent) if self.intent is not None else None
+        return d
+
+    @classmethod
+    def from_dict(cls, data):
+        m = cls(data["key"], data["x"], data["y"])
+        for k in _MONSTER_STATE:
+            setattr(m, k, data[k])
+        m.intent = tuple(data["intent"]) if data["intent"] is not None else None
+        return m
 
     # --- the turn -------------------------------------------------------
     def take_turn(self, world):
