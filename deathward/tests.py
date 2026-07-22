@@ -7308,6 +7308,14 @@ class TestMagicalBoots(unittest.TestCase):
                             "the 4th hit blinks the player away")
         self.assertGreaterEqual(m.stunned, 1, "the 4th hit stuns the attacker")
 
+    def test_emberstride_is_never_frozen_and_wards_two(self):
+        from .items import BOOTS
+        w = World(FakeSave(), seed=11)
+        w.player.boots = BOOTS["emberstride"]
+        self.assertEqual(BOOTS["emberstride"].defense, 2, "Emberstride wards +2")
+        w.freeze_player(2)
+        self.assertEqual(w.player.frozen, 0, "Emberstride's heat shrugs off the gaze")
+
 
 if __name__ == "__main__":
     pygame.init()

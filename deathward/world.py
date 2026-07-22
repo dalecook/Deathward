@@ -365,6 +365,10 @@ class World:
         if p.sanctuary > 0:
             self.log("The gaze reaches you and slides off the stillness.", config.MANA)
             return
+        if p.boots.trait == "emberstride":
+            self.log("The gaze reaches your feet -- and the heat there melts it.",
+                     config.MANA)
+            return
         p.frozen = min(2, max(p.frozen, turns))
         self.log("The beholder's gaze locks you in ice -- you cannot move!", config.MANA)
         self.add_fx("freeze", p.x, p.y, color=(150, 210, 255), life=0.9)

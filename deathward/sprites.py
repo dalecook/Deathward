@@ -1192,6 +1192,11 @@ def _boots_sprite(key, s, S):
               S * 0.02)
         for i in range(3):
             _circ(s, _shade(iron, 0.65), cx + S * (0.10 + i * 0.08), S * 0.74, S * 0.018)
+    elif key == "emberstride":              # dark boot, ember glow
+        boot((104, 66, 58), (66, 40, 36))
+        for (dx, dy, r) in ((-0.10, 0.42, 0.05), (0.10, 0.54, 0.04), (-0.02, 0.64, 0.03)):
+            _circ(s, (255, 150, 60), cx + S * dx, S * dy, S * r)
+            _circ(s, (255, 216, 120), cx + S * dx, S * dy, S * r * 0.45)
     elif key == "wind":                     # white, winged
         boot((236, 240, 248), (190, 200, 214))
         wing = (170, 236, 240)
