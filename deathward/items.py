@@ -177,7 +177,7 @@ BOOTS = {
     "boots_mail":    Boots("boots_mail", "Mail Boots", 2, 0, defense=1),
     "boots_plate":   Boots("boots_plate", "Plate Boots", 3, -10, defense=2),
     # --- magical (floors 8+): the exotic five, relocated intact (Plan 2 reworks)
-    "swift":    Boots("swift", "Swift Boots", 4, 25),
+    "swift":    Boots("swift", "Sandals of Mercury", 4, 25),
     "soft":     Boots("soft", "Padded Soles", 4, 10, "softsole",
                       "too light to set off a pressure plate"),
     "blink":    Boots("blink", "Boots of Blinking", 4, 15, "blink",

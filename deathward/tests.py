@@ -7240,6 +7240,14 @@ class TestBootsRebalance(unittest.TestCase):
                          "every ordinary boot should be findable on the mid floors")
 
 
+class TestMagicalBoots(unittest.TestCase):
+    def test_swift_is_renamed_sandals_of_mercury(self):
+        from .items import BOOTS
+        b = BOOTS["swift"]
+        self.assertEqual(b.name, "Sandals of Mercury")
+        self.assertEqual((b.tier, b.speed), (4, 25), "stats unchanged, rename only")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
