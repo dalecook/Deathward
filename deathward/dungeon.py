@@ -27,7 +27,7 @@ import random
 
 from . import config
 from .items import (gear_pool, is_magical, roll_chest, roll_floor_boots,
-                    roll_floor_weapons, roll_loot)
+                    roll_floor_boots_magical, roll_floor_weapons, roll_loot)
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
 
@@ -528,6 +528,17 @@ class Level:
             spot = self._free_tile(avoid_start=True)
             if spot:
                 self.drops.append(Drop(spot[0], spot[1], "gear", bkey))
+
+        # THE FLOOR'S MAGICAL BOOT (floors 8+). The rare slot, like the magical weapons:
+        # scarce, one-per-game unique (exclude the already-generated), generation-placed --
+        # never from the generic loot pool.
+        mbkey = roll_floor_boots_magical(rng, d, exclude=codex.boots_generated)
+        if mbkey:
+            spot = self._free_tile(avoid_start=True)
+            if spot:
+                self.drops.append(Drop(spot[0], spot[1], "gear", mbkey))
+                # it now EXISTS: never rolls again this game (persistence lands in Plan B).
+                codex.record_magical_boot_placed(mbkey, d, spot[0], spot[1])
 
         # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. There is exactly one guaranteed gear
         # upgrade down here, placed as far from the gate as the level allows, so it

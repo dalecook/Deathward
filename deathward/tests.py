@@ -7533,6 +7533,42 @@ class TestMagicalBootsEconomy(unittest.TestCase):
         c.new_dungeon()
         self.assertEqual(c.boots_generated, [], "a new game clears it")
 
+    def test_generation_respects_the_uniqueness_ledger(self):
+        from .items import is_magical_boot, FINDABLE_MAGICAL_BOOT_KEYS
+        codex = FakeSave()
+        codex.world_seed = 5
+        # pretend every magical boot except 'thor' has already been generated this game
+        codex.boots_generated = [k for k in FINDABLE_MAGICAL_BOOT_KEYS if k != "thor"]
+        w = World(codex, seed=5)
+        placed = set()
+        for depth in range(8, 21):
+            w.new_level(depth)
+            for d in w.level.drops:
+                if d.kind == "gear" and is_magical_boot(d.payload):
+                    placed.add(d.payload)
+        self.assertFalse(placed - {"thor"},
+                         "only the un-generated boot can still be placed: %s" % placed)
+
+    def test_magical_boots_appear_deep_recorded_and_never_shallow(self):
+        from .items import is_magical_boot
+        appeared = False
+        for seed in range(30):
+            codex = FakeSave()
+            codex.world_seed = seed
+            w = World(codex, seed=seed)
+            for depth in range(8, 16):
+                w.new_level(depth)
+                for d in w.level.drops:
+                    if d.kind == "gear" and is_magical_boot(d.payload):
+                        appeared = True
+                        self.assertIn(d.payload, codex.boots_generated,
+                                      "a placed magical boot is recorded for uniqueness")
+            w.new_level(5)
+            self.assertFalse(any(d.kind == "gear" and is_magical_boot(d.payload)
+                                 for d in w.level.drops),
+                             "no magical boots on a shallow floor")
+        self.assertTrue(appeared, "magical boots do appear on the deep floors")
+
 
 if __name__ == "__main__":
     pygame.init()
