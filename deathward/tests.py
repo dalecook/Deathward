@@ -7316,6 +7316,17 @@ class TestMagicalBoots(unittest.TestCase):
         w.freeze_player(2)
         self.assertEqual(w.player.frozen, 0, "Emberstride's heat shrugs off the gaze")
 
+    def test_rimewalkers_shrug_off_fire_but_not_a_dart(self):
+        from .items import BOOTS
+        w = World(FakeSave(), seed=13)
+        w.player.boots = BOOTS["rimewalkers"]
+        self.assertEqual(BOOTS["rimewalkers"].defense, 2, "Rimewalkers ward +2")
+        hp = w.player.hp
+        w.hurt_player(6, "glyph")                    # a fire glyph blast
+        self.assertEqual(w.player.hp, hp, "rimewalkers take no fire damage")
+        w.hurt_player(4, "dart")                     # a non-fire source still bites
+        self.assertLess(w.player.hp, hp, "only fire is warded, not everything")
+
 
 if __name__ == "__main__":
     pygame.init()

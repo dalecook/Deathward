@@ -49,6 +49,10 @@ MONSTER_SOURCES = {"orc", "enrage"}
 # it). These match the trap keys in traps.py.
 TRAP_SOURCES = {"dart", "spike", "gas", "alarm", "glyph"}
 
+# damage sources that are FIRE/burn -- what Rimewalkers ward against. Today the only
+# fire cause to the player is the fire glyph trap.
+FIRE_CAUSES = frozenset({"glyph"})
+
 # potion effects that are NEGATIVE, and so -- once you have identified the flask --
 # are never drunk again but wiped down the blade to land on an enemy instead (see
 # _coat_blade / player_attack). the venom rule, generalised to every bad potion.
@@ -716,6 +720,11 @@ class World:
 
     def hurt_player(self, dmg, cause, silent=False):
         p = self.player
+        if cause in FIRE_CAUSES and p.boots.trait == "rimewalkers":
+            if not silent:
+                self.log("The flame washes over your frost-shod feet and dies.",
+                         config.MANA)
+            return
         if p.berserk > 0 and not silent:
             dmg += 2                       # rage leaves you open -- every blow bites deeper
         if p.resist > 0:

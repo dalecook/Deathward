@@ -186,6 +186,8 @@ BOOTS = {
                       "your blows knock the struck thing back"),
     "emberstride": Boots("emberstride", "Emberstride", 4, 0, "emberstride",
                          "the ice cannot take feet that smoulder", defense=2),
+    "rimewalkers": Boots("rimewalkers", "Rimewalkers", 4, 0, "rimewalkers",
+                         "frost-shod -- fire finds no purchase", defense=2),
     "wind":     Boots("wind", "Windwalkers", 5, 40),
     "featherfall": Boots("featherfall", "Featherfall", 5, 25, "featherfall",
                          "you drift above the floor -- no trap can find your feet"),

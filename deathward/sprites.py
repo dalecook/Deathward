@@ -1197,6 +1197,14 @@ def _boots_sprite(key, s, S):
         for (dx, dy, r) in ((-0.10, 0.42, 0.05), (0.10, 0.54, 0.04), (-0.02, 0.64, 0.03)):
             _circ(s, (255, 150, 60), cx + S * dx, S * dy, S * r)
             _circ(s, (255, 216, 120), cx + S * dx, S * dy, S * r * 0.45)
+    elif key == "rimewalkers":              # pale ice-blue, frost crystals
+        boot((180, 210, 230), (120, 152, 180))
+        rime = (232, 246, 255)
+        for (dx, dy) in ((-0.12, 0.36), (0.08, 0.46), (-0.02, 0.60)):
+            _line(s, rime, (cx + S * dx, S * (dy - 0.05)), (cx + S * dx, S * (dy + 0.05)),
+                  S * 0.02)
+            _line(s, rime, (cx + S * (dx - 0.05), S * dy), (cx + S * (dx + 0.05), S * dy),
+                  S * 0.02)
     elif key == "wind":                     # white, winged
         boot((236, 240, 248), (190, 200, 214))
         wing = (170, 236, 240)
