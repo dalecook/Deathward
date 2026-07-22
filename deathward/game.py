@@ -86,6 +86,7 @@ class Game:
         self.potion_cheat = CheatCode([pygame.K_7, pygame.K_6])   # CTRL+76: potion picker
         self.weapon_cheat = CheatCode([pygame.K_1, pygame.K_2])   # CTRL+12: weapon bench
         self.magic_cheat = CheatCode([pygame.K_2, pygame.K_1])    # CTRL+21: magic-weapon bench
+        self.boots_cheat = CheatCode([pygame.K_5, pygame.K_6])    # CTRL+56: boots tester (cycle)
         self.weapon_pages = [[]]   # the weapon-bench pages (ordinary, tier 4, tier 5)
         self.weapon_page_labels = [""]
         self.weapon_page = 0
@@ -479,6 +480,7 @@ class Game:
             (self.potion_cheat, lambda: self.open_consumable_cheat("potion")),  # 76
             (self.weapon_cheat, lambda: self.open_weapon_cheat()),     # 12   weapon bench
             (self.magic_cheat, lambda: self.open_magic_cheat()),       # 21   magic bench
+            (self.boots_cheat, lambda: w.cheat_cycle_boots()),         # 56   boots tester
         ]
         if held or any(c.progress for c, _ in cheats):
             done = [c.feed(k, held) for c, _ in cheats]

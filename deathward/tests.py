@@ -7347,6 +7347,17 @@ class TestMagicalBoots(unittest.TestCase):
         self.assertGreater(rate, 0.68, "≈75%% of blows land (got %.3f)" % rate)
         self.assertLess(rate, 0.82, "≈75%% of blows land (got %.3f)" % rate)
 
+    def test_boots_cheat_cycles_through_every_boot(self):
+        from .items import BOOTS
+        w = World(FakeSave(), seed=17)
+        seen = set()
+        for _ in range(len(BOOTS)):
+            key = w.cheat_cycle_boots()
+            self.assertEqual(w.player.boots.key, key, "the cheat equips what it returns")
+            seen.add(key)
+        self.assertEqual(seen, set(BOOTS),
+                         "every boot -- ordinary and magical -- is reachable by cycling")
+
 
 if __name__ == "__main__":
     pygame.init()
