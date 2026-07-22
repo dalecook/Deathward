@@ -379,11 +379,13 @@ class Level:
         # weapon rolled THIS life (which _populate records into codex.magical_ground) is
         # not also replayed as if it were an heirloom.
         persisted_magicals = dict(codex.magical_ground)
+        persisted_boots = dict(codex.boots_ground)
         if self.depth >= config.DEPTH_MAX:
             self._populate_boss()
         else:
             self._populate(codex)
         self._replay_magicals(persisted_magicals)
+        self._replay_magicals(persisted_boots)
 
         # your own dead, from a previous run
         # Your body is where you left it. Not "somewhere on this floor" -- the exact
@@ -405,9 +407,9 @@ class Level:
             self.chests = [ch for ch in self.chests if (ch.x, ch.y) != (cx, cy)]
 
     def _replay_magicals(self, persisted):
-        """Magical weapons persist where they lie, across every life -- the trophies of
-        your past selves, salted through the dungeon. Re-place this floor's, clearing
-        whatever the fresh deal put on their tiles, exactly like a corpse."""
+        """Magical weapons AND boots persist where they lie, across every life -- the
+        trophies of your past selves, salted through the dungeon. Re-place this floor's,
+        clearing whatever the fresh deal put on their tiles, exactly like a corpse."""
         for key, loc in persisted.items():
             if loc["depth"] != self.depth:
                 continue
@@ -417,7 +419,7 @@ class Level:
             self.monsters = [m for m in self.monsters if (m.x, m.y) != (mx, my)]
             self.drops = [d for d in self.drops if (d.x, d.y) != (mx, my)]
             self.chests = [ch for ch in self.chests if (ch.x, ch.y) != (mx, my)]
-            self.drops.append(Drop(mx, my, "gear", key, bonus=loc["bonus"]))
+            self.drops.append(Drop(mx, my, "gear", key, bonus=loc.get("bonus", 0)))
 
     def _free_tile(self, avoid_start=False, room=None, rng=None):
         """A free floor tile, or None if there isn't one.

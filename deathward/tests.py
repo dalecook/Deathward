@@ -7607,6 +7607,23 @@ class TestMagicalBootsEconomy(unittest.TestCase):
         self.assertEqual(c.boots_ground, {})
         self.assertEqual(c.boots_collected, [])
 
+    def test_a_magical_boot_survives_death_and_replays_where_it_fell(self):
+        codex = FakeSave()
+        codex.world_seed = 7
+        w0 = World(codex, seed=7)
+        w0.new_level(10)
+        ex, ey = w0.level.entrance                 # a guaranteed-walkable tile on floor 10
+        # a past life left a magical boot on floor 10 (clear this life's rolls first)
+        codex.boots_ground = {}
+        codex.boots_generated = []
+        codex.record_magical_boot_placed("thor", 10, ex, ey)
+        # a NEW life: same codex, fresh World -- floor 10 replays it where it fell
+        w = World(codex, seed=7)
+        w.new_level(10)
+        thors = [d for d in w.level.drops if d.kind == "gear" and d.payload == "thor"]
+        self.assertEqual(len(thors), 1, "the boot is still on floor 10")
+        self.assertEqual((thors[0].x, thors[0].y), (ex, ey), "exactly where it fell")
+
 
 if __name__ == "__main__":
     pygame.init()
