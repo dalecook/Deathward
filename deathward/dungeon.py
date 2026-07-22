@@ -340,7 +340,7 @@ class Level:
         r = rng.choice(chosen)
         return (r.cx, r.cy)
 
-    def _generate(self, codex):
+    def _cut_stone(self, codex):
         # --- the stone: cut once per GAME, identical on every respawn ----
         rng = self.lrng
 
@@ -404,18 +404,7 @@ class Level:
         # dart trap outside the treasury" can mean anything across runs.
         self._install_traps()
 
-        # snapshot the persisted ground magicals BEFORE this floor's fresh rolls, so a
-        # weapon rolled THIS life (which _populate records into codex.magical_ground) is
-        # not also replayed as if it were an heirloom.
-        persisted_magicals = dict(codex.magical_ground)
-        persisted_boots = dict(codex.boots_ground)
-        if self.depth >= config.DEPTH_MAX:
-            self._populate_boss()
-        else:
-            self._populate(codex)
-        self._replay_magicals(persisted_magicals)
-        self._replay_magicals(persisted_boots)
-
+    def _place_corpse(self, codex):
         # your own dead, from a previous run
         # Your body is where you left it. Not "somewhere on this floor" -- the exact
         # tile you fell on. The stone does not move between runs, so that tile still
@@ -434,6 +423,23 @@ class Level:
             self.monsters = [m for m in self.monsters if (m.x, m.y) != (cx, cy)]
             self.drops = [d for d in self.drops if (d.x, d.y) != (cx, cy)]
             self.chests = [ch for ch in self.chests if (ch.x, ch.y) != (cx, cy)]
+
+    def _generate(self, codex):
+        self._cut_stone(codex)
+
+        # snapshot the persisted ground magicals BEFORE this floor's fresh rolls, so a
+        # weapon rolled THIS life (which _populate records into codex.magical_ground) is
+        # not also replayed as if it were an heirloom.
+        persisted_magicals = dict(codex.magical_ground)
+        persisted_boots = dict(codex.boots_ground)
+        if self.depth >= config.DEPTH_MAX:
+            self._populate_boss()
+        else:
+            self._populate(codex)
+        self._replay_magicals(persisted_magicals)
+        self._replay_magicals(persisted_boots)
+
+        self._place_corpse(codex)
 
     def _replay_magicals(self, persisted):
         """Magical weapons AND boots persist where they lie, across every life -- the
