@@ -7490,6 +7490,44 @@ class TestBootsStealth(unittest.TestCase):
         self.assertFalse(w.region_alerted, "leaving the region drops the alarm")
 
 
+class TestMagicalBootsEconomy(unittest.TestCase):
+    def test_findable_magical_boots_are_the_twelve(self):
+        from .items import FINDABLE_MAGICAL_BOOT_KEYS, BOOTS, is_magical_boot
+        self.assertEqual(len(FINDABLE_MAGICAL_BOOT_KEYS), 12)
+        self.assertEqual(FINDABLE_MAGICAL_BOOT_KEYS,
+                         {k for k, g in BOOTS.items() if g.tier >= 4})
+        for k in FINDABLE_MAGICAL_BOOT_KEYS:
+            self.assertTrue(is_magical_boot(k), "%s is magical (tier 4/5)" % k)
+        self.assertFalse(is_magical_boot("sandals"), "the starter is not magical")
+        self.assertFalse(is_magical_boot("boots_leather"), "ordinary boots are not magical")
+
+    def test_roll_floor_boots_magical_is_rare_deep_and_always_magical(self):
+        import random
+        from .items import roll_floor_boots_magical, FINDABLE_MAGICAL_BOOT_KEYS
+        for depth in range(1, 8):                 # never on floors 1-7
+            for s in range(60):
+                self.assertIsNone(roll_floor_boots_magical(random.Random(s), depth))
+        got = [roll_floor_boots_magical(random.Random(s), 8) for s in range(4000)]
+        present = [k for k in got if k is not None]
+        rate = len(present) / 4000
+        self.assertGreater(rate, 0.10, "present ~14%% at floor 8 (got %.3f)" % rate)
+        self.assertLess(rate, 0.18, "present ~14%% at floor 8 (got %.3f)" % rate)
+        self.assertTrue(all(k in FINDABLE_MAGICAL_BOOT_KEYS for k in present),
+                        "the slot only ever yields a findable magical boot")
+
+    def test_roll_floor_boots_magical_uniqueness_via_exclude(self):
+        import random
+        from .items import roll_floor_boots_magical, FINDABLE_MAGICAL_BOOTS
+        excl_t4 = set(FINDABLE_MAGICAL_BOOTS[4])   # every T4 already generated
+        for s in range(500):
+            k = roll_floor_boots_magical(random.Random(s), 10, exclude=excl_t4)
+            self.assertNotIn(k, excl_t4, "an excluded boot never generates again")
+        every = set(FINDABLE_MAGICAL_BOOTS[4]) | set(FINDABLE_MAGICAL_BOOTS[5])
+        for s in range(500):
+            self.assertIsNone(roll_floor_boots_magical(random.Random(s), 10, exclude=every),
+                              "with every boot generated, the slot is empty")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

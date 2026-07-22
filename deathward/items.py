@@ -436,6 +436,38 @@ def is_magical(key):
     return key in WEAPONS and WEAPONS[key].tier >= 4
 
 
+# The magical boots a floor can DROP -- all 12 are findable (no mini-boss-reserved boots).
+FINDABLE_MAGICAL_BOOTS = {
+    4: ["swift", "soft", "blink", "ironshod", "emberstride", "rimewalkers", "phantom"],
+    5: ["wind", "featherfall", "thor", "slipstep", "whisperstep"],
+}
+FINDABLE_MAGICAL_BOOT_KEYS = set(FINDABLE_MAGICAL_BOOTS[4]) | set(FINDABLE_MAGICAL_BOOTS[5])
+
+
+def is_magical_boot(key):
+    """A magical boot (tier 4 or 5). The single source of truth for the boots ledger."""
+    return key in BOOTS and BOOTS[key].tier >= 4
+
+
+def roll_floor_boots_magical(rng, depth, exclude=()):
+    """The rare magical-boots slot for floors 8-20: at most one magical boot per floor,
+    one-per-game unique. `exclude` (the already-generated boot keys) filters the chosen
+    tier's pool; if that tier is exhausted, none drops. Draws only from (rng, depth, exclude)
+    -- run-history, never the Kodex -- so blind and omniscient runs stay bit-identical.
+    Returns a boot key, or None. Boots carry no enhancement, so there is no bonus."""
+    if depth < 8:
+        return None
+    present = 0.14 if depth <= 11 else 0.12 if depth <= 15 else 0.10
+    if rng.random() >= present:
+        return None
+    t5_share = 0.20 if depth <= 11 else 0.40 if depth <= 15 else 0.65
+    tier = 5 if rng.random() < t5_share else 4
+    pool = [k for k in FINDABLE_MAGICAL_BOOTS[tier] if k not in exclude]
+    if not pool:
+        return None
+    return rng.choice(pool)
+
+
 def roll_magical(rng, depth, exclude=()):
     """The rare magical slot for floors 8-20. `exclude` is the set of magical keys already
     generated this game (absolute uniqueness): the chosen tier is filtered to its still-in-
