@@ -1200,6 +1200,13 @@ def _boots_sprite(key, s, S):
             _poly(s, wing, [(cx - S * 0.18, y), (cx - S * 0.40, y - S * 0.03),
                             (cx - S * 0.16, y + S * 0.045)])
         _line(s, (140, 220, 226), (cx - S * 0.14, S * 0.36), (cx, S * 0.36), S * 0.025)
+    elif key == "featherfall":              # pale sky-blue, floating feathers
+        boot((150, 196, 236), (96, 140, 190))
+        for i in range(3):                  # feathers rising off the heel
+            y = S * (0.30 + i * 0.06)
+            _poly(s, (214, 234, 250), [(cx - S * 0.22, y), (cx - S * 0.40, y - S * 0.02),
+                                       (cx - S * 0.20, y + S * 0.05)])
+        _circ(s, (230, 244, 255), cx + S * 0.10, S * 0.30, S * 0.03)
     elif key == "boots_leather":            # plain brown work boot
         boot((150, 100, 62), (96, 62, 36))
         _line(s, (188, 140, 96), (cx - S * 0.16, S * 0.34),

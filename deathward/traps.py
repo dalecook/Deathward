@@ -65,6 +65,10 @@ class Trap:
     def trigger(self, world, victim):
         """victim is world.player or a Monster. Traps do not care which."""
         is_player = victim is world.player
+        if is_player and world.player.boots.trait == "featherfall":
+            world.log("You drift above the %s -- your feet never touch it." % self.name,
+                      config.MANA)
+            return
         if is_player and self.key in PRESSURE:
             # you never press the plate (soft soles) or you are not on it at all
             # (levitation). either way the pit and the dart wait for someone heavier.

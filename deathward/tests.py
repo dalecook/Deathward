@@ -7247,6 +7247,20 @@ class TestMagicalBoots(unittest.TestCase):
         self.assertEqual(b.name, "Sandals of Mercury")
         self.assertEqual((b.tier, b.speed), (4, 25), "stats unchanged, rename only")
 
+    def test_featherfall_springs_no_trap_of_any_kind(self):
+        from .items import BOOTS
+        from .traps import Trap, TRAP_POOL
+        w = World(FakeSave(), seed=5)
+        w.level.monsters = []
+        w.player.boots = BOOTS["featherfall"]
+        for kind in set(TRAP_POOL):                 # dart, spike, gas, alarm, glyph
+            hp = w.player.hp
+            t = Trap(kind, w.player.x, w.player.y)
+            t.trigger(w, w.player)
+            self.assertEqual(w.player.hp, hp,
+                             "featherfall must not spring the %s" % kind)
+            self.assertFalse(t.sprung, "the %s should not go off" % kind)
+
 
 if __name__ == "__main__":
     pygame.init()
