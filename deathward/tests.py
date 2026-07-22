@@ -7650,6 +7650,51 @@ class TestMagicalBootsEconomy(unittest.TestCase):
         self.assertIn("thor", w.codex.boots_ground, "the displaced magical boot persists")
 
 
+class TestPlayerSerialization(unittest.TestCase):
+    """A player survives a round-trip through a plain dict with every field intact."""
+
+    def test_player_round_trips_through_a_dict(self):
+        import json
+        from .player import Player
+        from .items import ALL_GEAR
+        p = Player()
+        p.x, p.y = 7, 11
+        p.hp, p.max_hp = 13, 20
+        p.gold = 42
+        p.energy = 3
+        p.depth = 5
+        p.kills = 9
+        p.poison = 4
+        p.haste = 2
+        p.berserk = 6
+        p.phoenix = True
+        p.invisible = 3
+        p.frozen = 1
+        p.slipstep_hits = 3
+        p.blade_coat = "weak"
+        p.gift = "a_gift_key"
+        p.enchants = {"plate": 2}
+        p.slots = [["a potion", 3], None, ["a scroll", 1], None, None, None]
+        p.weapon = ALL_GEAR["kris"].copy(bonus=2)
+        p.boots = ALL_GEAR["boots_plate"]
+
+        blob = p.to_dict()
+        json.dumps(blob)                      # must be JSON-safe
+        q = Player.from_dict(blob)
+
+        for k in ("x", "y", "hp", "max_hp", "gold", "energy", "depth", "kills",
+                  "poison", "haste", "berserk", "phoenix", "invisible", "frozen",
+                  "slipstep_hits", "blade_coat", "gift"):
+            self.assertEqual(getattr(q, k), getattr(p, k), k)
+        self.assertEqual(q.weapon.key, "kris")
+        self.assertEqual(q.weapon.bonus, 2)
+        self.assertEqual(q.armour.key, p.armour.key)
+        self.assertEqual(q.boots.key, "boots_plate")
+        self.assertEqual(q.enchants, {"plate": 2})
+        self.assertEqual(q.slots, [["a potion", 3], None,
+                                   ["a scroll", 1], None, None, None])
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

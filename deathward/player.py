@@ -16,7 +16,7 @@
 """The hero. Fragile, ignorant, and extremely persistent."""
 
 from . import config
-from .items import ARMOURS, BOOTS, CONSUMABLES, STARTING, WEAPONS
+from .items import ALL_GEAR, ARMOURS, BOOTS, CONSUMABLES, STARTING, WEAPONS
 
 
 # The lasting effects shown as pips on the hero. Each entry is
@@ -39,6 +39,17 @@ EFFECTS = [
     ("weak",      "weak",      "WEAKENED",  (168, 140, 168)),
     ("confused",  "confused",  "CONFUSED",  (206, 130, 206)),
 ]
+
+
+# Every plain scalar (int / bool / None / str) field that round-trips verbatim
+# through the save. Gear, enchants, and the pack slots are handled specially.
+_PLAYER_STATE = (
+    "x", "y", "max_hp", "hp", "gold", "energy", "depth", "kills",
+    "poison", "stuck", "haste", "might", "stoneskin", "regen", "vigor",
+    "vigor_t", "weak", "berserk", "resist", "levitate", "invisible",
+    "confused", "heroism", "sanctuary", "phoenix", "frozen",
+    "slipstep_hits", "blade_coat", "gift",
+)
 
 
 class Player:
@@ -148,6 +159,30 @@ class Player:
         name = "%s +%d" % (g.name, n) if n else g.name
         desc = g.desc(n) if slot == "armour" else g.desc()
         return name, desc
+
+    # --- serialization --------------------------------------------------
+    def to_dict(self):
+        """A JSON-safe snapshot of everything a suspended run must restore."""
+        d = {k: getattr(self, k) for k in _PLAYER_STATE}
+        d["weapon"] = {"key": self.weapon.key, "bonus": self.weapon.bonus}
+        d["armour"] = self.armour.key
+        d["boots"] = self.boots.key
+        d["enchants"] = dict(self.enchants)
+        d["slots"] = [None if s is None else [s[0], s[1]] for s in self.slots]
+        return d
+
+    @classmethod
+    def from_dict(cls, data):
+        p = cls()
+        for k in _PLAYER_STATE:
+            setattr(p, k, data[k])
+        w = data["weapon"]
+        p.weapon = ALL_GEAR[w["key"]].copy(bonus=w["bonus"])
+        p.armour = ALL_GEAR[data["armour"]]
+        p.boots = ALL_GEAR[data["boots"]]
+        p.enchants = dict(data["enchants"])
+        p.slots = [None if s is None else [s[0], s[1]] for s in data["slots"]]
+        return p
 
     # --- per-turn -------------------------------------------------------
     def tick_effects(self, world):
