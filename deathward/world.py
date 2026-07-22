@@ -34,7 +34,8 @@ import random
 from . import config
 from .codex import CAUSE_NAME, fact_title
 from .dungeon import Chest, Corpse, Drop, Level, Slain
-from .items import ALL_GEAR, CONSUMABLES, is_magical, roll_loot, roll_monster_loot
+from .items import (ALL_GEAR, CONSUMABLES, is_magical, is_magical_boot, roll_loot,
+                     roll_monster_loot)
 from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
 
 MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
@@ -1145,6 +1146,11 @@ class World:
                     self.codex.award_collection()
                     self.log("EVERY BLADE THE DEEP STILL HOLDS is yours. One gold star -- the second still waits on the deep's guardians.",
                              config.GOLD)
+            if is_magical_boot(payload):
+                if self.codex.magical_boot_picked_up(payload):
+                    self.codex.award_boots_collection()
+                    self.log("EVERY STEP THE DEEP STILL HIDES is yours. A gold star of its "
+                             "own, for the feet that walked every hidden path.", config.GOLD)
             name, desc = p.gear_display(g.slot)   # shows any enchant it already carried
             self.log("You put on the %s.  (%s)" % (name, desc), config.ITEM)
 
@@ -1236,6 +1242,11 @@ class World:
         g = BOOTS[key]
         old = self.player.equip(g)          # equip stores the boot and returns the old
         self.codex.see_gear(key)            # you have handled it -> a Kodex entry
+        if is_magical_boot(key):
+            if self.codex.magical_boot_picked_up(key):
+                self.codex.award_boots_collection()
+                self.log("EVERY STEP THE DEEP STILL HIDES is yours. A gold star of its own.",
+                         config.GOLD)
         self.log("[CHEAT] You lace on the %s.  (%s)" % (g.name, g.desc()), config.GOLD)
         self.add_fx("pulse", self.player.x, self.player.y, color=config.GOLD, life=0.6)
         if old:
@@ -1386,7 +1397,8 @@ class World:
         the persistent bare ground instead, and that drop is recorded."""
         p = self.player
         magical = is_magical(gear.key)
-        if sink is not None and hasattr(sink, "loot") and not magical:
+        magical_boot = is_magical_boot(gear.key)
+        if sink is not None and hasattr(sink, "loot") and not (magical or magical_boot):
             sink.loot.append(("gear", gear.key))
             where = ("chest" if isinstance(sink, Chest)
                      else "body" if isinstance(sink, Slain)
@@ -1398,6 +1410,8 @@ class World:
             self.log("You drop the %s at your feet." % gear.name, config.DIM)
             if magical:
                 self.codex.drop_magical_to_ground(gear.key, self.depth, p.x, p.y, bonus)
+            elif magical_boot:
+                self.codex.drop_magical_boot_to_ground(gear.key, self.depth, p.x, p.y)
 
     def use_item(self, index):
         """`index` is a SLOT, 0-5. The number you press is the slot you drink from --

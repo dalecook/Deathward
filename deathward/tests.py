@@ -3348,17 +3348,17 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
         codex = FakeSave()
         w = World(codex, seed=6)
         self._clear(w)
-        w.player.boots = BOOTS["swift"]                     # tier 1
+        w.player.boots = BOOTS["boots_leather"]              # tier 1, ordinary (not magical)
         m = Monster("brute", w.player.x, w.player.y)
         w.level.monsters = [m]
         w.kill_monster(m)
         s = w.level.slain[0]
-        s.loot = [("gear", "wind")]                         # tier 3
+        s.loot = [("gear", "boots_mail")]                   # tier 2, ordinary (not magical)
 
         w.take_option(0)
-        self.assertEqual(w.player.boots.key, "wind")
-        self.assertIn(("gear", "swift"), s.loot,
-                      "the Swift Boots must be left on the body")
+        self.assertEqual(w.player.boots.key, "boots_mail")
+        self.assertIn(("gear", "boots_leather"), s.loot,
+                      "the Leather Boots must be left on the body")
 
     def test_swapping_at_your_own_corpse_leaves_it_on_your_corpse(self):
         from .items import WEAPONS
@@ -7623,6 +7623,31 @@ class TestMagicalBootsEconomy(unittest.TestCase):
         thors = [d for d in w.level.drops if d.kind == "gear" and d.payload == "thor"]
         self.assertEqual(len(thors), 1, "the boot is still on floor 10")
         self.assertEqual((thors[0].x, thors[0].y), (ex, ey), "exactly where it fell")
+
+    def test_picking_a_magical_boot_off_the_floor_collects_it(self):
+        w = World(FakeSave(), seed=3)
+        spot = w.drop_gear_near("whisperstep")     # a magical boot on the floor
+        w.player.x, w.player.y = spot
+        w.take_all()                                # auto-equips over the T0 starter
+        self.assertEqual(w.player.boots.key, "whisperstep")
+        self.assertIn("whisperstep", w.codex.boots_collected, "picking it up collects it")
+
+    def test_boots_bench_collects_and_awards_at_all_twelve(self):
+        from .items import FINDABLE_MAGICAL_BOOT_KEYS
+        w = World(FakeSave(), seed=3)
+        for k in FINDABLE_MAGICAL_BOOT_KEYS:
+            w.cheat_equip_boots(k)                  # the bench collects each
+        self.assertEqual(w.codex.stats.get("magical_boots_collected_all"), 1,
+                         "gathering all 12 fires the gold star")
+        self.assertIn("self.magical_boot_collector", w.codex.known)
+
+    def test_displacing_a_magical_boot_persists_it_to_the_ground(self):
+        from .items import BOOTS
+        w = World(FakeSave(), seed=3)
+        w.player.boots = BOOTS["thor"]              # wearing a magical boot
+        w.cheat_equip_boots("boots_leather")        # bench swaps -> thor drops & persists
+        self.assertEqual(w.player.boots.key, "boots_leather")
+        self.assertIn("thor", w.codex.boots_ground, "the displaced magical boot persists")
 
 
 if __name__ == "__main__":
