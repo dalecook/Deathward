@@ -407,25 +407,32 @@ class Level:
         # dart trap outside the treasury" can mean anything across runs.
         self._install_traps()
 
-    def _place_corpse(self, codex):
+    def _place_corpse(self, codex, evict=True):
         # your own dead, from a previous run
         # Your body is where you left it. Not "somewhere on this floor" -- the exact
         # tile you fell on. The stone does not move between runs, so that tile still
         # means something, and walking back to it is walking back to the place it
         # happened.
+        #
+        # `evict` is False on the RESTORE path: there, the saved monster/drop/chest
+        # lists are AUTHORITATIVE -- a past-run corpse does not block movement, so a
+        # live monster can legitimately be standing on that tile at suspend time, and
+        # clearing it here would silently delete real, saved state. It stays True on
+        # the GENERATE path, where fresh-dealt content must not land on the grave.
         c = codex.corpse_at(self.depth)
         if c:
             cx, cy = c.get("x", 0), c.get("y", 0)
-            if not self.walkable(cx, cy):
+            if evict and not self.walkable(cx, cy):
                 spot = self._free_tile()          # only if the stone changed under it
                 cx, cy = spot if spot else self.entrance
             self.corpse = Corpse(cx, cy, c.get("gold", 0), c.get("weapon"),
                                  c.get("gift"), c.get("loot"),
                                  weapon_bonus=c.get("weapon_bonus", 0))
-            # nothing else may occupy the grave
-            self.monsters = [m for m in self.monsters if (m.x, m.y) != (cx, cy)]
-            self.drops = [d for d in self.drops if (d.x, d.y) != (cx, cy)]
-            self.chests = [ch for ch in self.chests if (ch.x, ch.y) != (cx, cy)]
+            if evict:
+                # nothing else may occupy the grave
+                self.monsters = [m for m in self.monsters if (m.x, m.y) != (cx, cy)]
+                self.drops = [d for d in self.drops if (d.x, d.y) != (cx, cy)]
+                self.chests = [ch for ch in self.chests if (ch.x, ch.y) != (cx, cy)]
 
     def _generate(self, codex):
         self._cut_stone(codex)
@@ -470,7 +477,7 @@ class Level:
                 if (r.cx, r.cy) == (hx, hy):
                     self.hoard = r
                     break
-        self._place_corpse(codex)
+        self._place_corpse(codex, evict=False)
 
     def to_dict(self):
         return {

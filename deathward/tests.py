@@ -7848,6 +7848,70 @@ class TestLevelSerialization(unittest.TestCase):
         self.assertEqual(w.rng.getstate(), before,
                          "restoring a floor must not deal from the run RNG")
 
+    def test_restore_does_not_evict_a_monster_standing_on_the_grave(self):
+        # A past-run corpse does not block movement, so a live monster can
+        # legitimately be standing on that tile when the run is suspended. The
+        # saved monster list is authoritative on restore -- the grave-clearing
+        # eviction in _place_corpse exists only for the FRESH-DEAL path, and
+        # must not also run here and silently delete a real, saved monster.
+        from .world import World
+        from .dungeon import Level, Monster
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        lv = w.level
+
+        # record a corpse on this floor, on the entrance tile (guaranteed
+        # walkable), then stand a monster on that exact tile.
+        gx, gy = lv.entrance
+        codex.write_corpse(lv.depth, gx, gy, 0, None, None, [])
+        sentinel = Monster("rat", gx, gy)
+        lv.monsters.append(sentinel)
+        before_count = len(lv.monsters)
+
+        blob = lv.to_dict()
+        restored = Level(lv.depth, w.rng, codex, restore=blob)
+
+        self.assertEqual(len(restored.monsters), before_count,
+                         "a saved monster standing on a past-run grave must "
+                         "survive restore")
+        self.assertTrue(any(m.key == "rat" and (m.x, m.y) == (gx, gy)
+                            for m in restored.monsters),
+                        "the monster on the grave tile must still be there")
+
+    def test_restore_with_a_corpse_present_does_not_consume_the_run_rng(self):
+        # the _free_tile fallback in _place_corpse draws from the RUN rng --
+        # latent on restore today because the death tile is always walkable in
+        # practice, but the guard must still be in place.
+        from .world import World
+        from .dungeon import Level
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        lv = w.level
+        gx, gy = lv.entrance
+        codex.write_corpse(lv.depth, gx, gy, 0, None, None, [])
+
+        before = w.rng.getstate()
+        Level(lv.depth, w.rng, codex, restore=lv.to_dict())
+        self.assertEqual(w.rng.getstate(), before,
+                         "restoring a floor with a corpse present must not "
+                         "deal from the run RNG")
+
+    def test_restore_relinks_the_hoard_room(self):
+        from .world import World
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        lv = w.level
+        self.assertTrue(lv.rooms)
+        lv.hoard = lv.rooms[-1]
+
+        blob = lv.to_dict()
+        self.assertEqual(blob["hoard"], [lv.hoard.cx, lv.hoard.cy])
+        restored = type(lv)(lv.depth, w.rng, codex, restore=blob)
+
+        self.assertIsNotNone(restored.hoard)
+        self.assertEqual((restored.hoard.cx, restored.hoard.cy),
+                         (lv.hoard.cx, lv.hoard.cy))
+
 
 class TestWorldSerialization(unittest.TestCase):
     """A whole run — position, gear, floor state, and the exact RNG cursor —
