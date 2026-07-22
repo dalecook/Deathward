@@ -97,6 +97,16 @@ class Chest:
         self.loot = list(loot)    # a LIST of ("gold", n) | ("item", f) | ("gear", k)
         self.opened = False
 
+    def to_dict(self):
+        return {"x": self.x, "y": self.y,
+                "loot": [list(t) for t in self.loot], "opened": self.opened}
+
+    @classmethod
+    def from_dict(cls, data):
+        c = cls(data["x"], data["y"], [tuple(t) for t in data["loot"]])
+        c.opened = data["opened"]
+        return c
+
 
 class Drop:
     """An item lying on the floor."""
@@ -107,6 +117,15 @@ class Drop:
         self.payload = payload
         self.gift = gift          # a one-time-per-GAME reward, spent on pickup
         self.bonus = bonus        # a weapon's masterwork/enchant +n, for placed weapons
+
+    def to_dict(self):
+        return {"x": self.x, "y": self.y, "kind": self.kind,
+                "payload": self.payload, "gift": self.gift, "bonus": self.bonus}
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data["x"], data["y"], data["kind"], data["payload"],
+                   gift=data["gift"], bonus=data["bonus"])
 
 
 class Slain:
@@ -131,6 +150,16 @@ class Slain:
     @property
     def has_loot(self):
         return bool(self.loot)
+
+    def to_dict(self):
+        return {"x": self.x, "y": self.y, "key": self.key,
+                "color": list(self.color),
+                "loot": [list(t) for t in self.loot]}
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data["x"], data["y"], data["key"], tuple(data["color"]),
+                   loot=[tuple(t) for t in data["loot"]])
 
 
 class Corpse:

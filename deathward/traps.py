@@ -62,6 +62,15 @@ class Trap:
     def name(self):
         return TRAP_NAMES[self.key]
 
+    def to_dict(self):
+        return {"key": self.key, "x": self.x, "y": self.y, "sprung": self.sprung}
+
+    @classmethod
+    def from_dict(cls, data):
+        t = cls(data["key"], data["x"], data["y"])
+        t.sprung = data["sprung"]
+        return t
+
     def trigger(self, world, victim):
         """victim is world.player or a Monster. Traps do not care which."""
         is_player = victim is world.player

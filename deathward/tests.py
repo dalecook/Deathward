@@ -7743,6 +7743,59 @@ class TestMonsterSerialization(unittest.TestCase):
         self.assertIsNone(n.intent)
 
 
+class TestRecordSerialization(unittest.TestCase):
+    """The small floor records — chests, drops, traps, bodies, the vendor — each
+    survive a round-trip, with their tuple payloads rebuilt as tuples."""
+
+    def test_chest_round_trips(self):
+        import json
+        from .dungeon import Chest
+        c = Chest(4, 5, [("gold", 30), ("gear", "kris")])
+        c.opened = True
+        blob = c.to_dict()
+        json.dumps(blob)
+        d = Chest.from_dict(blob)
+        self.assertEqual((d.x, d.y), (4, 5))
+        self.assertTrue(d.opened)
+        self.assertEqual(d.loot, [("gold", 30), ("gear", "kris")])
+        self.assertIsInstance(d.loot[0], tuple)
+
+    def test_drop_round_trips(self):
+        from .dungeon import Drop
+        d = Drop(2, 3, "gear", "windfang", gift="windfang", bonus=2)
+        e = Drop.from_dict(d.to_dict())
+        self.assertEqual((e.x, e.y, e.kind, e.payload, e.gift, e.bonus),
+                         (2, 3, "gear", "windfang", "windfang", 2))
+
+    def test_trap_round_trips_its_sprung_flag(self):
+        from .traps import Trap
+        t = Trap("dart", 6, 7)
+        t.sprung = True
+        u = Trap.from_dict(t.to_dict())
+        self.assertEqual((u.key, u.x, u.y), ("dart", 6, 7))
+        self.assertTrue(u.sprung)
+
+    def test_slain_round_trips(self):
+        from .dungeon import Slain
+        s = Slain(3, 3, "brute", (200, 40, 40), loot=[("gold", 5)])
+        t = Slain.from_dict(s.to_dict())
+        self.assertEqual((t.x, t.y, t.key), (3, 3, "brute"))
+        self.assertEqual(t.color, (200, 40, 40))
+        self.assertEqual(t.loot, [("gold", 5)])
+
+    def test_vendor_round_trips_without_rerolling_stock(self):
+        import json, random
+        from .vendor import Vendor
+        v = Vendor(8, 9, depth=6, rng=random.Random(1))
+        stock_before = list(v.stock)
+        blob = v.to_dict()
+        json.dumps(blob)
+        w = Vendor.from_dict(blob)
+        self.assertEqual((w.x, w.y, w.depth), (8, 9, 6))
+        self.assertEqual(w.stock, stock_before)
+        self.assertTrue(all(isinstance(s, tuple) for s in w.stock))
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

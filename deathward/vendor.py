@@ -76,3 +76,15 @@ class Vendor:
     def buys(self, flavor):
         """It takes potions and scrolls. Nothing else. Do not offer it your boots."""
         return flavor in CONSUMABLES
+
+    def to_dict(self):
+        return {"x": self.x, "y": self.y, "depth": self.depth,
+                "stock": [list(s) for s in self.stock]}
+
+    @classmethod
+    def from_dict(cls, data):
+        v = cls.__new__(cls)      # bypass __init__: do NOT re-roll the stock
+        v.x, v.y = data["x"], data["y"]
+        v.depth = data["depth"]
+        v.stock = [tuple(s) for s in data["stock"]]
+        return v
