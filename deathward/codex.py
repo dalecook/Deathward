@@ -89,6 +89,11 @@ FACT_LIST = [
        "roster, gathered by one hand across many deaths. One gold star -- and a second "
        "waits for the day you also wrest the two blades the deep's guardians still keep. "
        "There is nothing left down there to find that you have not already held."),
+    _f("self.magical_boot_collector", "self", "secret",
+       "EVERY STEP THE DEEP STILL HIDES",
+       "You have laced on every magical boot this dungeon will yield -- the whole rare "
+       "roster, gathered by one hand across many deaths. A gold star of its own, for the "
+       "feet that have walked every hidden path the deep still keeps."),
     _f("self.the_deep_is_patient", "self", "secret",
        "YOU WAKE, AGAIN",
        "Death is not the end of the descent -- it is how you go on. You wake on the same "
@@ -652,6 +657,8 @@ class Codex:
         self.magical_ground = {}
         self.magical_collected = []
         self.boots_generated = []      # magical-boot keys generated this GAME (uniqueness set)
+        self.boots_ground = {}         # magical boots lying on a floor (re-placed each life)
+        self.boots_collected = []      # magical boots ever picked up (drives the boots award)
         self.gifts = []         # one-time-per-GAME rewards already claimed
         self.gift_item = None   # WHICH gear the gift turned out to be, so we can
                                 # still recognise it after it has been swapped out
@@ -687,6 +694,7 @@ class Codex:
             "steps": 0,
             "deepest_kill": {},
             "magical_collected_all": 0,
+            "magical_boots_collected_all": 0,
         }
 
     # --- persistence ----------------------------------------------------
@@ -720,6 +728,8 @@ class Codex:
         self.magical_ground = data.get("magical_ground", {})
         self.magical_collected = data.get("magical_collected", [])
         self.boots_generated = data.get("boots_generated", [])
+        self.boots_ground = data.get("boots_ground", {})
+        self.boots_collected = data.get("boots_collected", [])
 
         # A save cut by an older dungeon generator remembers a map that no longer
         # matches the walls. Throw the PLACE away and keep the person.
@@ -742,6 +752,8 @@ class Codex:
             "magical_ground": self.magical_ground,
             "magical_collected": self.magical_collected,
             "boots_generated": self.boots_generated,
+            "boots_ground": self.boots_ground,
+            "boots_collected": self.boots_collected,
         }
 
     def save(self):
@@ -838,6 +850,8 @@ class Codex:
         self.magical_ground = {}
         self.magical_collected = []
         self.boots_generated = []
+        self.boots_ground = {}
+        self.boots_collected = []
         self.gifts = []
         self.gift_item = None
 
@@ -925,9 +939,29 @@ class Codex:
 
     def record_magical_boot_placed(self, key, depth, x, y):
         """A magical boot has entered the world (rolled at generation). It never rolls
-        again (uniqueness). (Phase 3 Plan B records its floor position here for death-persistence.)"""
+        again (uniqueness) and lies where it was placed until picked up (persistence)."""
         if key not in self.boots_generated:
             self.boots_generated.append(key)
+        self.boots_ground[key] = {"depth": depth, "x": x, "y": y}
+
+    def drop_magical_boot_to_ground(self, key, depth, x, y):
+        """The hero left a magical boot on the bare floor; it stays there across lives."""
+        if key not in self.boots_generated:
+            self.boots_generated.append(key)
+        self.boots_ground[key] = {"depth": depth, "x": x, "y": y}
+
+    def magical_boot_picked_up(self, key):
+        """The hero has a magical boot on their feet: mark it collected, take it off the
+        ground. Returns True the first time the 12 findable boots are all collected."""
+        from .items import FINDABLE_MAGICAL_BOOT_KEYS
+        self.boots_ground.pop(key, None)
+        if key not in self.boots_generated:
+            self.boots_generated.append(key)
+        was_complete = FINDABLE_MAGICAL_BOOT_KEYS <= set(self.boots_collected)
+        if key not in self.boots_collected:
+            self.boots_collected.append(key)
+        now_complete = FINDABLE_MAGICAL_BOOT_KEYS <= set(self.boots_collected)
+        return now_complete and not was_complete
 
     def drop_magical_to_ground(self, key, depth, x, y, bonus):
         """The hero left a magical on the bare floor; it stays there across lives."""
@@ -1059,6 +1093,13 @@ class Codex:
         if "self.magical_collector" not in self.known:
             self._grant("self.magical_collector")
             self.save()
+
+    def award_boots_collection(self):
+        """Grant the boots collector's Kodex fact once. Permanent (survives a new dungeon);
+        the collected-set that earns it is per-game."""
+        self.stats["magical_boots_collected_all"] = 1
+        if "self.magical_boot_collector" not in self.known:
+            self._grant("self.magical_boot_collector")
 
     def reveal_random(self, rng):
         """A Potion of Insight: learn one whole fact you did not have, for free. Any

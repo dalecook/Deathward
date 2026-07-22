@@ -7569,6 +7569,44 @@ class TestMagicalBootsEconomy(unittest.TestCase):
                              "no magical boots on a shallow floor")
         self.assertTrue(appeared, "magical boots do appear on the deep floors")
 
+    def test_record_grounds_the_boot_and_pickup_takes_it_off(self):
+        c = FakeSave()
+        c.record_magical_boot_placed("whisperstep", 9, 5, 5)
+        self.assertIn("whisperstep", c.boots_generated, "recorded for uniqueness")
+        self.assertEqual(c.boots_ground["whisperstep"], {"depth": 9, "x": 5, "y": 5},
+                         "and on the ground for persistence")
+        c.magical_boot_picked_up("whisperstep")
+        self.assertNotIn("whisperstep", c.boots_ground, "picked up -> off the ground")
+        self.assertIn("whisperstep", c.boots_collected, "and into the collected set")
+
+    def test_dropping_a_magical_boot_persists_it(self):
+        c = FakeSave()
+        c.drop_magical_boot_to_ground("thor", 12, 3, 4)
+        self.assertIn("thor", c.boots_generated)
+        self.assertEqual(c.boots_ground["thor"], {"depth": 12, "x": 3, "y": 4})
+
+    def test_collecting_all_twelve_awards_the_gold_star_once(self):
+        from .items import FINDABLE_MAGICAL_BOOT_KEYS
+        c = FakeSave()
+        results = [c.magical_boot_picked_up(k) for k in FINDABLE_MAGICAL_BOOT_KEYS]
+        self.assertEqual(sum(results), 1, "exactly one pickup completes the set")
+        c.award_boots_collection()
+        self.assertEqual(c.stats.get("magical_boots_collected_all"), 1, "the gold star")
+        self.assertIn("self.magical_boot_collector", c.known, "the Kodex fact")
+        c.award_boots_collection()   # idempotent
+        self.assertEqual(c.known.count("self.magical_boot_collector"), 1)
+
+    def test_boots_persistence_ledgers_round_trip_and_reset(self):
+        c = FakeSave()
+        c.record_magical_boot_placed("wind", 10, 2, 2)
+        c.magical_boot_picked_up("wind")
+        d = c._save_dict()
+        self.assertEqual(d["boots_ground"], c.boots_ground)
+        self.assertIn("wind", d["boots_collected"])
+        c.new_dungeon()
+        self.assertEqual(c.boots_ground, {})
+        self.assertEqual(c.boots_collected, [])
+
 
 if __name__ == "__main__":
     pygame.init()
