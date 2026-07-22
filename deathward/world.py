@@ -321,15 +321,17 @@ class World:
         return None
 
     def _update_stealth_alert(self):
-        """Maintain the room-alert latch. On entering a new region the alarm is off; while
-        the player is in a region, any awake monster IN that region raises it (and it stays
-        raised until the player leaves the region). Cheap, deterministic -- no RNG, no Kodex."""
+        """Maintain the room-alert latch. On entering a new region the alarm is off; it goes
+        up the moment a monster IN that region can actually SEE the player -- so a still-
+        oblivious patroller (an awake orc that has not laid eyes on you) does not blow your
+        cover just by being awake -- and it stays up until the player leaves the region.
+        Cheap, deterministic -- no RNG, no Kodex."""
         region = self.region_of(self.player.x, self.player.y)
         if region is not self.player_region:
             self.player_region = region
             self.region_alerted = False
         if not self.region_alerted and any(
-                m.awake and self.region_of(m.x, m.y) is region
+                self.region_of(m.x, m.y) is region and self.monster_can_see_player(m)
                 for m in self.level.monsters):
             self.region_alerted = True
 

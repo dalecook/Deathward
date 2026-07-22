@@ -7420,36 +7420,53 @@ class TestBootsStealth(unittest.TestCase):
         w = World(FakeSave(), seed=3)
         room = w.level.rooms[0]
         self.assertIs(w.region_of(room.cx, room.cy), room, "a room tile -> that Room")
-        # a monster in the same room shares the region; the corridors are one region (None)
-        self.assertIs(w.region_of(room.cx, room.cy), w.region_of(room.x, room.y))
+        self.assertIs(w.region_of(room.cx, room.cy), w.region_of(room.x, room.y),
+                      "two tiles in the same room share the region")
+        # the corridors are the single None region (Option A)
+        corridor = None
+        for yy in range(w.level.h):
+            for xx in range(w.level.w):
+                if w.walkable(xx, yy) and w.region_of(xx, yy) is None:
+                    corridor = (xx, yy)
+                    break
+            if corridor:
+                break
+        self.assertIsNotNone(corridor, "the map has corridors")
+        self.assertIsNone(w.region_of(*corridor), "a corridor tile -> the None region")
 
-    def test_a_waking_monster_in_your_region_raises_the_alarm(self):
+    def test_a_monster_that_can_see_you_raises_the_alarm(self):
         from .items import BOOTS
         from .monsters import Monster
         w = World(FakeSave(), seed=3)
-        w.player.boots = BOOTS["whisperstep"]         # wake radius 2
+        w.player.boots = BOOTS["whisperstep"]          # wake radius 2
         room = w.level.rooms[0]
         w.player.x, w.player.y = room.cx, room.cy
-        m = Monster("rat", room.cx, room.cy)          # same region, and it has spotted you
-        m.awake = True
+        m = Monster("rat", room.cx, room.cy)           # same region, within the wake radius
         w.level.monsters = [m]
+        w.level.visible[m.y][m.x] = True               # the player can see it -> it sees you
         w._update_stealth_alert()
-        self.assertTrue(w.region_alerted, "an awake monster in your region raises the alarm")
+        self.assertTrue(w.region_alerted, "a monster that can see you raises the alarm")
         self.assertEqual(w.player_wake_radius(), config.MONSTER_SIGHT,
                          "alerted -> stealth is off, monsters wake at the normal range")
 
-    def test_a_sleeping_region_keeps_you_hidden(self):
+    def test_an_awake_patroller_that_cannot_see_you_keeps_your_cover(self):
+        # THE FIX: an awake monster (e.g. a patrolling orc) that has NOT actually spotted you
+        # -- its tile is out of your view, so it cannot see you -- must not blow your cover
+        # merely by being awake.
         from .items import BOOTS
         from .monsters import Monster
         w = World(FakeSave(), seed=3)
         w.player.boots = BOOTS["whisperstep"]
         room = w.level.rooms[0]
         w.player.x, w.player.y = room.cx, room.cy
-        m = Monster("rat", room.cx, room.cy); m.awake = False
+        m = Monster("orc", room.cx, room.cy)           # same region, and wide awake
+        m.awake = True
         w.level.monsters = [m]
+        w.level.visible[m.y][m.x] = False              # but you cannot see it -> it cannot see you
         w._update_stealth_alert()
-        self.assertFalse(w.region_alerted)
-        self.assertEqual(w.player_wake_radius(), 2, "no alarm -> your stealth radius holds")
+        self.assertFalse(w.region_alerted,
+                         "an awake patroller that has not spotted you keeps your cover")
+        self.assertEqual(w.player_wake_radius(), 2, "your stealth radius still holds")
 
     def test_leaving_the_alerted_region_clears_the_alarm(self):
         from .items import BOOTS
