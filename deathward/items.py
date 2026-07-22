@@ -401,10 +401,9 @@ def roll_consumable(rng, depth, kind):
 
 
 def gear_pool(depth):
-    """Armour and MAGICAL boots that the generic loot tables and the vendor may surface at a
-    given depth. Weapons and ORDINARY boots are NOT here -- both are placed once at floor
-    generation (roll_floor_weapons / roll_floor_boots), scarce and one-per-floor. Armour keeps
-    its tier 1/2/3 shallow gates; magical boots (tier 4-5) surface only on floor 8+."""
+    """Armour that the generic loot tables and the vendor may surface at a given depth.
+    Weapons and ALL boots are placed at generation (roll_floor_weapons / roll_floor_boots /
+    roll_floor_boots_magical), scarce and one-per-floor -- none come from this pool."""
     pool = []
     for key, g in ARMOURS.items():
         if g.tier == 1 and depth >= 1:
@@ -412,9 +411,6 @@ def gear_pool(depth):
         elif g.tier == 2 and depth >= 3:
             pool.append(key)
         elif g.tier == 3 and depth >= 5:
-            pool.append(key)
-    for key, g in BOOTS.items():
-        if g.tier >= 4 and depth >= 8:       # magical boots only; ordinary boots are found-only
             pool.append(key)
     return pool
 

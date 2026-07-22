@@ -7076,24 +7076,17 @@ class TestBootsRebalance(unittest.TestCase):
         self.assertEqual(BOOTS["soft"].wake_radius, 4, "Padded Soles are now a stealth boot")
         self.assertEqual(BOOTS["ironshod"].trait, "kick")
 
-    def test_gear_pool_excludes_ordinary_boots_and_still_gates_magical(self):
-        from .items import gear_pool
-        ordinary = {"boots_leather", "boots_mail", "boots_plate"}
-        magical = {"swift", "blink", "soft", "ironshod", "wind"}
+    def test_gear_pool_holds_no_boots_at_all_only_armour(self):
+        from .items import gear_pool, BOOTS
+        all_boots = set(BOOTS)
         for depth in range(1, 21):
             pool = set(gear_pool(depth))
-            self.assertFalse(pool & ordinary,
-                             "ordinary boots are found-only, never in gear_pool "
+            self.assertFalse(pool & all_boots,
+                             "no boots in gear_pool -- every boot is generation-placed "
                              "(floor %d)" % depth)
-        # magical boots: still absent shallow, present deep (Plan 1 behaviour, unchanged)
-        for depth in (1, 3, 5, 7):
-            self.assertFalse(set(gear_pool(depth)) & magical,
-                             "no magical boots on floor %d" % depth)
-        self.assertTrue(set(gear_pool(8)) & magical, "magical boots reachable on floor 8")
-        self.assertIn("wind", gear_pool(10))
-        # armour is untouched -- the pool is not empty, and the Leather Jerkin (armour,
-        # key 'leather') is still there, distinct from the boot key 'boots_leather'
+        # armour is untouched -- the Leather Jerkin (key 'leather') is armour, not a boot
         self.assertIn("leather", gear_pool(1))
+        self.assertIn("plate", gear_pool(5))
 
     def test_roll_floor_boots_never_on_floor_one_or_past_fifteen(self):
         import random
