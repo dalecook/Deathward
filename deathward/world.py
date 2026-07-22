@@ -590,6 +590,10 @@ class World:
         nx, ny = m.x + dx, m.y + dy
         if self.walkable(nx, ny) and not self.monster_at(nx, ny):
             m.x, m.y = nx, ny
+            # shoved off its footing: a telegraphed wind-up (brute/golem smash, spitter
+            # spit, beholder gaze) is spoiled -- it cannot land the blow it planted from a
+            # tile it no longer stands on.
+            m.intent = None
             self.on_monster_moved(m)
 
     def _void_immune(self, m):

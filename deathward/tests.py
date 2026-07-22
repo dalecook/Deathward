@@ -7366,6 +7366,30 @@ class TestMagicalBoots(unittest.TestCase):
         self.assertTrue(all(len(p) <= 9 for p in g.weapon_pages),
                         "each page still fits the 1-9 digit keys")
 
+    def test_knockback_interrupts_a_wound_up_smash(self):
+        from .items import BOOTS
+        from .monsters import Monster
+        from .dungeon import FLOOR
+        w = World(FakeSave(), seed=7)
+        w.level.monsters = []
+        w.player.boots = BOOTS["ironshod"]              # knockback on the primary target
+        px, py = w.player.x, w.player.y
+        for dy in range(-2, 3):                          # open room so the brute can be shoved
+            for dx in range(-2, 3):
+                w.level.grid[py + dy][px + dx] = FLOOR
+        brute = Monster("brute", px + 1, py)
+        brute.hp = brute.max_hp = 999
+        brute.awake = True
+        brute.intent = ("smash", px, py)                # wound up, aimed at your tile
+        w.level.monsters = [brute]
+        w.player_attack(brute)                           # Ironshod shoves it back
+        self.assertNotEqual((brute.x, brute.y), (px + 1, py), "the brute was pushed back")
+        self.assertIsNone(brute.intent, "being shoved mid-wind-up spoils the smash")
+        hp = w.player.hp
+        brute.take_turn(w)                               # its next turn lands no blow
+        self.assertEqual(w.player.hp, hp,
+                         "the interrupted brute cannot smash the tile you never left")
+
 
 if __name__ == "__main__":
     pygame.init()
