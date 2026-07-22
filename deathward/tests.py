@@ -7327,6 +7327,26 @@ class TestMagicalBoots(unittest.TestCase):
         w.hurt_player(4, "dart")                     # a non-fire source still bites
         self.assertLess(w.player.hp, hp, "only fire is warded, not everything")
 
+    def test_phantom_dodges_about_a_quarter_of_blows(self):
+        from .items import BOOTS, ARMOURS
+        from .monsters import Monster
+        w = World(FakeSave(), seed=15)
+        w.level.monsters = []
+        w.player.boots = BOOTS["phantom"]
+        w.player.armour = ARMOURS["rags"]            # 0 def, so any negation is a dodge
+        m = Monster("rat", w.player.x, w.player.y)
+        landed = 0
+        trials = 3000
+        for _ in range(trials):
+            before = w.player.hp
+            w.monster_attacks_player(m, 3)
+            if w.player.hp < before:
+                landed += 1
+            w.player.hp = 50                         # keep the player alive across trials
+        rate = landed / trials
+        self.assertGreater(rate, 0.68, "≈75%% of blows land (got %.3f)" % rate)
+        self.assertLess(rate, 0.82, "≈75%% of blows land (got %.3f)" % rate)
+
 
 if __name__ == "__main__":
     pygame.init()

@@ -1258,6 +1258,12 @@ def _boots_sprite(key, s, S):
         for i in range(3):                  # trailing streak behind the heel
             x = cx - S * (0.24 + i * 0.06)
             _line(s, ghost, (x, S * 0.40), (x, S * 0.70), S * 0.02)
+    elif key == "phantom":                  # faded grey, a shifted ghost double
+        boot((170, 175, 190), (120, 124, 140))
+        ghost = (206, 210, 224)
+        _poly(s, ghost, [(cx - S * 0.14, S * 0.24), (cx + S * 0.10, S * 0.24),
+                         (cx + S * 0.10, S * 0.62), (cx + S * 0.36, S * 0.62),
+                         (cx + S * 0.36, S * 0.78), (cx - S * 0.14, S * 0.78)])
 
 
 _GEAR_DRAW = {"weapon": _weapon_sprite, "armour": _armour_sprite, "boots": _boots_sprite}

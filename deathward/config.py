@@ -117,6 +117,7 @@ FREEZE_TURNS        = 1           # a freeze is one player turn of the stun syst
 
 SLIPSTEP_HIT_CADENCE = 4          # every Nth damaging hit taken triggers the escape
 SLIPSTEP_BLINK_DIST  = 2          # chebyshev tiles the escape leaps
+PHANTOM_DODGE_CHANCE = 0.25       # Phantom Boots: chance to sidestep an incoming blow
 FEAR_CHANCE         = 0.25        # Reaper's Whisper: chance to rout on hit
 FEAR_TURNS          = 6           # turns a frightened thing flees
 

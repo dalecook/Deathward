@@ -681,6 +681,11 @@ class World:
                      self._mname(m), config.MANA)
             self.add_fx("impact", p.x, p.y, color=(150, 210, 255), radius=0.7, life=0.3)
             return
+        if p.boots.trait == "phantom" and self.rng.random() < config.PHANTOM_DODGE_CHANCE:
+            self.log("The %s strikes -- and you are not quite there." % self._mname(m),
+                     config.DIM)
+            self.add_fx("impact", p.x, p.y, color=(200, 204, 220), radius=0.6, life=0.25)
+            return
         raw = dmg
         if not ignore_armour:
             dmg = max(0, dmg - p.defense)

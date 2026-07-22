@@ -195,6 +195,8 @@ BOOTS = {
                       "every blow scatters all that stands near you"),
     "slipstep": Boots("slipstep", "Slipstep", 5, 10, "slipstep",
                       "every fourth wound flings you clear and staggers the striker"),
+    "phantom":  Boots("phantom", "Phantom Boots", 4, 0, "phantom",
+                      "sometimes the blow finds only the ghost of you"),
 }
 
 ALL_GEAR = {}
