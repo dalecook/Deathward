@@ -651,6 +651,7 @@ class Codex:
         self.magical_generated = []
         self.magical_ground = {}
         self.magical_collected = []
+        self.boots_generated = []      # magical-boot keys generated this GAME (uniqueness set)
         self.gifts = []         # one-time-per-GAME rewards already claimed
         self.gift_item = None   # WHICH gear the gift turned out to be, so we can
                                 # still recognise it after it has been swapped out
@@ -718,6 +719,7 @@ class Codex:
         self.magical_generated = data.get("magical_generated", [])
         self.magical_ground = data.get("magical_ground", {})
         self.magical_collected = data.get("magical_collected", [])
+        self.boots_generated = data.get("boots_generated", [])
 
         # A save cut by an older dungeon generator remembers a map that no longer
         # matches the walls. Throw the PLACE away and keep the person.
@@ -739,6 +741,7 @@ class Codex:
             "magical_generated": self.magical_generated,
             "magical_ground": self.magical_ground,
             "magical_collected": self.magical_collected,
+            "boots_generated": self.boots_generated,
         }
 
     def save(self):
@@ -834,6 +837,7 @@ class Codex:
         self.magical_generated = []
         self.magical_ground = {}
         self.magical_collected = []
+        self.boots_generated = []
         self.gifts = []
         self.gift_item = None
 
@@ -918,6 +922,12 @@ class Codex:
         if key not in self.magical_generated:
             self.magical_generated.append(key)
         self.magical_ground[key] = {"depth": depth, "x": x, "y": y, "bonus": bonus}
+
+    def record_magical_boot_placed(self, key, depth, x, y):
+        """A magical boot has entered the world (rolled at generation). It never rolls
+        again (uniqueness). (Phase 3 Plan B records its floor position here for death-persistence.)"""
+        if key not in self.boots_generated:
+            self.boots_generated.append(key)
 
     def drop_magical_to_ground(self, key, depth, x, y, bonus):
         """The hero left a magical on the bare floor; it stays there across lives."""

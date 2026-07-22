@@ -7520,6 +7520,19 @@ class TestMagicalBootsEconomy(unittest.TestCase):
             self.assertIsNone(roll_floor_boots_magical(random.Random(s), 10, exclude=every),
                               "with every boot generated, the slot is empty")
 
+    def test_boots_generated_ledger_records_uniquely_and_persists(self):
+        c = FakeSave()
+        self.assertEqual(c.boots_generated, [])
+        c.record_magical_boot_placed("whisperstep", 9, 5, 5)
+        c.record_magical_boot_placed("whisperstep", 9, 5, 5)   # idempotent -- no duplicate
+        c.record_magical_boot_placed("thor", 12, 3, 3)
+        self.assertEqual(set(c.boots_generated), {"whisperstep", "thor"})
+        self.assertEqual(len(c.boots_generated), 2, "no duplicate keys")
+        self.assertEqual(set(c._save_dict()["boots_generated"]), {"whisperstep", "thor"},
+                         "the ledger persists in the save")
+        c.new_dungeon()
+        self.assertEqual(c.boots_generated, [], "a new game clears it")
+
 
 if __name__ == "__main__":
     pygame.init()
