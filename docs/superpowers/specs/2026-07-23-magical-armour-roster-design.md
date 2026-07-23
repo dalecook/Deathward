@@ -39,7 +39,7 @@ magical tier is where distinct survival powers should live.
   generation-placed path the ordinary tier uses, ungated by rarity.
 - **Ordinary armour, weapons, boots** — untouched (except the shared per-instance bonus model,
   already merged, which magical armour inherits: found unenhanced, DWEN-enchantable).
-- **Building the mini-bosses.** Two pieces (Wraithplate, Nightcloak) are *reserved* for the
+- **Building the mini-bosses.** Two pieces (Shademail, Nightcloak) are *reserved* for the
   floor-8 and floor-15 mini-bosses exactly as Windfang and the Void Scimitar are: defined and
   cheat-reachable now, excluded from floor drops, their actual drop wired by the future
   mini-boss task ([[add-minibosses-floors-8-15]]).
@@ -72,14 +72,14 @@ punch up.
 | `cinder` | Cinderplate | +3 | −5 | an attacker **burns 2 turns** (higher dmg); 3-turn recharge |
 | `glacial` | Glacial Mail | +3 | −5 | an attacker is **frozen** (as Winter's Edge); 3-turn recharge |
 | `fade` | Fadecloak | +2 | **+10** | every **4th** hit taken: you vanish 2 turns, all aggroed monsters de-aggro, and any that had not yet attacked lose their windups |
-| `verdant` | Verdant Mail | +3 | −5 | knits **1 hp** every few turns while worn |
+| `lifeweave` | Lifeweaver | +3 | −5 | knits **2 hp** every turn while worn |
 
 **T5 — unbound survival (found, floors 8+)**
 
 | key | Name | Def | Spd | Effect |
 |---|---|---|---|---|
-| `bulwark` | Bulwark Plate | +4 | −15 | **caps any single hit** at N damage — the boss/big-hit answer to flat def's swarm answer |
-| `lastbreath` | Last Breath | +4 | −10 | **refuses one killing blow per life** — you survive at 1 hp, then it is spent |
+| `bastion` | Bastion | +4 | −15 | **caps any single hit** at N damage — the boss/big-hit answer to flat def's swarm answer |
+| `lastbreath` | Last Breath | +4 | −10 | **refuses one killing blow per life** — you survive at 1 hp **and are untouchable for 1 turn** (a mob can't finish you the same beat), then it is spent |
 | `blinding` | Blinding Light | +3 | −5 | on struck: **stun every monster** within 2 tiles and wipe their windups; 4-turn recharge |
 | `stonegolem` | Stone Golem's Chest | +5 | 0 | **pure defense, no speed cost** — the tank pick, for players who want no gimmick |
 | `hades` | Robe of Hades | +3 | 0 | on struck: a **firestorm that spares you**, burning everything near you; 4-turn recharge |
@@ -88,7 +88,7 @@ punch up.
 
 | key | Name | Tier | Def | Spd | Effect | Boss |
 |---|---|---|---|---|---|---|
-| `phase` | Wraithplate | T4 | +3 | 0 | **walk into walls** (never off the map); 5-turn cooldown after you leave the stone | floor 8 |
+| `shade` | Shademail | T4 | +3 | 0 | **walk into walls** (never off the map); 5-turn cooldown after you leave the stone | floor 8 |
 | `nightcloak` | Nightcloak | T5 | +3 | 0 | **permanent invisibility** — breaks when you attack, re-cloaks a set number of turns after your last strike | floor 15 |
 
 ### Mechanics
@@ -120,18 +120,20 @@ Given its own identity here: **+2 def / +10 spd** — the only magical armour th
 (wraith-cloth is light and fast), so it's an appealing light-and-mobile option whose real
 value is the situational immunity.
 
-**4. Bulwark — Bulwark Plate (T5).** In the incoming-damage path (world.py:788, `dmg = max(0,
+**4. Bastion — the hit-cap (T5).** In the incoming-damage path (world.py:788, `dmg = max(0,
 dmg - p.defense)`), also clamp the post-reduction hit to a **cap N**. Flat def thins a swarm;
 the cap answers the single big hit (a brute, a boss). No RNG.
 
 **5. Last Breath (T5).** Mirrors the **phoenix** death-refusal already in `kill_player`
 (world.py:851–861, `p.phoenix`): once per life the fatal blow is refused and the wearer is left
-at 1 hp; a spent-flag on the player marks it used until the next life. Distinct from the
-Phoenix potion (which is a consumable, not a worn slot).
+at 1 hp **and untouchable for 1 turn** — reuse `p.sanctuary` (the Scroll of Sanctuary's
+"nothing can lay a blow on you"), so a mob can't finish the job the same beat; a spent-flag on
+the player marks it used until the next life. Distinct from the Phoenix potion (which is a
+consumable, not a worn slot).
 
-**6. Verdant Mail — regen (T4).** A passive heal-while-worn: **1 hp every few turns**, ticked in
-the per-turn advance (near `tick_effects`, player.py:188 / world.py). Distinct from the
-Regeneration potion's timed burst — this is slow and permanent while worn.
+**6. Lifeweaver — regen (T4).** A passive heal-while-worn: **2 hp every turn**, ticked in the
+per-turn advance (near `tick_effects`, player.py:188 / world.py). Distinct from the
+Regeneration potion's timed burst — this is constant and permanent while worn.
 
 **7. Robe of Hades + the Firestorm scroll fix.** The VORN scroll effect today (world.py:1655)
 burns every visible monster **and the caster** (line 1670, `hurt_player(2–5, "glyph")`). That
@@ -153,7 +155,7 @@ any that had not yet landed a blow (windup-wipe). Reuses `player.invisible` (wor
 (turn-tuned, deterministic — no aggro-set tracking). Reuses the invisibility path. Its drop is
 reserved for the floor-15 mini-boss; until then it is cheat-only and excluded from floor drops.
 
-**10. Wraithplate — wall-walk (T4, boss-reserved).** The wearer may step **onto wall (stone)
+**10. Shademail — wall-walk (T4, boss-reserved).** The wearer may step **onto wall (stone)
 tiles**, but never off the map / into the void — `walkable()` (or the player-move check) treats
 in-bounds stone as passable for the wearer. Monsters cannot follow into stone (except wraiths,
 who already move through walls). A **5-turn cooldown** starts when the wearer **leaves** the
@@ -165,8 +167,8 @@ immediate surroundings. Its drop is reserved for the floor-8 mini-boss; cheat-on
 `Armour` (items.py) carries `key, name, tier, defense, speed_mod, trait, note, bonus`. The new
 identities need a few parameters the single `trait` string can't hold — the **retaliation
 element + on-hit magnitude + recharge**, the **Fadecloak hit cadence + invis duration**, the
-**Bulwark cap N**, the **Verdant regen cadence**, the **Blinding/Robe radius + recharge**, the
-**Nightcloak re-cloak delay**, the **Wraithplate cooldown**. These become either fields on
+**Bastion's cap N**, the **Lifeweaver regen amount**, the **Blinding/Robe radius + recharge**, the
+**Nightcloak re-cloak delay**, the **Shademail cooldown**. These become either fields on
 `Armour` or **config constants keyed by the identity** (as the boots roster did); the
 implementation plan settles the exact shape. Parameterless identities (thorns, wraithsilk,
 last-breath, stone-golem, wall-walk) stay a `trait` flag. The one-armour-at-a-time invariant
@@ -181,7 +183,7 @@ means the reactive *runtime* state lives on the Player as a couple of scalars, s
   `scale`/`chain` sprite branches left by Plan A can be repurposed).
 - **Distribution:** magical armour joins the `FINDABLE_MAGICAL_*` pattern the weapons/boots use
   — a `FINDABLE_MAGICAL_ARMOUR` set (the 12 non-boss pieces) placed on floors 8+ via the
-  generation path; Wraithplate/Nightcloak are **excluded** (boss-reserved), like Windfang/Void.
+  generation path; Shademail/Nightcloak are **excluded** (boss-reserved), like Windfang/Void.
 
 ## Surfaces touched
 
@@ -190,11 +192,11 @@ means the reactive *runtime* state lives on the Player as a couple of scalars, s
 - **`world.py`** — retaliation + capstones in the on-struck path; Bulwark cap in the damage
   calc; Last Breath in `kill_player`; the shared spares-the-caster firestorm (Robe + VORN fix);
   Fadecloak reactive invis + de-aggro + windup-wipe; Nightcloak continuous invis + re-cloak;
-  Wraithplate wall passability + cooldown.
+  Shademail wall passability + cooldown.
 - **`monsters.py`** — reactivate the dormant wraithsilk immunity branch; confirm de-aggro and
   monster pathing respect wall-walk.
 - **`player.py`** — the reactive armour state (cooldown, hit counter, last-stand flag, wall-walk
-  cooldown) + serialization; the Verdant regen tick; freeze/immunity plumbing as needed.
+  cooldown) + serialization; the Lifeweaver regen tick; freeze/immunity plumbing as needed.
 - **`config.py`** — constants for recharges, radii, caps, regen cadence, re-cloak delay.
 - **`sprites.py`** — a distinct sprite per new magical armour.
 - **`tests.py`** — per-mechanic tests; the Firestorm-no-self-burn test; determinism/bit-identical
@@ -207,11 +209,11 @@ Too large for one plan. Proposed phases, each shippable and testable:
 1. **Roster + reused-mechanic pieces + the Firestorm fix.** The `ARMOURS` table, the
    parameter-carrying data model, sprites, distribution (`FINDABLE_MAGICAL_ARMOUR`, floor-8+
    roll), and every identity that reuses existing systems — thorns, wraithsilk, the retaliation
-   trio, Verdant regen, Bulwark cap, Last Breath (phoenix pattern), Blinding Light, Robe of
+   trio, Lifeweaver regen, Bastion's cap, Last Breath (phoenix pattern), Blinding Light, Robe of
    Hades + the VORN self-burn fix.
 2. **The novel subsystems.** Invisibility (Fadecloak reactive + Nightcloak continuous) and
-   wall-walk (Wraithplate) — the higher-risk pieces touching aggro/FOV/pathing. Its own plan.
-   Nightcloak/Wraithplate ship cheat-reachable + boss-reserved (drop wiring deferred to the
+   wall-walk (Shademail) — the higher-risk pieces touching aggro/FOV/pathing. Its own plan.
+   Nightcloak/Shademail ship cheat-reachable + boss-reserved (drop wiring deferred to the
    mini-boss task).
 3. **Deep economy (Plan C, later).** Rarity, one-per-game uniqueness, death-persistence, a
    collection gold star — mirroring the boots economy.
@@ -221,6 +223,6 @@ Too large for one plan. Proposed phases, each shippable and testable:
 - All defense/speed numbers, esp. Stone Golem's Chest (+5/0) and the two +10-speed cloths.
 - Retaliation recharge (3 turns) and the fire-vs-poison damage/duration split; capstone recharge
   (4 turns) and Blinding radius (2).
-- Bulwark cap N; Verdant regen cadence; Last Breath at exactly one refusal/life.
+- Bastion's cap N; Lifeweaver regen (2 hp/turn); Last Breath's 1-turn untouchable window.
 - Fadecloak cadence (every 4th) and invis duration (2); Nightcloak re-cloak delay.
-- Wraithplate cooldown (5) and whether FOV inside stone reveals anything beyond the adjacent.
+- Shademail cooldown (5) and whether FOV inside stone reveals anything beyond the adjacent.
