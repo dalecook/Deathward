@@ -7776,7 +7776,7 @@ class TestPlayerSerialization(unittest.TestCase):
         p.slipstep_hits = 3
         p.blade_coat = "weak"
         p.gift = "a_gift_key"
-        p.enchants = {"plate": 2}
+        p.armour = ALL_GEAR["plate"].copy(bonus=2)
         p.slots = [["a potion", 3], None, ["a scroll", 1], None, None, None]
         p.weapon = ALL_GEAR["kris"].copy(bonus=2)
         p.boots = ALL_GEAR["boots_plate"]
@@ -7791,11 +7791,30 @@ class TestPlayerSerialization(unittest.TestCase):
             self.assertEqual(getattr(q, k), getattr(p, k), k)
         self.assertEqual(q.weapon.key, "kris")
         self.assertEqual(q.weapon.bonus, 2)
-        self.assertEqual(q.armour.key, p.armour.key)
+        self.assertEqual(q.armour.key, "plate")
+        self.assertEqual(q.armour.bonus, 2)
         self.assertEqual(q.boots.key, "boots_plate")
-        self.assertEqual(q.enchants, {"plate": 2})
         self.assertEqual(q.slots, [["a potion", 3], None,
                                    ["a scroll", 1], None, None, None])
+
+
+class TestArmourBonusModel(unittest.TestCase):
+    def test_defense_reads_the_per_instance_armour_bonus(self):
+        from .items import ALL_GEAR
+        from .player import Player
+        p = Player()
+        p.armour = ALL_GEAR["plate"].copy(bonus=2)     # Full Plate +2
+        self.assertEqual(p.defense, ALL_GEAR["plate"].defense + 2)
+
+    def test_enchant_armour_scroll_raises_the_bonus(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.player.armour = ALL_GEAR["plate"].copy()      # +0
+        before = w.player.defense
+        w._apply_effect("enchant_armour")
+        self.assertEqual(w.player.armour.bonus, 1)
+        self.assertEqual(w.player.defense, before + 1)
 
 
 class TestMonsterSerialization(unittest.TestCase):

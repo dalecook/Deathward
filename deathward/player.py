@@ -42,7 +42,7 @@ EFFECTS = [
 
 
 # Every plain scalar (int / bool / None / str) field that round-trips verbatim
-# through the save. Gear, enchants, and the pack slots are handled specially.
+# through the save. Gear and the pack slots are handled specially.
 _PLAYER_STATE = (
     "x", "y", "max_hp", "hp", "gold", "energy", "depth", "kills",
     "poison", "stuck", "haste", "might", "stoneskin", "regen", "vigor",
@@ -62,7 +62,7 @@ class Player:
         # ticks and the dungeon gets a free swing before you have taken a step.
         self.energy = config.ACT_COST
         self.weapon = WEAPONS[STARTING[0]].copy()
-        self.armour = ARMOURS[STARTING[1]]
+        self.armour = ARMOURS[STARTING[1]].copy()
         self.boots = BOOTS[STARTING[2]]
         # six slots; each is None or [flavor, count] with count <= STACK_MAX
         self.slots = [None] * config.PACK_SLOTS
@@ -83,7 +83,6 @@ class Player:
         self.heroism = 0          # turns of the hero's draught: harder, faster, tougher
         self.sanctuary = 0        # turns nothing can lay a blow on you
         self.phoenix = False      # a Phoenix draught: the next death is refused, once
-        self.enchants = {}        # gear-key -> permanent +bonus (enchant scrolls)
         self.frozen = 0           # beholder: turns you cannot act while the world does
         self.slipstep_hits = 0    # Slipstep boots: damaging hits taken, for the every-4th escape
         # a NEGATIVE potion, once identified, is not swallowed -- it is wiped down the
@@ -113,8 +112,7 @@ class Player:
 
     @property
     def defense(self):
-        d = (self.armour.defense + self.enchants.get(self.armour.key, 0)
-             + self.boots.defense)
+        d = self.armour.defense + self.armour.bonus + self.boots.defense
         if self.stoneskin > 0:
             d += self.STONESKIN_DEF
         if self.heroism > 0:
@@ -138,7 +136,7 @@ class Player:
         if gear.slot == "weapon":
             old, self.weapon = self.weapon, gear.copy()
         elif gear.slot == "armour":
-            old, self.armour = self.armour, gear
+            old, self.armour = self.armour, gear.copy()
         elif gear.slot == "boots":
             old, self.boots = self.boots, gear
         return old
@@ -148,26 +146,22 @@ class Player:
                 "boots": self.boots}[slot].key
 
     def gear_display(self, slot):
-        """(name, desc) for an equipped slot. The weapon's +n lives on the instance;
-        armour's still lives on the enchants dict until the armour rework."""
+        """(name, desc) for an equipped slot. Weapon and armour keep their +n on the
+        instance; boots carry no bonus."""
         g = {"weapon": self.weapon, "armour": self.armour, "boots": self.boots}[slot]
-        if slot == "weapon":
-            n = g.bonus
-            name = "%s +%d" % (g.name, n) if n else g.name
-            return name, g.desc()
-        n = self.enchants.get(g.key, 0)
+        if slot == "boots":
+            return g.name, g.desc()
+        n = g.bonus
         name = "%s +%d" % (g.name, n) if n else g.name
-        desc = g.desc(n) if slot == "armour" else g.desc()
-        return name, desc
+        return name, g.desc()
 
     # --- serialization --------------------------------------------------
     def to_dict(self):
         """A JSON-safe snapshot of everything a suspended run must restore."""
         d = {k: getattr(self, k) for k in _PLAYER_STATE}
         d["weapon"] = {"key": self.weapon.key, "bonus": self.weapon.bonus}
-        d["armour"] = self.armour.key
+        d["armour"] = {"key": self.armour.key, "bonus": self.armour.bonus}
         d["boots"] = self.boots.key
-        d["enchants"] = dict(self.enchants)
         d["slots"] = [None if s is None else [s[0], s[1]] for s in self.slots]
         return d
 
@@ -178,9 +172,9 @@ class Player:
             setattr(p, k, data[k])
         w = data["weapon"]
         p.weapon = ALL_GEAR[w["key"]].copy(bonus=w["bonus"])
-        p.armour = ALL_GEAR[data["armour"]]
+        a = data["armour"]
+        p.armour = ALL_GEAR[a["key"]].copy(bonus=a["bonus"])
         p.boots = ALL_GEAR[data["boots"]]
-        p.enchants = dict(data["enchants"])
         p.slots = [None if s is None else [s[0], s[1]] for s in data["slots"]]
         return p
 

@@ -1885,10 +1885,9 @@ class World:
                      % (p.weapon.name, p.weapon.bonus), config.GOLD)
             self.add_fx("pulse", p.x, p.y, color=config.GOLD, life=0.6)
         elif effect == "enchant_armour":
-            key = p.armour.key
-            p.enchants[key] = p.enchants.get(key, 0) + 1
+            p.armour.bonus += 1
             self.log("Your %s hardens with a light of its own. +%d defence, for good."
-                     % (p.armour.name, p.enchants[key]), config.GOLD)
+                     % (p.armour.name, p.armour.bonus), config.GOLD)
             self.add_fx("pulse", p.x, p.y, color=config.GOLD, life=0.6)
         elif effect == "invisible":
             p.invisible = 16

@@ -70,12 +70,20 @@ class Weapon:
 class Armour:
     slot = "armour"
 
-    def __init__(self, key, name, tier, defense, speed_mod=0, trait=None, note=""):
+    def __init__(self, key, name, tier, defense, speed_mod=0, trait=None, note="",
+                 bonus=0):
         self.key, self.name, self.tier = key, name, tier
         self.defense, self.speed_mod, self.trait, self.note = defense, speed_mod, trait, note
+        self.bonus = bonus                # masterwork + scroll enchant, per-instance
 
-    def desc(self, bonus=0):
-        s = "%d def" % (self.defense + bonus)
+    def copy(self, bonus=None):
+        return Armour(self.key, self.name, self.tier, self.defense, self.speed_mod,
+                      self.trait, self.note,
+                      self.bonus if bonus is None else bonus)
+
+    def desc(self, bonus=None):
+        b = self.bonus if bonus is None else bonus
+        s = "%d def" % (self.defense + b)
         if self.speed_mod:
             s += ", %+d spd" % self.speed_mod
         return s + ("  |  " + self.note if self.note else "")
