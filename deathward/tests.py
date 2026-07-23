@@ -7877,6 +7877,69 @@ class TestArmourLadder(unittest.TestCase):
             self.assertNotIn(gone, ARMOURS, "%s graduated / retired" % gone)
 
 
+class TestFloorArmourRoll(unittest.TestCase):
+    def test_never_on_floor_one_or_past_fifteen(self):
+        import random
+        from .items import roll_floor_armour
+        for depth in (1, 16, 17, 20):
+            for s in range(60):
+                self.assertEqual(roll_floor_armour(random.Random(s), depth), [],
+                                 "no ordinary armour on floor %d" % depth)
+
+    def test_places_at_most_one(self):
+        import random
+        from .items import roll_floor_armour
+        for depth in range(1, 21):
+            for s in range(60):
+                self.assertLessEqual(len(roll_floor_armour(random.Random(s), depth)), 1)
+
+    def test_respects_the_bands(self):
+        import random
+        from .items import roll_floor_armour
+        def seen(depth):
+            out = set()
+            for s in range(500):
+                out |= {k for k, _ in roll_floor_armour(random.Random(s), depth)}
+            return out
+        self.assertEqual(seen(2), {"leather"})
+        self.assertEqual(seen(4), {"leather", "mail"})
+        self.assertEqual(seen(5), {"leather", "mail", "plate"})
+        self.assertEqual(seen(10), {"leather", "mail", "plate"})
+        self.assertEqual(seen(11), {"mail", "plate"})     # leather gone after 10
+        self.assertEqual(seen(15), {"mail", "plate"})
+        self.assertEqual(seen(16), set())
+
+    def test_present_ramp_and_determinism(self):
+        import random
+        from .items import roll_floor_armour
+        def rate(depth):
+            return sum(1 for s in range(4000)
+                       if roll_floor_armour(random.Random(s), depth)) / 4000
+        self.assertGreater(rate(2), 0.49); self.assertLess(rate(2), 0.61)    # ~55%
+        self.assertGreater(rate(12), 0.69); self.assertLess(rate(12), 0.81)  # ~75%
+        for s in range(50):
+            for depth in (2, 6, 12, 15):
+                self.assertEqual(roll_floor_armour(random.Random(s), depth),
+                                 roll_floor_armour(random.Random(s), depth))
+
+    def test_masterwork_only_deep_and_capped_at_two(self):
+        import random
+        from .items import roll_floor_armour
+        # floors below 8 are never masterwork
+        for depth in range(2, 8):
+            for s in range(300):
+                for _, b in roll_floor_armour(random.Random(s), depth):
+                    self.assertEqual(b, 0, "no masterwork before floor 8")
+        # floors 8-15 produce +1 and +2 but never +3
+        bonuses = set()
+        for depth in range(8, 16):
+            for s in range(600):
+                for _, b in roll_floor_armour(random.Random(s), depth):
+                    bonuses.add(b)
+        self.assertTrue({1, 2} <= bonuses, "deep armour should roll +1 and +2")
+        self.assertEqual(max(bonuses), 2, "masterwork must cap at +2, never +3")
+
+
 class TestMonsterSerialization(unittest.TestCase):
     """A monster's live state — wounds, wakefulness, a telegraphed intent, every
     status timer — survives a round-trip through a dict."""

@@ -565,6 +565,52 @@ def roll_floor_boots(rng, depth):
     return [rng.choice(valid)]
 
 
+# The ordinary armour a floor may place: at most ONE, found-only, generation-placed like
+# the weapons and boots (never from the generic loot pool). Uniform among valid pieces --
+# armour is a defense<->speed tradeoff sharing the speed budget with boots, not a power
+# ladder. Banded by depth: none on floor 1 (the coin-flip gift) or past 15 (magical
+# territory). Deep floors (8-15) layer a MASTERWORK +1/+2 (never +3) onto the piece.
+ARMOUR_BANDS = (
+    ("leather", 2, 10),
+    ("mail", 3, 15),
+    ("plate", 5, 15),
+)
+
+
+def _armour_present_chance(depth):
+    """A gentle upward ramp, more generous than boots' flat 50%."""
+    if depth <= 4:
+        return 0.55
+    if depth <= 8:
+        return 0.65
+    if depth <= 12:
+        return 0.75
+    return 0.80
+
+
+def _armour_masterwork_bonus(rng, depth):
+    """Floors 8-15: a chance the found armour is masterwork. +1 or +2, NEVER +3 (a +3
+    Full Plate plus Plate Boots is virtually invulnerable). Below floor 8, always +0, and
+    NO rng is drawn (determinism: shallow floors must not consume a masterwork draw)."""
+    if depth < 8:
+        return 0
+    if rng.random() >= 0.25 + (depth - 8) * 0.05:      # 25% at 8 ... 60% at 15
+        return 0
+    return 2 if rng.random() < 0.15 + (depth - 8) * 0.05 else 1   # +2 share 15%..50%
+
+
+def roll_floor_armour(rng, depth):
+    """The floor's single ordinary armour, or none -- a list of 0 or 1 (key, bonus) pairs.
+    Present-chance ramps with depth; the piece is chosen uniformly among those valid at
+    this depth; deep floors layer a masterwork bonus. Deterministic on (rng, depth); reads
+    nothing else, so blind and omniscient runs of a seed stay bit-identical."""
+    valid = [key for key, lo, hi in ARMOUR_BANDS if lo <= depth <= hi]
+    if not valid or rng.random() >= _armour_present_chance(depth):
+        return []
+    key = rng.choice(valid)
+    return [(key, _armour_masterwork_bonus(rng, depth))]
+
+
 def roll_loot(rng, depth):
     """What a floor-drop contains: exactly one thing."""
     r = rng.random()
