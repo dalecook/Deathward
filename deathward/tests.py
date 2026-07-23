@@ -7650,6 +7650,60 @@ class TestMagicalBootsEconomy(unittest.TestCase):
         self.assertIn("thor", w.codex.boots_ground, "the displaced magical boot persists")
 
 
+class TestRunBlockPersistence(unittest.TestCase):
+    """The suspended-run block travels in the save, guarded by its own version,
+    and is cleared by a fresh dungeon or a new game."""
+
+    def test_run_block_round_trips_through_save_dict(self):
+        c = FakeSave()
+        c.run = {"depth": 3, "player": {"x": 5}}
+        d = c._save_dict()
+        self.assertEqual(d["run"], {"version": config.RUN_SAVE_VERSION,
+                                    "world": {"depth": 3, "player": {"x": 5}}})
+        c2 = FakeSave()
+        c2._load_from(d)
+        self.assertEqual(c2.run, {"depth": 3, "player": {"x": 5}})
+
+    def test_none_run_block_round_trips_as_none(self):
+        c = FakeSave()
+        c.run = None
+        c2 = FakeSave()
+        c2._load_from(c._save_dict())
+        self.assertIsNone(c2.run)
+
+    def test_a_stale_version_run_block_is_discarded(self):
+        c = FakeSave()
+        data = c._save_dict()
+        data["run"] = {"version": config.RUN_SAVE_VERSION + 1,
+                       "world": {"depth": 9}}
+        c._load_from(data)
+        self.assertIsNone(c.run, "a run block from another build must not be trusted")
+
+    def test_a_layout_mismatch_discards_the_run_block(self):
+        c = FakeSave()
+        data = c._save_dict()
+        data["run"] = {"version": config.RUN_SAVE_VERSION, "world": {"depth": 4}}
+        data["layout_version"] = config.LAYOUT_VERSION + 1
+        c._load_from(data)
+        self.assertIsNone(c.run, "a re-cut dungeon makes the old run meaningless")
+
+    def test_an_old_save_without_a_run_key_loads_as_none(self):
+        c = FakeSave()
+        data = c._save_dict()
+        del data["run"]
+        c._load_from(data)
+        self.assertIsNone(c.run)
+
+    def test_new_dungeon_clears_the_run_block(self):
+        c = FakeSave()
+        c.run = {"depth": 2}
+        c.new_dungeon()
+        self.assertIsNone(c.run)
+
+    def test_a_fresh_codex_has_no_run_block(self):
+        self.assertIsNone(FakeSave().run)
+
+
 class TestPlayerSerialization(unittest.TestCase):
     """A player survives a round-trip through a plain dict with every field intact."""
 

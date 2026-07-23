@@ -679,6 +679,7 @@ class Codex:
         # them -- what changes on a respawn is what is LIVING in them.
         self.world_seed = None
         self.layout_migrated = False
+        self.run = None          # the suspended live run (World.to_dict()), or None
         self.stats = {
             "turns": 0,
             "kills": 0,
@@ -731,6 +732,16 @@ class Codex:
         self.boots_ground = data.get("boots_ground", {})
         self.boots_collected = data.get("boots_collected", [])
 
+        # The suspended run, if the save carries one whose shape this build still
+        # understands. A version bump (the serialization changed) discards it, as
+        # does a layout mismatch below (new_dungeon nulls it) -- a run over a
+        # dungeon that no longer exists is meaningless.
+        raw_run = data.get("run")
+        if raw_run and raw_run.get("version") == config.RUN_SAVE_VERSION:
+            self.run = raw_run.get("world")
+        else:
+            self.run = None
+
         # A save cut by an older dungeon generator remembers a map that no longer
         # matches the walls. Throw the PLACE away and keep the person.
         if data.get("layout_version", 1) != config.LAYOUT_VERSION:
@@ -754,6 +765,8 @@ class Codex:
             "boots_generated": self.boots_generated,
             "boots_ground": self.boots_ground,
             "boots_collected": self.boots_collected,
+            "run": (None if self.run is None
+                    else {"version": config.RUN_SAVE_VERSION, "world": self.run}),
         }
 
     def save(self):
@@ -854,6 +867,7 @@ class Codex:
         self.boots_collected = []
         self.gifts = []
         self.gift_item = None
+        self.run = None          # a new stone: any suspended run is meaningless now
 
     def wipe(self):
         """A NEW GAME. Not a new run -- a new game. Everything the player ever

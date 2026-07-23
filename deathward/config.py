@@ -40,6 +40,11 @@ SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "deathward_
 # place.
 LAYOUT_VERSION = 4
 
+# Bumped when the run-save (suspend/resume) serialization shape changes. A save
+# whose run block carries a different version is discarded -- Continue falls back
+# to a fresh run -- exactly as LAYOUT_VERSION discards a stale map.
+RUN_SAVE_VERSION = 1
+
 # --- palette -------------------------------------------------------------
 BG          = (10, 11, 16)
 FLOOR       = (34, 38, 50)
