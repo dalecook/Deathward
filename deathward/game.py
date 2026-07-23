@@ -173,6 +173,17 @@ class Game:
         self.codex.wipe()
         self.new_run()
 
+    def _begin_dying(self):
+        """Death is registered NOW -- the moment the fatal blow lands, not when the
+        death animation finishes. Clear the suspended run immediately and persist it,
+        so closing the window (or a crash) during the death freeze can never resurrect
+        a dead run on the next Continue. on_death() clears it again after the freeze;
+        this just closes the window in between."""
+        self.freeze_t = DEATH_FREEZE
+        self.state = DYING
+        self.codex.run = None
+        self.codex.save()
+
     def on_death(self):
         w = self.world
         cause = w.death_cause
@@ -403,8 +414,7 @@ class Game:
                 # room is never punished by the turn economy
                 if self.world.drop_item(k - pygame.K_1, whole=bool(shift)):
                     if self.world.dead:
-                        self.freeze_t = DEATH_FREEZE
-                        self.state = DYING
+                        self._begin_dying()
             return
 
         if self.state == CODEX:
@@ -504,8 +514,7 @@ class Game:
                 self.dismiss_banner()
                 w.struggle_against_freeze()
                 if w.dead:
-                    self.freeze_t = DEATH_FREEZE
-                    self.state = DYING
+                    self._begin_dying()
             return
 
         # The CTRL codes (CMD on a Mac). Checked BEFORE the digit bindings, or the
@@ -611,14 +620,15 @@ class Game:
         elif w.won:
             self.on_win()
         elif w.dead:
-            self.freeze_t = DEATH_FREEZE
-            self.state = DYING
+            self._begin_dying()
 
     def quit(self):
         if self.world is not None:
             self.world.remember_map()
             if not self.world.dead:
                 self.codex.run = self.world.to_dict()
+            else:
+                self.codex.run = None
         self.codex.save()
         pygame.quit()
         sys.exit(0)
@@ -685,8 +695,7 @@ class Game:
         if self.world.won:
             self.on_win()
         elif self.world.dead:
-            self.freeze_t = DEATH_FREEZE
-            self.state = DYING
+            self._begin_dying()
 
     # --- loop -----------------------------------------------------------
     def run(self):

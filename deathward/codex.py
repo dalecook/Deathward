@@ -737,7 +737,7 @@ class Codex:
         # does a layout mismatch below (new_dungeon nulls it) -- a run over a
         # dungeon that no longer exists is meaningless.
         raw_run = data.get("run")
-        if raw_run and raw_run.get("version") == config.RUN_SAVE_VERSION:
+        if isinstance(raw_run, dict) and raw_run.get("version") == config.RUN_SAVE_VERSION:
             self.run = raw_run.get("world")
         else:
             self.run = None

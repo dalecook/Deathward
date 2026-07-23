@@ -7743,6 +7743,15 @@ class TestRunBlockPersistence(unittest.TestCase):
     def test_a_fresh_codex_has_no_run_block(self):
         self.assertIsNone(FakeSave().run)
 
+    def test_a_non_dict_run_value_is_discarded_without_crashing(self):
+        """A hand-corrupted save with a truthy non-dict 'run' value must not crash
+        at startup -- the spec promises never to crash on a stale/incompatible save."""
+        c = FakeSave()
+        data = c._save_dict()
+        data["run"] = "garbage"
+        c._load_from(data)
+        self.assertIsNone(c.run)
+
 
 class TestPlayerSerialization(unittest.TestCase):
     """A player survives a round-trip through a plain dict with every field intact."""
@@ -8108,6 +8117,21 @@ class TestSuspendResumeLifecycle(unittest.TestCase):
         g.new_run()
         self.assertIsNotNone(g.codex.run)
         self.assertEqual(g.codex.run["depth"], 1)
+
+    def test_begin_dying_clears_the_run_block_before_the_death_freeze(self):
+        """Death is registered the instant the fatal blow lands -- not after the
+        DEATH_FREEZE animation. If the window closes during that freeze, quit()
+        must not persist a stale ALIVE run block that would resurrect a dead run
+        on the next Continue."""
+        from .game import DYING
+        g = self._game()
+        g.world = World(g.codex, seed=4)
+        g.codex.run = g.world.to_dict()   # stale ALIVE block, as if just autosaved
+        g.world.dead = True               # the fatal blow has landed this turn
+        g._begin_dying()
+        self.assertIsNone(g.codex.run,
+                           "the run block must be cleared the instant death registers")
+        self.assertEqual(g.state, DYING)
 
 
 if __name__ == "__main__":
