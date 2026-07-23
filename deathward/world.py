@@ -1944,7 +1944,18 @@ class World:
             return True
         self.advance()
         self.level.compute_fov(p.x, p.y)
+        self._autosave()
         return True
+
+    def _autosave(self):
+        """Persist the live run every turn, so quitting and relaunching resumes
+        exactly here. Map memory is folded in first: to_dict does not store the
+        explored grid -- it is recalled from the codex on resume."""
+        if self.dead:
+            return
+        self.remember_map()
+        self.codex.run = self.to_dict()
+        self.codex.save()
 
     def advance(self):
         """Run the world forward until the player can act again."""

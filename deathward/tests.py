@@ -83,6 +83,46 @@ SUBJECTS = ["rat", "kobold", "spitter", "brute", "wraith", "mimic", "dart",
 FLAVORS = list(CONSUMABLES)
 
 
+class TestAutosave(unittest.TestCase):
+    """Every resolved player turn writes the live run into the codex, so any exit
+    resumes here -- but a turn that ends in death does not (permadeath clears it)."""
+
+    def test_a_resolved_turn_writes_the_run_block(self):
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        codex.run = None
+        w._end_player_turn()
+        self.assertIsNotNone(codex.run, "a completed turn must autosave the run")
+        self.assertEqual(codex.run["depth"], w.depth)
+        self.assertEqual(codex.run["player"]["x"], w.player.x)
+        self.assertEqual(codex.run["player"]["y"], w.player.y)
+
+    def test_autosave_folds_in_the_map_memory(self):
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        w._end_player_turn()
+        self.assertIn(str(w.depth), codex.maps,
+                      "the explored map must be remembered before serializing")
+
+    def test_a_dead_players_turn_does_not_autosave(self):
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        codex.run = None
+        w.dead = True
+        w._end_player_turn()
+        self.assertIsNone(codex.run, "death clears the run; a dead turn must not rewrite it")
+
+    def test_autosave_is_skipped_if_death_lands_during_the_world_turn(self):
+        # _autosave guards on self.dead itself, so a death during advance() (a
+        # monster's killing blow) still leaves the run block untouched.
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        codex.run = None
+        w.dead = True
+        w._autosave()
+        self.assertIsNone(codex.run)
+
+
 class TestEveryDeathTeaches(unittest.TestCase):
     def test_500_deaths_never_repeat_a_lesson(self):
         rng = random.Random(20260713)
