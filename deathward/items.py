@@ -408,18 +408,10 @@ def roll_consumable(rng, depth, kind):
 
 
 def gear_pool(depth):
-    """Armour that the generic loot tables and the vendor may surface at a given depth.
-    Weapons and ALL boots are placed at generation (roll_floor_weapons / roll_floor_boots /
-    roll_floor_boots_magical), scarce and one-per-floor -- none come from this pool."""
-    pool = []
-    for key, g in ARMOURS.items():
-        if g.tier == 1 and depth >= 1:
-            pool.append(key)
-        elif g.tier == 2 and depth >= 3:
-            pool.append(key)
-        elif g.tier == 3 and depth >= 5:
-            pool.append(key)
-    return pool
+    """Empty. Weapons, boots AND armour are all generation-placed now (roll_floor_weapons
+    / roll_floor_boots / roll_floor_boots_magical / roll_floor_armour), scarce and
+    one-per-floor. Kept as a hook so roll_loot's gear branch falls back to gold."""
+    return []
 
 
 # The magical weapons a floor can actually DROP. The two mini-boss rewards -- Windfang

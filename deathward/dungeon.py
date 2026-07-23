@@ -26,7 +26,7 @@ see a monster, it can see you.
 import random
 
 from . import config
-from .items import (is_magical, roll_chest, roll_floor_boots,
+from .items import (is_magical, roll_chest, roll_floor_armour, roll_floor_boots,
                     roll_floor_boots_magical, roll_floor_weapons, roll_loot)
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
@@ -627,6 +627,14 @@ class Level:
                 self.drops.append(Drop(spot[0], spot[1], "gear", mbkey))
                 # it now EXISTS: never rolls again this game (persistence lands in Plan B).
                 codex.record_magical_boot_placed(mbkey, d, spot[0], spot[1])
+
+        # THE FLOOR'S ORDINARY ARMOUR. Like the boots: scarce, generation-placed, at most
+        # one per floor -- never from the generic loot pool, never sold or gifted. Banded to
+        # floors 2-15 by roll_floor_armour; deep floors may make it masterwork (+1/+2).
+        for akey, abonus in roll_floor_armour(rng, d):
+            spot = self._free_tile(avoid_start=True)
+            if spot:
+                self.drops.append(Drop(spot[0], spot[1], "gear", akey, bonus=abonus))
 
         # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. Exactly one guaranteed gift, placed as far
         # from the gate as the level allows, so it is a reward for exploring rather than a

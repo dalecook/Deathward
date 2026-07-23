@@ -1043,13 +1043,14 @@ class World:
         if kind == "gear" and auto:
             g = ALL_GEAR[payload]
             cur = {"weapon": p.weapon, "armour": p.armour, "boots": p.boots}[g.slot]
-            if g.slot == "boots":
-                # Boots trade speed for defense, so a higher tier is a different choice,
-                # not a strict upgrade. The 'all' sweep only auto-equips a boot over the
-                # bare starter; past that a found boot is left for a deliberate pickup.
+            if g.slot in ("boots", "armour"):
+                # Boots and armour trade speed for defense, so a higher tier is a different
+                # choice, not a strict upgrade. The 'all' sweep only auto-equips over the
+                # bare starter; past that a found piece is left for a deliberate pickup.
                 if cur.tier > 0:
-                    self.log("You step over the %s -- boots are a choice; take them "
-                             "by hand." % g.name, config.DIM)
+                    self.log("You step over the %s -- %s are a choice; take it by hand."
+                             % (g.name, "boots" if g.slot == "boots" else "armour"),
+                             config.DIM)
                     return False
             elif g.tier <= cur.tier:
                 self.log("You leave the %s -- your %s is better." % (g.name, cur.name),
@@ -1192,7 +1193,7 @@ class World:
             self.log("You take the %s." % c.name(self.codex), config.ITEM)
         elif kind == "gear":
             g = ALL_GEAR[payload]
-            if g.slot == "weapon" and bonus:
+            if g.slot in ("weapon", "armour") and bonus:
                 g = g.copy(bonus=bonus)          # carry the found/kept +n into the swap
             old = p.equip(g)
             self.codex.see_gear(payload)          # you have handled it -> a Kodex entry

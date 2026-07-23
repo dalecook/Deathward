@@ -7132,17 +7132,12 @@ class TestBootsRebalance(unittest.TestCase):
         self.assertEqual(BOOTS["soft"].wake_radius, 4, "Padded Soles are now a stealth boot")
         self.assertEqual(BOOTS["ironshod"].trait, "kick")
 
-    def test_gear_pool_holds_no_boots_at_all_only_armour(self):
-        from .items import gear_pool, BOOTS
-        all_boots = set(BOOTS)
+    def test_gear_pool_is_empty_all_gear_is_generation_placed(self):
+        from .items import gear_pool
         for depth in range(1, 21):
-            pool = set(gear_pool(depth))
-            self.assertFalse(pool & all_boots,
-                             "no boots in gear_pool -- every boot is generation-placed "
+            self.assertEqual(gear_pool(depth), [],
+                             "weapons, boots AND armour are all generation-placed now "
                              "(floor %d)" % depth)
-        # armour is untouched -- the Leather Jerkin (key 'leather') is armour, not a boot
-        self.assertIn("leather", gear_pool(1))
-        self.assertIn("plate", gear_pool(5))
 
     def test_roll_floor_boots_never_on_floor_one_or_past_fifteen(self):
         import random
@@ -7938,6 +7933,50 @@ class TestFloorArmourRoll(unittest.TestCase):
                     bonuses.add(b)
         self.assertTrue({1, 2} <= bonuses, "deep armour should roll +1 and +2")
         self.assertEqual(max(bonuses), 2, "masterwork must cap at +2, never +3")
+
+
+class TestFloorArmourPlacement(unittest.TestCase):
+    def _armour_drops(self, lvl):
+        from .items import ARMOURS
+        return [d for d in lvl.drops if d.kind == "gear" and d.payload in ARMOURS]
+
+    def _chest_under_player(self, w, loot):
+        from .dungeon import Chest
+        w.level.monsters = []
+        w.level.chests = [Chest(w.player.x, w.player.y, loot)]
+        w.level.drops = []
+        w.level.corpse = None
+        return w.level.chests[0]
+
+    def test_at_most_one_ordinary_armour_per_floor(self):
+        from .dungeon import Level
+        import random
+        for seed in range(40):
+            for depth in (3, 6, 9, 14):
+                codex = FakeSave()
+                codex.world_seed = seed
+                lvl = Level(depth, random.Random(seed), codex)
+                self.assertLessEqual(len(self._armour_drops(lvl)), 1)
+
+    def test_take_all_will_not_swap_armour_off_a_real_piece(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["leather"].copy()      # a real (non-starter) piece
+        self._chest_under_player(w, [("gear", "plate")])
+        w.take_all()
+        self.assertEqual(w.player.armour.key, "leather",
+                         "'all' must not silently swap armour once off the starter")
+
+    def test_take_all_auto_equips_armour_over_the_rags_starter(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["rags"].copy()         # the T0 starter
+        self._chest_under_player(w, [("gear", "leather")])
+        w.take_all()
+        self.assertEqual(w.player.armour.key, "leather",
+                         "the first armour still auto-equips over the starter")
 
 
 class TestMonsterSerialization(unittest.TestCase):
