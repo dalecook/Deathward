@@ -7250,6 +7250,20 @@ class TestBootsRebalance(unittest.TestCase):
                          "every ordinary boot should be findable on the mid floors")
 
 
+class TestVendorConsumablesOnly(unittest.TestCase):
+    def test_the_vendor_never_stocks_gear(self):
+        import random
+        from .vendor import Vendor
+        for depth in (5, 8, 12, 19):
+            for s in range(40):
+                v = Vendor(0, 0, depth, random.Random(s))
+                kinds = {k for k, _ in v.stock}
+                self.assertNotIn("gear", kinds,
+                                 "the vendor deals in potions and scrolls only "
+                                 "(floor %d)" % depth)
+                self.assertTrue(v.stock, "it must still stock something")
+
+
 class TestMagicalBoots(unittest.TestCase):
     def test_swift_is_renamed_sandals_of_mercury(self):
         from .items import BOOTS

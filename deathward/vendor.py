@@ -25,8 +25,7 @@ deeper and lose it to the next thing that kills you.
 """
 
 from . import config
-from .items import (ALL_GEAR, ARMOURS, BOOTS, CONSUMABLES, POTION_POOL, SCROLL_POOL,
-                    WEAPONS, gear_pool)
+from .items import CONSUMABLES, POTION_POOL, SCROLL_POOL
 
 # what it will sell you, roughly. deeper stock costs a little more.
 GEAR_PRICE = {1: 60, 2: 130, 3: 220}
@@ -62,12 +61,9 @@ class Vendor:
         self._stock_up(rng, depth)
 
     def _stock_up(self, rng, depth):
-        # armour only now -- boots are found-only: ordinary boots never enter gear_pool, and
-        # the tier<=3 filter keeps magical boots (tier 4-5) out too (as with weapons)
-        pool = [k for k in gear_pool(depth) if ALL_GEAR[k].tier <= 3]
-        if pool:
-            for _ in range(rng.randint(1, 2)):
-                self.stock.append(("gear", rng.choice(pool)))
+        # Consumables only. Gear (weapons, boots, armour) is all found-only now -- none of
+        # it enters gear_pool, so the vendor deals in potions and scrolls. (The eventual
+        # richer vendor economy -- magical items at a high price -- is a later task.)
         for _ in range(rng.randint(2, 3)):
             self.stock.append(("item", rng.choice(POTION_POOL)))
         for _ in range(rng.randint(1, 2)):
