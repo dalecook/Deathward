@@ -140,8 +140,31 @@ class Game:
         self.victory_gear = None
         self.banner = None
         self.banner_age = 0.0
+        self.codex.run = self.world.to_dict()   # immediately resumable
         self.codex.save()
         self.state = PLAY
+
+    def continue_run(self):
+        """CONTINUE from the title. Resume the suspended run if one was saved and is
+        still valid; otherwise begin a fresh run. Either way the Kodex, the stone,
+        the map memory and the dead carry over, exactly as before.
+
+        The deserialize is wrapped defensively: a save from a broken/interrupted
+        write must never crash the title screen -- it falls back to a fresh run."""
+        run = self.codex.run
+        if run is not None:
+            try:
+                self.world = World(self.codex, restore=run)
+            except Exception:
+                self.world = None
+            if self.world is not None:
+                self.victory_gear = None
+                self.banner = None
+                self.banner_age = 0.0
+                self.state = PLAY
+                return
+            self.codex.run = None        # malformed -- discard and start fresh
+        self.new_run()
 
     def new_game(self):
         """A new GAME. Everything the player knows is erased first: the Kodex, the
@@ -157,6 +180,7 @@ class Game:
         w.leave_corpse()
         self.fact = self.codex.reveal_on_death(
             cause, w.floor_subjects(), w.player.carried_flavors())
+        self.codex.run = None            # permadeath: the next Continue is a fresh run
         self.codex.save()
         self.reveal_t = 0.0
         self.state = AUTOPSY
@@ -260,7 +284,7 @@ class Game:
 
         if self.state == TITLE:
             if k in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                self.new_run()               # CONTINUE: keeps the kodex and the dead
+                self.continue_run()          # CONTINUE: resume the suspended run, else fresh
             elif k == pygame.K_n:
                 if self.codex.has_progress():
                     self.state = CONFIRM_NEW  # erasing it all is never one keystroke
@@ -593,6 +617,8 @@ class Game:
     def quit(self):
         if self.world is not None:
             self.world.remember_map()
+            if not self.world.dead:
+                self.codex.run = self.world.to_dict()
         self.codex.save()
         pygame.quit()
         sys.exit(0)

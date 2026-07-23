@@ -8054,6 +8054,62 @@ class TestWorldSerialization(unittest.TestCase):
                          [(d.x, d.y, d.kind) for d in w.level.drops])
 
 
+class TestSuspendResumeLifecycle(unittest.TestCase):
+    """Quitting suspends; Continue resumes exactly; death clears the run so the
+    next Continue is a fresh descent."""
+
+    def _game(self):
+        from .game import Game
+        g = Game.__new__(Game)          # bypass pygame init
+        g.codex = FakeSave()
+        g.victory_gear = None
+        g.banner = None
+        g.banner_age = 0.0
+        g.world = None
+        g.state = None
+        return g
+
+    def test_continue_resumes_a_suspended_run_at_its_depth(self):
+        from .game import PLAY
+        g = self._game()
+        w = World(g.codex, seed=4)
+        w.new_level(3)                  # descend; a fresh run would be depth 1
+        g.codex.run = w.to_dict()
+        g.world = None                  # simulate a relaunch
+        g.continue_run()
+        self.assertEqual(g.world.depth, 3, "Continue must resume the suspended floor")
+        self.assertEqual(g.state, PLAY)
+
+    def test_continue_with_no_suspended_run_starts_fresh_and_stamps_a_block(self):
+        g = self._game()
+        g.codex.run = None
+        g.continue_run()
+        self.assertEqual(g.world.depth, 1, "no suspended run -> a fresh descent")
+        self.assertIsNotNone(g.codex.run, "a fresh run is immediately resumable")
+
+    def test_a_malformed_run_block_falls_back_to_a_fresh_run_without_crashing(self):
+        g = self._game()
+        g.codex.run = {"garbage": True}
+        g.continue_run()                # must not raise
+        self.assertIsNotNone(g.world)
+        self.assertEqual(g.world.depth, 1)
+
+    def test_death_clears_the_run_block(self):
+        g = self._game()
+        g.world = World(g.codex, seed=4)
+        g.world.death_cause = "rat"
+        g.codex.run = g.world.to_dict()
+        g.reveal_t = 0.0
+        g.on_death()
+        self.assertIsNone(g.codex.run, "permadeath: the suspended run is cleared")
+
+    def test_new_run_stamps_a_resumable_block(self):
+        g = self._game()
+        g.new_run()
+        self.assertIsNotNone(g.codex.run)
+        self.assertEqual(g.codex.run["depth"], 1)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
