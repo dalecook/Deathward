@@ -1150,6 +1150,24 @@ def _armour_sprite(key, s, S):
                             (cx - S * 0.18, y, S * 0.36, S * 0.10),
                             0, math.pi, int(S * 0.016))
         _circ(s, (250, 250, 255), cx, S * 0.52, S * 0.03)
+    elif key == "venom":                    # sickly green
+        cuirass((92, 150, 96), (54, 96, 60))
+    elif key == "cinder":                   # ember red-orange
+        cuirass((176, 84, 56), (110, 48, 34))
+    elif key == "glacial":                  # pale ice blue
+        cuirass((150, 196, 226), (96, 140, 178))
+    elif key == "lifeweave":                # living green-gold
+        cuirass((120, 168, 96), (78, 120, 62))
+    elif key == "bastion":                  # heavy dark steel
+        cuirass((96, 104, 118), (56, 62, 74))
+    elif key == "lastbreath":               # ashen white
+        cuirass((210, 214, 220), (150, 156, 168))
+    elif key == "blinding":                 # radiant gold-white
+        cuirass((236, 224, 150), (196, 176, 96))
+    elif key == "stonegolem":               # grey stone
+        cuirass((140, 134, 124), (92, 86, 78))
+    elif key == "hades":                    # dark robe, ember trim
+        cuirass((70, 54, 66), (150, 70, 50))
 
 
 def _boots_sprite(key, s, S):

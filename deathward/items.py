@@ -175,6 +175,31 @@ ARMOURS = {
     "leather": Armour("leather", "Leather Jerkin", 1, 2, 0),
     "mail":    Armour("mail", "Mail Shirt", 2, 3, -10),
     "plate":   Armour("plate", "Full Plate", 3, 4, -20),
+    # --- magical (floors 8+): found unenhanced, DWEN-enchantable. Each a survival
+    # identity, not a bigger number. thorn + silk return from the graduated ordinary
+    # pieces. Reactive pieces trigger on being struck, gated by player.armour_cd.
+    "thorn":   Armour("thorn", "Thorned Cuirass", 4, 3, -5, "thorns",
+                      "returns 2 damage to anything that hits you"),
+    "silk":    Armour("silk", "Wraithsilk", 4, 2, 10, "wraithsilk",
+                      "a wraith's touch cannot find you -- light, fast, ethereal"),
+    "venom":   Armour("venom", "Venomweave", 4, 3, -5, "venom",
+                      "an attacker is envenomed"),
+    "cinder":  Armour("cinder", "Cinderplate", 4, 3, -5, "cinder",
+                      "an attacker is set alight"),
+    "glacial": Armour("glacial", "Glacial Mail", 4, 3, -5, "glacial",
+                      "an attacker freezes solid"),
+    "lifeweave": Armour("lifeweave", "Lifeweaver", 4, 3, -5, "lifeweave",
+                        "it knits your wounds, turn after turn"),
+    "bastion": Armour("bastion", "Bastion", 5, 4, -15, "bastion",
+                      "no single blow lands harder than it allows"),
+    "lastbreath": Armour("lastbreath", "Last Breath", 5, 4, -10, "lastbreath",
+                         "the first killing blow is refused, once"),
+    "blinding": Armour("blinding", "Blinding Light", 5, 3, -5, "blinding",
+                       "struck, it flares -- everything near you reels"),
+    "stonegolem": Armour("stonegolem", "Stone Golem's Chest", 5, 5, 0, None,
+                         "heavy as stone, yet it never slows you"),
+    "hades":   Armour("hades", "Robe of Hades", 5, 3, 0, "hades",
+                      "struck, it answers in fire that will not touch you"),
 }
 
 BOOTS = {

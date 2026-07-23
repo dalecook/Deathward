@@ -1761,7 +1761,7 @@ class TestTheCheatCode(unittest.TestCase):
         self.assertEqual(w.player.weapon.key, "kris",
                          "the cheat grants the Vampiric Kris specifically")
         self.assertEqual(w.player.weapon.tier, 5, "and it is now tier 5")
-        self.assertEqual(w.player.armour.tier, 3, "the best armour in the game")
+        self.assertEqual(w.player.armour.tier, 5, "the best armour in the game")
         self.assertEqual(w.player.boots.tier, 5, "the best boots in the game")
         self.assertEqual(max(g.tier for g in ARMOURS.values()), w.player.armour.tier)
         self.assertEqual(max(g.tier for g in BOOTS.values()), w.player.boots.tier)
@@ -1797,7 +1797,7 @@ class TestTheCheatCode(unittest.TestCase):
 
         self.assertEqual(got, 0)
         self.assertEqual(w.player.weapon.tier, 5, "the gear still lands (kris is now tier 5)")
-        self.assertEqual(w.player.armour.tier, 3)
+        self.assertEqual(w.player.armour.tier, 5)
 
     def test_a_part_used_potion_stack_is_topped_up_first(self):
         codex = FakeSave()
@@ -7947,6 +7947,35 @@ class TestArmourBonusModel(unittest.TestCase):
                          "a fresh player must not inherit the cheat's mutation")
 
 
+class TestMagicalArmourRoster(unittest.TestCase):
+    def test_the_eleven_phase1_pieces_have_the_agreed_stats(self):
+        from .items import ARMOURS
+        # key: (tier, defense, speed_mod, trait)
+        expected = {
+            "thorn":      (4, 3, -5,  "thorns"),
+            "silk":       (4, 2, 10,  "wraithsilk"),
+            "venom":      (4, 3, -5,  "venom"),
+            "cinder":     (4, 3, -5,  "cinder"),
+            "glacial":    (4, 3, -5,  "glacial"),
+            "lifeweave":  (4, 3, -5,  "lifeweave"),
+            "bastion":    (5, 4, -15, "bastion"),
+            "lastbreath": (5, 4, -10, "lastbreath"),
+            "blinding":   (5, 3, -5,  "blinding"),
+            "stonegolem": (5, 5, 0,   None),
+            "hades":      (5, 3, 0,   "hades"),
+        }
+        for key, (tier, defense, spd, trait) in expected.items():
+            a = ARMOURS[key]
+            self.assertEqual((a.tier, a.defense, a.speed_mod, a.trait),
+                             (tier, defense, spd, trait), key)
+
+    def test_magical_armour_sprites_render(self):
+        from . import sprites
+        for key in ("thorn", "silk", "venom", "cinder", "glacial", "lifeweave",
+                    "bastion", "lastbreath", "blinding", "stonegolem", "hades"):
+            self.assertIsNotNone(sprites.gear(key), key)
+
+
 class TestArmourLadder(unittest.TestCase):
     def test_the_four_rungs_have_the_agreed_stats(self):
         from .items import ARMOURS
@@ -7956,15 +7985,20 @@ class TestArmourLadder(unittest.TestCase):
             "mail":    (2, 3, -10),
             "plate":   (3, 4, -20),
         }
-        self.assertEqual(set(ARMOURS), set(expected), "exactly the four-rung ladder")
+        # the ordinary ladder's stats hold; ARMOURS also carries the magical roster
+        # now (thorn/silk graduated back in, plus the new Phase-1 pieces), so this
+        # no longer asserts an exact key set -- see TestMagicalArmourRoster for that.
         for key, (tier, defense, speed) in expected.items():
             a = ARMOURS[key]
             self.assertEqual((a.tier, a.defense, a.speed_mod), (tier, defense, speed), key)
 
-    def test_the_trait_armours_are_gone(self):
+    def test_the_retired_trait_armours_are_gone(self):
+        """scale/chain were retired outright (never graduated); thorn/silk graduated
+        back into the magical roster (see TestMagicalArmourRoster), so they're no
+        longer expected to be absent here."""
         from .items import ARMOURS
-        for gone in ("scale", "chain", "thorn", "silk"):
-            self.assertNotIn(gone, ARMOURS, "%s graduated / retired" % gone)
+        for gone in ("scale", "chain"):
+            self.assertNotIn(gone, ARMOURS, "%s retired" % gone)
 
 
 class TestFloorArmourRoll(unittest.TestCase):
