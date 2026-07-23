@@ -1309,9 +1309,10 @@ class TestLootMenu(unittest.TestCase):
         labels = [o["label"] for o in w.loot_options()]
         self.assertTrue(any("gold" in l for l in labels))
         self.assertFalse(any("Bone Axe" in l for l in labels), "the axe is in our hand")
-        # the Rusted Shiv it displaced is now in the chest: gear swaps are not thefts
-        self.assertTrue(any("Rusted Shiv" in l for l in labels),
-                        "the displaced weapon must be left in the chest: %s" % labels)
+        # the Rusted Shiv it displaced is a worthless T0 starter -- it falls away rather
+        # than cluttering the chest
+        self.assertFalse(any("Rusted Shiv" in l for l in labels),
+                         "a displaced T0 starter must vanish, not sit in the chest: %s" % labels)
 
     def test_take_all_takes_everything_worth_taking(self):
         codex = FakeSave()
@@ -1322,9 +1323,9 @@ class TestLootMenu(unittest.TestCase):
         self.assertEqual(w.player.gold, 25)
         self.assertEqual(w.player.weapon.key, "bone_axe")
         self.assertEqual(w.player.pack, ["azure"])
-        # the only thing left is the weapon we displaced -- 'all' will not pick your
-        # own cast-off shiv back up, and it does not delete it either
-        self.assertEqual([o["payload"] for o in w.loot_options()], ["shiv"])
+        # the shiv we displaced is a worthless T0 starter: it falls away rather than being
+        # left behind, so nothing remains to loot
+        self.assertEqual(w.loot_options(), [])
 
     def test_take_all_will_not_downgrade_your_gear_behind_your_back(self):
         from .items import WEAPONS
@@ -3461,10 +3462,75 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
         w.take_all()
         self.assertEqual(w.player.gold, 10)
         self.assertEqual(w.player.weapon.key, "brand")
-        # the shiv it displaced is in the chest, and 'all' left it there rather than
-        # picking it straight back up again
+        # the shiv it displaced is a worthless T0 starter -- it falls away rather than
+        # cluttering the chest (and 'all' cannot re-pick something that no longer exists)
         self.assertEqual(w.player.weapon.key, "brand")
-        self.assertIn(("gear", "shiv", 0), ch.loot)
+        self.assertFalse([t for t in ch.loot if t[0] == "gear" and t[1] == "shiv"],
+                         "a displaced T0 starter must vanish, not clutter the chest")
+
+
+class TestStartersDoNotPileUp(unittest.TestCase):
+    """Regression: a displaced T0 starter (Rusted Shiv / Padded Rags / Worn Sandals) must
+    VANISH, not be stored. Stored on a corpse it piles up life after life, because
+    leave_corpse carries a body's loot forward across deaths."""
+
+    def test_a_displaced_starter_does_not_land_on_your_corpse(self):
+        from .items import WEAPONS
+        codex = FakeSave()
+        codex.world_seed = 55
+        codex.leave_corpse(1, 5, 5, 0, "bronze_sword")     # the body holds a real weapon
+        w = World(codex, seed=2)
+        w.level.monsters = []
+        c = w.level.corpse
+        w.player.x, w.player.y = c.x, c.y
+        w.player.weapon = WEAPONS["shiv"].copy()           # you are holding the starter
+        w.take_option(0)                                    # take the Bronze Sword
+        self.assertEqual(w.player.weapon.key, "bronze_sword")
+        self.assertFalse([t for t in c.loot if t[0] == "gear" and t[1] == "shiv"],
+                         "the worthless starter shiv must fall away, not sit on the body")
+
+    def test_starters_never_accumulate_on_a_corpse_across_deaths(self):
+        from .game import Game
+        from .keyrepeat import Repeater
+        g = Game.__new__(Game)
+        g.codex = FakeSave()
+        g.codex.leave_corpse(1, 0, 0, 0, "bone_sword")     # a better weapon waits on the body
+        g.world = World(g.codex, seed=6)
+        g.world.level.monsters = []
+        g.state = None
+        g.banner = None
+        g.banner_age = 0.0
+        g.t = 0.0
+        g.victory_gear = None
+        g.reveal_t = 0.0
+        g.repeat = Repeater()
+        for _ in range(4):                                  # die four times, looting each life
+            w = g.world
+            w.level.monsters = []
+            c = w.level.corpse
+            if c:
+                w.player.x, w.player.y = c.x, c.y
+                w.take_all()                                # take the better weapon back
+            w.death_cause = "rat"
+            w.kill_player("rat")
+            g.on_death()
+            g.new_run()
+        loot = g.codex.corpses.get("1", {}).get("loot", [])
+        starters = [t for t in loot if t[0] == "gear" and t[1] in ("shiv", "rags", "sandals")]
+        self.assertEqual(starters, [],
+                         "T0 starters must never pile up on a corpse: %r" % loot)
+
+    def test_dying_scrubs_starters_already_on_the_body(self):
+        # a body that already holds starter junk (e.g. a save from before the fix)
+        codex = FakeSave()
+        codex.leave_corpse(1, 5, 5, 0, "bone_sword")
+        codex.corpses["1"]["loot"] = [["gear", "shiv", 0], ["gear", "rags", 0],
+                                      ["item", "azure"]]
+        codex.leave_corpse(1, 5, 5, 10, "bone_sword")      # die again on this floor
+        loot = codex.corpses["1"]["loot"]
+        starters = [t for t in loot if t[0] == "gear" and t[1] in ("shiv", "rags", "sandals")]
+        self.assertEqual(starters, [], "old starter junk must be scrubbed on death: %r" % loot)
+        self.assertIn(["item", "azure"], loot, "real loot must be preserved")
 
 
 class TestTheCorpseDuplicationBug(unittest.TestCase):

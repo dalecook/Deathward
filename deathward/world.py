@@ -1465,6 +1465,14 @@ class World:
         an ephemeral chest/body drop and lost to the Kodex ledger. It always lands on the
         persistent bare ground instead, and that drop is recorded."""
         p = self.player
+        # A T0 STARTER (Rusted Shiv / Padded Rags / Worn Sandals) is worthless and
+        # infinitely regenerated. Storing it anywhere is pointless, and on a corpse it
+        # piles up life after life -- leave_corpse carries a body's loot forward across
+        # deaths. When better gear displaces it, it simply falls away.
+        if gear.tier == 0:
+            self.log("The worn %s isn't worth keeping; you let it fall away."
+                     % gear.name, config.DIM)
+            return
         magical = is_magical(gear.key)
         magical_boot = is_magical_boot(gear.key)
         if sink is not None and hasattr(sink, "loot") and not (magical or magical_boot):

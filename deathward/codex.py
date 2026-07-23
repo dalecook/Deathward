@@ -1036,7 +1036,12 @@ class Codex:
             elif old_w and not weapon_key:
                 weapon_key, weapon_bonus = old_w, old_b
             gift_key = gift_key or old.get("gift")
-            loot = [tuple(t) for t in old.get("loot", [])]   # never drop what it held
+            # never drop what it held -- EXCEPT worthless T0 starters (Rusted Shiv /
+            # Padded Rags / Worn Sandals), which must not pile up on a body life after
+            # life (this also scrubs any that a pre-fix save already accumulated).
+            loot = [tuple(t) for t in old.get("loot", [])
+                    if not (t[0] == "gear" and t[1] in ALL_GEAR
+                            and ALL_GEAR[t[1]].tier == 0)]
         self.write_corpse(depth, x, y, gold, weapon_key, gift_key, loot, weapon_bonus)
 
     def gift_on_a_corpse(self):
