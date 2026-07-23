@@ -1267,6 +1267,21 @@ class TestLootMenu(unittest.TestCase):
         self.assertEqual(opts[2]["label"], look)
         self.assertNotIn("Swiftness", opts[2]["label"], "and never its true name")
 
+    def test_a_removed_gear_key_orphaned_in_a_container_is_silently_dropped(self):
+        """A save made before this branch could still hold a tuple like
+        ('gear', 'scale') from a pruned ordinary-armour key. The menu must not
+        crash trying to look it up -- it should just not offer it."""
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._chest_under_player(w, [("gold", 25), ("gear", "scale"),
+                                      ("gear", "bone_axe")])
+        opts = w.loot_options()                 # must not raise KeyError
+        self.assertEqual([o["payload"] for o in opts], [25, "bone_axe"],
+                          "the orphaned piece must be dropped, not crash or linger")
+        w.take_all()
+        self.assertEqual(w.player.gold, 25)
+        self.assertEqual(w.player.weapon.key, "bone_axe")
+
     def test_an_identified_potion_is_listed_by_its_true_name(self):
         codex = FakeSave()
         codex.known.append("id.ochre")
@@ -4541,7 +4556,7 @@ class TestWaveTwoBuffs(unittest.TestCase):
         from .items import WEAPONS, ARMOURS
         w = self._world()
         w.player.weapon = WEAPONS["bronze_sword"].copy()   # Bronze Sword, 2-5 dmg
-        w.player.armour = ARMOURS["leather"]      # Leather Jerkin, 2 def
+        w.player.armour = ARMOURS["leather"].copy()      # Leather Jerkin, 2 def
         self.assertEqual(w.player.gear_display("weapon"), ("Bronze Sword", "2-5 dmg"))
 
         self._use(w, "krav")                       # enchant the weapon +1

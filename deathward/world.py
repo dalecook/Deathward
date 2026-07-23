@@ -937,7 +937,9 @@ class World:
         if kind == "gold":
             return "%d gold" % payload
         if kind == "gear":
-            g = ALL_GEAR[payload]
+            g = ALL_GEAR.get(payload)
+            if g is None:
+                return "???"
             return "%s  (%s)" % (g.name, g.desc())
         c = CONSUMABLES[payload]
         return c.name(self.codex)          # a colour, until you know better
@@ -966,6 +968,8 @@ class World:
                                  "bonus": bonus, "src": ("corpse", field)})
             for i, t in enumerate(c.loot):
                 kind, payload = t[0], t[1]
+                if kind == "gear" and payload not in ALL_GEAR:
+                    continue          # a piece the game no longer has -- quietly gone
                 opts.append({"kind": kind, "payload": payload,
                              "bonus": t[2] if len(t) > 2 else 0,
                              "label": self.loot_label(kind, payload),
@@ -978,6 +982,8 @@ class World:
                 continue
             for i, t in enumerate(s.loot):
                 kind, payload = t[0], t[1]
+                if kind == "gear" and payload not in ALL_GEAR:
+                    continue          # a piece the game no longer has -- quietly gone
                 opts.append({"kind": kind, "payload": payload,
                              "bonus": t[2] if len(t) > 2 else 0,
                              "label": self.loot_label(kind, payload),
@@ -992,6 +998,8 @@ class World:
         if ch:
             for i, t in enumerate(ch.loot):
                 kind, payload = t[0], t[1]
+                if kind == "gear" and payload not in ALL_GEAR:
+                    continue          # a piece the game no longer has -- quietly gone
                 opts.append({"kind": kind, "payload": payload,
                              "bonus": t[2] if len(t) > 2 else 0,
                              "label": self.loot_label(kind, payload),
