@@ -8729,6 +8729,25 @@ class TestArmourCapstones(unittest.TestCase):
         self.assertIsNone(near.intent, "a wiped windup")
 
 
+class TestMagicalArmourEndToEnd(unittest.TestCase):
+    def test_a_found_magical_armour_equips_and_its_trait_fires(self):
+        from .items import ALL_GEAR
+        from .dungeon import Drop
+        from .monsters import Monster
+        from . import config
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        p = w.player
+        w.level.drops.append(Drop(p.x, p.y, "gear", "cinder"))
+        p.armour = ALL_GEAR["rags"].copy()          # swap is an upgrade over the starter
+        w.take_all()
+        self.assertEqual(p.armour.key, "cinder")
+        m = Monster("kobold", p.x + 1, p.y)
+        w.level.monsters = [m]
+        w.monster_attacks_player(m, 3)
+        self.assertEqual(m.burning, config.CINDER_BURN_TURNS)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
