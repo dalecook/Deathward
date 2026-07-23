@@ -26,8 +26,9 @@ see a monster, it can see you.
 import random
 
 from . import config
-from .items import (is_magical, roll_chest, roll_floor_armour, roll_floor_boots,
-                    roll_floor_boots_magical, roll_floor_weapons, roll_loot)
+from .items import (is_magical, roll_chest, roll_floor_armour, roll_floor_armour_magical,
+                    roll_floor_boots, roll_floor_boots_magical, roll_floor_weapons,
+                    roll_loot)
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
 
@@ -635,6 +636,15 @@ class Level:
             spot = self._free_tile(avoid_start=True)
             if spot:
                 self.drops.append(Drop(spot[0], spot[1], "gear", akey, bonus=abonus))
+
+        # THE FLOOR'S MAGICAL ARMOUR (floors 8+). The rare slot, like the magical boots:
+        # scarce, one-per-game unique, generation-placed. Boss-reserved pieces are excluded.
+        makey = roll_floor_armour_magical(rng, d, exclude=codex.armour_generated)
+        if makey:
+            spot = self._free_tile(avoid_start=True)
+            if spot:
+                self.drops.append(Drop(spot[0], spot[1], "gear", makey))
+                codex.record_magical_armour_placed(makey, d, spot[0], spot[1])
 
         # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. Exactly one guaranteed gift, placed as far
         # from the gate as the level allows, so it is a reward for exploring rather than a

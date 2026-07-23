@@ -488,6 +488,38 @@ def roll_floor_boots_magical(rng, depth, exclude=()):
     return rng.choice(pool)
 
 
+# The magical armour a floor can DROP. Phase 1 excludes the invisibility/wall-walk
+# pieces (fade -> Phase 2; shade/nightcloak -> boss-reserved, like Windfang/Void).
+FINDABLE_MAGICAL_ARMOUR = {
+    4: ["thorn", "silk", "venom", "cinder", "glacial", "lifeweave"],
+    5: ["bastion", "lastbreath", "blinding", "stonegolem", "hades"],
+}
+FINDABLE_MAGICAL_ARMOUR_KEYS = (set(FINDABLE_MAGICAL_ARMOUR[4])
+                                | set(FINDABLE_MAGICAL_ARMOUR[5]))
+
+
+def is_magical_armour(key):
+    """A magical armour (tier 4 or 5). Single source of truth for the armour ledger."""
+    return key in ARMOURS and ARMOURS[key].tier >= 4
+
+
+def roll_floor_armour_magical(rng, depth, exclude=()):
+    """The rare magical-armour slot for floors 8-20: at most one per floor, one-per-game
+    unique. Draws only from (rng, depth, exclude) -- never the Kodex -- so blind and
+    omniscient runs stay bit-identical. Returns an armour key, or None."""
+    if depth < 8:
+        return None
+    present = 0.14 if depth <= 11 else 0.12 if depth <= 15 else 0.10
+    if rng.random() >= present:
+        return None
+    t5_share = 0.20 if depth <= 11 else 0.40 if depth <= 15 else 0.65
+    tier = 5 if rng.random() < t5_share else 4
+    pool = [k for k in FINDABLE_MAGICAL_ARMOUR[tier] if k not in exclude]
+    if not pool:
+        return None
+    return rng.choice(pool)
+
+
 def roll_magical(rng, depth, exclude=()):
     """The rare magical slot for floors 8-20. `exclude` is the set of magical keys already
     generated this game (absolute uniqueness): the chosen tier is filtered to its still-in-

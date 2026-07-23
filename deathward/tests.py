@@ -7976,6 +7976,41 @@ class TestMagicalArmourRoster(unittest.TestCase):
             self.assertIsNotNone(sprites.gear(key), key)
 
 
+class TestMagicalArmourDistribution(unittest.TestCase):
+    def test_never_before_floor_eight(self):
+        import random
+        from .items import roll_floor_armour_magical
+        for depth in (1, 5, 7):
+            for s in range(60):
+                self.assertIsNone(roll_floor_armour_magical(random.Random(s), depth))
+
+    def test_only_phase1_findable_keys_appear(self):
+        import random
+        from .items import roll_floor_armour_magical, FINDABLE_MAGICAL_ARMOUR_KEYS
+        seen = set()
+        for depth in range(8, 21):
+            for s in range(400):
+                k = roll_floor_armour_magical(random.Random(s), depth)
+                if k:
+                    seen.add(k)
+        self.assertTrue(seen <= FINDABLE_MAGICAL_ARMOUR_KEYS)
+        # boss-reserved / Phase-2 pieces never drop
+        for boss in ("shade", "nightcloak", "fade"):
+            self.assertNotIn(boss, seen)
+
+    def test_uniqueness_via_exclude_and_determinism(self):
+        import random
+        from .items import roll_floor_armour_magical
+        for s in range(50):
+            self.assertEqual(roll_floor_armour_magical(random.Random(s), 12),
+                             roll_floor_armour_magical(random.Random(s), 12))
+        # excluding the whole pool yields nothing
+        from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
+        got = [roll_floor_armour_magical(random.Random(s), 12,
+               exclude=FINDABLE_MAGICAL_ARMOUR_KEYS) for s in range(200)]
+        self.assertTrue(all(g is None for g in got))
+
+
 class TestArmourLadder(unittest.TestCase):
     def test_the_four_rungs_have_the_agreed_stats(self):
         from .items import ARMOURS
@@ -8067,7 +8102,10 @@ class TestFloorArmourRoll(unittest.TestCase):
 class TestFloorArmourPlacement(unittest.TestCase):
     def _armour_drops(self, lvl):
         from .items import ARMOURS
-        return [d for d in lvl.drops if d.kind == "gear" and d.payload in ARMOURS]
+        # ordinary only (tier <= 3) -- the magical-armour slot (tier 4/5, floors 8+) is a
+        # separate cap, tested in TestMagicalArmourDistribution.
+        return [d for d in lvl.drops if d.kind == "gear" and d.payload in ARMOURS
+                and ARMOURS[d.payload].tier <= 3]
 
     def _chest_under_player(self, w, loot):
         from .dungeon import Chest
