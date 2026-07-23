@@ -8627,6 +8627,29 @@ class TestBastionAndLifeweaver(unittest.TestCase):
         self.assertEqual(w.player.hp, w.player.max_hp)
 
 
+class TestLastBreath(unittest.TestCase):
+    def test_it_refuses_the_first_killing_blow_and_grants_a_window(self):
+        from .items import ALL_GEAR
+        from . import config
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["lastbreath"].copy()
+        w.kill_player("brute")
+        self.assertFalse(w.dead, "Last Breath must refuse the first killing blow")
+        self.assertEqual(w.player.hp, 1)
+        self.assertTrue(w.player.lastbreath_used)
+        self.assertGreaterEqual(w.player.sanctuary, config.LASTBREATH_SANCTUARY)
+
+    def test_it_only_works_once_per_life(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["lastbreath"].copy()
+        w.player.lastbreath_used = True         # already spent
+        w.kill_player("brute")
+        self.assertTrue(w.dead, "a spent Last Breath cannot save you again")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

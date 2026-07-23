@@ -883,6 +883,16 @@ class World:
             self.add_fx("pulse", p.x, p.y, color=(255, 170, 70), life=0.9)
             self.shake(9)
             return
+        if p.armour.trait == "lastbreath" and not p.lastbreath_used:
+            p.lastbreath_used = True
+            p.hp = 1
+            p.poison = p.frozen = p.confused = p.weak = 0
+            p.sanctuary = max(p.sanctuary, config.LASTBREATH_SANCTUARY)
+            self.log("Your armour draws one last breath for you. Not yet.", config.GOLD)
+            self.add_fx("flash", color=(230, 234, 240), life=0.6)
+            self.add_fx("pulse", p.x, p.y, color=(230, 234, 240), life=0.8)
+            self.shake(7)
+            return
         self.dead = True
         self.death_cause = cause
         p.hp = 0
