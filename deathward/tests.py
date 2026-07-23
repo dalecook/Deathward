@@ -7816,6 +7816,30 @@ class TestArmourBonusModel(unittest.TestCase):
         self.assertEqual(w.player.armour.bonus, 1)
         self.assertEqual(w.player.defense, before + 1)
 
+    def test_grant_cheat_armour_is_private_not_the_shared_template(self):
+        """grant_cheat must copy the shared ARMOURS entry the same way it copies
+        the weapon -- otherwise enchant_armour mutates the module-level singleton
+        and every future Player() inherits the inflated bonus."""
+        from .items import ARMOURS
+        from .player import Player
+
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        w.grant_cheat()
+
+        best_key = max(ARMOURS.values(), key=lambda g: (g.tier, g.defense)).key
+        self.assertIsNot(w.player.armour, ARMOURS[best_key],
+                         "the cheat must hand the player a private copy")
+
+        w._apply_effect("enchant_armour")
+        self.assertEqual(w.player.armour.bonus, 1)
+
+        self.assertEqual(ARMOURS[best_key].bonus, 0,
+                         "the shared template must stay untouched")
+        self.assertEqual(Player().armour.bonus, 0,
+                         "a fresh player must not inherit the cheat's mutation")
+
 
 class TestMonsterSerialization(unittest.TestCase):
     """A monster's live state — wounds, wakefulness, a telegraphed intent, every
