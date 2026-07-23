@@ -834,7 +834,7 @@ class World:
                             life=0.32)
         # Reactive magical armour: on being struck (raw > 0), if the piece's cooldown
         # is ready, it answers, then recharges. One armour is worn, so one cooldown.
-        if raw > 0 and p.armour_cd == 0 and m.alive:
+        if raw > 0 and p.armour_cd == 0 and m.alive and not self.dead:
             t = p.armour.trait
             if t == "cinder":
                 m.burning = max(m.burning, config.CINDER_BURN_TURNS)

@@ -8714,6 +8714,25 @@ class TestArmourCapstones(unittest.TestCase):
                          "(barring the incoming hit already applied)")
         self.assertEqual(w.player.armour_cd, config.ARMOUR_CAPSTONE_RECHARGE)
 
+    def test_robe_of_hades_does_not_fire_on_the_blow_that_kills_you(self):
+        # A fatal blow must not trigger the reactive dispatch afterwards --
+        # a dead wearer's robe should not go on to torch the room.
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["hades"].copy()
+        w.player.hp = 1                          # any real hit is now fatal
+        m = Monster("kobold", w.player.x + 1, w.player.y)
+        bystander = Monster("kobold", w.player.x - 1, w.player.y)
+        w.level.monsters = [m, bystander]
+        bhp = bystander.hp
+        w.monster_attacks_player(m, 10)          # raw 10 - 3 defense = 7 > 1 hp: fatal
+        self.assertTrue(w.dead, "the blow should have killed the player")
+        self.assertEqual(bystander.hp, bhp, "no post-mortem firestorm")
+        self.assertEqual(w.player.armour_cd, 0, "the robe must not recharge from a "
+                         "shot it never fired")
+
     def test_blinding_light_stuns_the_ring_and_wipes_windups(self):
         from .items import ALL_GEAR
         from .monsters import Monster
