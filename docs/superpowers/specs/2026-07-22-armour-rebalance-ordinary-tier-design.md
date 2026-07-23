@@ -5,7 +5,9 @@
 **Scope:** the first of the armour passes — the **final** leg of the gear triad, after
 weapons and boots. This plan clean-slates the *ordinary* armour tier (leather/mail/plate),
 moves armour to the same scarce, generation-placed, found-only model as weapons and boots,
-reworks floor 1 into a single coin-flip gift, and narrows the vendor to consumables. The
+reworks floor 1 into a single coin-flip gift, narrows the vendor to consumables, and pulls
+armour into the **per-instance bonus model** so deep floors can hand out **masterwork**
+(better-made, not magical) armour — the direct parallel to enhanced-Steel weapons. The
 magical roster (T4/T5 identities, including the graduated thorns + wraithsilk) and the deep
 economy (rarity/uniqueness/persistence/collection) are deliberate follow-up specs.
 
@@ -32,6 +34,10 @@ scarcity, and content.
 - Move ordinary armour to **generation-placed, found-only, ≤1 per floor**, uniform pick
   among valid pieces, on a gentle depth ramp — mirroring ordinary boots but a touch more
   generous. Armour **leaves `gear_pool()`** entirely.
+- Pull armour into the **per-instance bonus model** (like weapons) so deep floors (8–15)
+  can hand out **masterwork** armour — a layered +1/+2 (never +3) whose odds climb with
+  depth — the parallel to enhanced-Steel weapons. As a bonus, this closes the long-deferred
+  `weapon-bonus-lootlist-edge`.
 - Rework **floor 1** into a single coin-flip gift: Bone Sword *or* Leather Jerkin, 50/50 —
   the whole triad thesis ("do you start better at killing, or better at surviving?")
   compressed into the first pickup.
@@ -53,23 +59,35 @@ scarcity, and content.
 
 ## Design
 
-### 1. Data model — the Armour class is unchanged
+### 1. Data model — armour joins the per-instance bonus model
 
-`Armour(key, name, tier, defense, speed_mod=0, trait=None, note="")` already carries
-everything the ordinary tier needs; ordinary pieces simply set `trait=None`. Armour keeps
-its existing enchant model — a shared `ALL_GEAR[key]` reference plus a per-player
-`enchants[key]` bonus (raised by the DWEN *Scroll of Enchant Armour*) — so nothing about
-enchanting changes.
+Today armour stores its enchant *player-side* in `enchants[armour.key]`, because armour
+objects are shared `ALL_GEAR` references and cannot carry a per-instance `+n`. The code
+already flags this as temporary — `player.py:152`: *"armour's [+n] still lives on the
+enchants dict **until the armour rework**."* This plan is that rework, because masterwork
+armour lying on the floor needs a per-instance place to keep its bonus.
 
-Defense already funnels through the single `player.defense` property (player.py:116):
+`Armour` gains a `bonus` field and a `copy(bonus=n)` method, exactly like `Weapon`. The
+consequences, all mirroring how weapons already work:
 
-```python
-d = (self.armour.defense + self.enchants.get(self.armour.key, 0)
-     + self.boots.defense + ...)
-```
+- **`player.defense`** reads `self.armour.bonus` (and `self.boots.defense`) instead of
+  `self.enchants.get(self.armour.key, 0)`. It still funnels through the one property, so
+  armour + masterwork + boots defense stack, and the wraith **ignore-armour** path (which
+  suppresses the whole property) keeps ignoring all of it — the intended behaviour.
+- **DWEN (*Scroll of Enchant Armour*)** raises the equipped `armour.bonus` (world.py:1887),
+  mirroring KRAV raising `weapon.bonus`. No cap — earned power, like weapons.
+- **Serialization** stores armour as `{key, bonus}` (player.py:168), like the weapon; the
+  `enchants` dict retires (it is armour-only today — boots carry no bonus).
+- **`gear_display`/`desc`** read `armour.bonus` for the shown `+n` (player.py:158).
+- **Loot tuples widen** from `(kind, payload)` to carry a bonus for gear —
+  `("gear", key, bonus)` with tolerant unpacking at the `loot_options` / `_consume_option`
+  / `_put_back` sites — so a displaced enhanced piece keeps its `+n`. This **closes the
+  long-deferred `weapon-bonus-lootlist-edge`** for weapons *and* armour in one move. (If
+  this proves the heaviest part, it is the one piece that can split to an immediate
+  follow-up; the masterwork *placement* itself uses `Drop.bonus`, which already exists.)
 
-so armour defense stacks with boots defense and the wraith **ignore-armour** path (which
-suppresses the whole property) continues to ignore all of it — the intended behaviour.
+`Armour(key, name, tier, defense, speed_mod=0, trait=None, note="")` keeps its signature;
+ordinary pieces set `trait=None`.
 
 ### 2. The ordinary ladder — a sidegrade tradeoff on a shared speed budget
 
@@ -110,8 +128,10 @@ bigger numbers, keeping the creative headroom in the T4/T5 roster.
 
 A new `roll_floor_armour(rng, depth)` mirrors `roll_floor_boots`: at most **one** ordinary
 armour per floor, chosen **uniformly** among the pieces valid at that depth, gated behind a
-present-chance. It draws only on `(rng, depth)` — never the Kodex — so a seed's floors are
-bit-identical for a blind and an omniscient hero (`TestKnowledgeIsNotPower` stays green).
+present-chance, and returned as a `(key, bonus)` pair. It draws only on `(rng, depth)` —
+never the Kodex — so a seed's floors are bit-identical for a blind and an omniscient hero
+(`TestKnowledgeIsNotPower` stays green), and a given floor regenerates the *same* masterwork
+`+n` after death, so masterwork armour needs no special persistence.
 
 - **Bands** (which pieces are valid): Leather 2–10, Mail 3–15, Plate 5–15. None on floor 1
   or past floor 15 — the deep floors are magical territory.
@@ -128,13 +148,29 @@ bit-identical for a blind and an omniscient hero (`TestKnowledgeIsNotPower` stay
   Per-flavour odds are `present × 1/(valid count)` — e.g. floor 5 (all three valid) ≈
   21.7% each; floor 15 (mail + plate) = 40% each.
 
+- **Masterwork on deep floors (8–15) — a layered bonus, not a separate slot.** Weapons
+  needed a separate deep-Steel slot because ordinary weapons cut off at floor 7; ordinary
+  armour already runs to floor 15, so masterwork is simply *layered onto the piece
+  `roll_floor_armour` already places*. When it drops a piece on floors 8+, roll its quality:
+  - chance it is masterwork at all: `0.25 + (depth−8)·0.05` → **25% at floor 8 … 60% at
+    floor 15**;
+  - if masterwork, chance it is **+2** (else **+1**): `0.15 + (depth−8)·0.05` → **15% at
+    floor 8 … 50% at floor 15**.
+
+  **Never +3.** A found masterwork tops out at +2, so the heaviest ordinary fortress is Full
+  Plate +2 (=+6 armour) plus Plate Boots (+2) = **+8 combined** — strong but mortal; +3
+  would tip into near-invulnerability against everything non-ethereal. (DWEN can still push
+  a piece past +2, but that is scarce, earned power, as with weapons.) Below floor 8 the
+  bonus is always 0.
+
 - **Armour leaves `gear_pool()` entirely**, exactly as boots did. Consequence: with all
   three slots now generation-placed, `gear_pool` yields nothing, so `roll_loot`'s gear
   branch always falls back to its gold alternative — **chests, bodies, and generic floor
   drops now contain only gold and consumables.** All gear is found on the floor, placed at
   generation, scarce.
 - **Placement** happens in `Level._generate` right after the ordinary-boots loop, on a free
-  tile away from the gate.
+  tile away from the gate, as a `Drop(kind="gear", payload=key, bonus=n)` — `Drop.bonus`
+  already exists from the weapon work and already round-trips through save/restore.
 - **Auto-swap** follows the boots rule: armour auto-equips **only over the T0 starter**
   (`rags`); once the player wears any T1+ armour, a found piece is left on the ground for a
   deliberate manual pickup, so the def/speed tradeoff is never silently resolved. (Today
@@ -184,26 +220,43 @@ gear-discovery ledger and `gear_catalog` iterate only the live `ARMOURS` table, 
 recorded key for a deleted piece is inert rather than fatal (the plan should confirm no
 lookup path dereferences a discovered key directly).
 
+The bonus-model refactor reinforces this: the run save's shape changes anyway (armour goes
+from a bare `key` to `{key, bonus}`, and the `enchants` dict is dropped), so bumping the
+version is doubly warranted and a pre-change suspended run discards cleanly rather than
+attempting a half-migration.
+
 ## Surfaces touched
 
-- **`items.py`** — rewrite the `ARMOURS` table (rags T0; leather/mail/plate T1–3; drop
-  scale/chain/thorn/silk); add `roll_floor_armour` + the armour bands; make `gear_pool`
-  return nothing for armour (armour now generation-placed).
-- **`dungeon.py`** — add the ordinary-armour placement loop after the boots loop; rework
-  floor 1 (retire the guaranteed Bone Axe and the `gear_pool` gift; add the coin-flip
-  gift).
-- **`world.py`** — armour auto-swap becomes starter-only (mirror boots).
+- **`items.py`** — add `bonus` + `copy(bonus=n)` to `Armour`; rewrite the `ARMOURS` table
+  (rags T0; leather/mail/plate T1–3; drop scale/chain/thorn/silk); add `roll_floor_armour`
+  (returns `(key, bonus)`, with the masterwork roll on floors 8–15) + the armour bands; make
+  `gear_pool` return nothing for armour (armour now generation-placed).
+- **`player.py`** — `defense` reads `armour.bonus` (not `enchants`); serialize armour as
+  `{key, bonus}` and retire the `enchants` dict; `gear_display` reads `armour.bonus`;
+  `rags` starter unchanged.
+- **`world.py`** — DWEN `enchant_armour` raises the equipped `armour.bonus`; widen gear
+  loot tuples to `("gear", key, bonus)` with tolerant unpacking at `loot_options` /
+  `_consume_option` / `_put_back` (closes the deferred bonus-loss edge); armour auto-swap
+  becomes starter-only (mirror boots).
+- **`dungeon.py`** — add the ordinary-armour placement loop after the boots loop (place a
+  `Drop` carrying the rolled `bonus`); rework floor 1 (retire the guaranteed Bone Axe and
+  the `gear_pool` gift; add the coin-flip gift).
 - **`vendor.py`** — stock consumables only (drop the gear branch).
 - **`config.py`** — bump `RUN_SAVE_VERSION` to invalidate pre-change suspended runs.
-- **`player.py`** — no change expected (`defense` already sums armour + boots + enchant;
-  `rags` starter unchanged).
 - **`tests.py`** — new tests (below).
 
 ## Testing considerations
 
 - **Ladder & stacking:** each rung's `defense`/`speed`/`desc()` renders correctly; armour
-  defense stacks additively with boots defense and the DWEN enchant; a wraith's
-  ignore-armour path suppresses the *combined* defense, not just the armour term.
+  defense stacks additively with `armour.bonus` (masterwork/DWEN) and boots defense; a
+  wraith's ignore-armour path suppresses the *combined* defense, not just the armour term.
+- **Masterwork:** ordinary armour on floors 8–15 may roll +1 or +2 (never +3) at the
+  depth-climbing odds; below floor 8 it is always +0; the `+n` adds to `player.defense` and
+  shows in `gear_display`/`desc`.
+- **Bonus model:** DWEN raises the equipped `armour.bonus` (uncapped); armour serializes as
+  `{key, bonus}` and round-trips through suspend/resume; retiring the `enchants` dict breaks
+  neither equip nor `defense`. A displaced enhanced piece put back into a container keeps its
+  `+n` (the deferred `weapon-bonus-lootlist-edge` is closed for weapons and armour).
 - **Shared speed budget:** Mail Shirt + Leather Boots nets 0 speed; Full Plate + Plate
   Boots nets −30; the min-speed floor still holds under stacked penalties.
 - **Distribution:** ordinary armour appears only on floors 2–15, ≤1 per floor, uniform
@@ -223,4 +276,7 @@ lookup path dereferences a discovered key directly).
 
 - The ladder numbers (+2/+3/+4 defense; 0/−10/−20 speed) and the floor bands.
 - The present-chance ramp (55 / 65 / 75 / 80) and its band edges.
+- The masterwork odds (masterwork chance `0.25 + (depth−8)·0.05`; +2 share
+  `0.15 + (depth−8)·0.05`), capped at +2.
 - The 50/50 floor-1 split.
+- Whether DWEN should be hard-capped for armour (default: uncapped, matching weapons).
