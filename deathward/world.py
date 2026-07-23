@@ -964,8 +964,10 @@ class World:
                     bonus = c.weapon_bonus if field == "weapon" else 0
                     opts.append({"kind": "gear", "payload": key, "label": label,
                                  "bonus": bonus, "src": ("corpse", field)})
-            for i, (kind, payload) in enumerate(c.loot):
+            for i, t in enumerate(c.loot):
+                kind, payload = t[0], t[1]
                 opts.append({"kind": kind, "payload": payload,
+                             "bonus": t[2] if len(t) > 2 else 0,
                              "label": self.loot_label(kind, payload),
                              "src": ("corpse_loot", c, i)})
 
@@ -974,8 +976,10 @@ class World:
         for s in lvl.slain:
             if (s.x, s.y) != (p.x, p.y):
                 continue
-            for i, (kind, payload) in enumerate(s.loot):
+            for i, t in enumerate(s.loot):
+                kind, payload = t[0], t[1]
                 opts.append({"kind": kind, "payload": payload,
+                             "bonus": t[2] if len(t) > 2 else 0,
                              "label": self.loot_label(kind, payload),
                              "src": ("slain", s, i)})
 
@@ -986,8 +990,10 @@ class World:
 
         ch = lvl.chest_at(p.x, p.y)
         if ch:
-            for i, (kind, payload) in enumerate(ch.loot):
+            for i, t in enumerate(ch.loot):
+                kind, payload = t[0], t[1]
                 opts.append({"kind": kind, "payload": payload,
+                             "bonus": t[2] if len(t) > 2 else 0,
                              "label": self.loot_label(kind, payload),
                              "src": ("chest", ch, i)})
         return opts
@@ -1081,8 +1087,8 @@ class World:
             c, i = src[1], src[2]
             if i >= len(c.loot):
                 return False
-            k, pl = c.loot.pop(i)
-            self._take(k, pl, sink=c)
+            t = c.loot.pop(i)
+            self._take(t[0], t[1], sink=c, bonus=t[2] if len(t) > 2 else 0)
             self._settle_corpse(c)
 
         elif src[0] == "drop":
@@ -1101,15 +1107,15 @@ class World:
             s, i = src[1], src[2]
             if i >= len(s.loot):
                 return False
-            k, pl = s.loot.pop(i)
-            self._take(k, pl, sink=s)   # the body stays; it just changes what it holds
+            t = s.loot.pop(i)
+            self._take(t[0], t[1], sink=s, bonus=t[2] if len(t) > 2 else 0)   # the body stays; it just changes what it holds
 
         elif src[0] == "chest":
             ch, i = src[1], src[2]
             if i >= len(ch.loot):
                 return False
-            k, pl = ch.loot.pop(i)
-            self._take(k, pl, sink=ch)  # _take may put your old gear back in first
+            t = ch.loot.pop(i)
+            self._take(t[0], t[1], sink=ch, bonus=t[2] if len(t) > 2 else 0)  # _take may put your old gear back in first
             if not ch.loot:
                 ch.opened = True
         return True
@@ -1443,19 +1449,18 @@ class World:
 
     def _put_back(self, gear, sink):
         """The gear you took off. Back into the container you looted, or onto the ground.
-        NOTE: a weapon returned to a container's loot LIST loses its +n this phase (the
-        loot-tuple format is 2-wide); a weapon returned to bare GROUND keeps it. The
-        death-corpse's own weapon slot preserves +n (see leave_corpse). The loot-list
-        edge is closed when armour/boots join the per-instance model.
+        Gear returned to a container's loot list keeps its +n: the list holds 3-wide
+        ("gear", key, bonus) tuples, unpacked tolerantly everywhere (2-wide legacy tuples
+        read as bonus 0).
 
-        A magical never goes into a container's loot list -- it would be re-dealt away
-        as an ephemeral chest/body drop and lost to the Kodex ledger. It always lands on
-        the persistent bare ground instead, and that drop is recorded."""
+        A magical never goes into a container's loot list -- it would be re-dealt away as
+        an ephemeral chest/body drop and lost to the Kodex ledger. It always lands on the
+        persistent bare ground instead, and that drop is recorded."""
         p = self.player
         magical = is_magical(gear.key)
         magical_boot = is_magical_boot(gear.key)
         if sink is not None and hasattr(sink, "loot") and not (magical or magical_boot):
-            sink.loot.append(("gear", gear.key))
+            sink.loot.append(("gear", gear.key, getattr(gear, "bonus", 0)))
             where = ("chest" if isinstance(sink, Chest)
                      else "body" if isinstance(sink, Slain)
                      else "your own body")

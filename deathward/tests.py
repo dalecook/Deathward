@@ -3356,7 +3356,7 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
 
         w.take_option(0)
         self.assertEqual(w.player.weapon.key, "brand", "you took the better weapon")
-        self.assertIn(("gear", "bronze_sword"), ch.loot,
+        self.assertIn(("gear", "bronze_sword", 0), ch.loot,
                       "the Bronze Sword must be lying in the chest, not deleted")
         labels = [o["label"] for o in w.loot_options()]
         self.assertTrue(any("Bronze Sword" in l for l in labels),
@@ -3411,7 +3411,7 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
 
         w.take_option(0)
         self.assertEqual(w.player.boots.key, "boots_mail")
-        self.assertIn(("gear", "boots_leather"), s.loot,
+        self.assertIn(("gear", "boots_leather", 0), s.loot,
                       "the Leather Boots must be left on the body")
 
     def test_swapping_at_your_own_corpse_leaves_it_on_your_corpse(self):
@@ -3427,12 +3427,12 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
 
         w.take_option(0)                                     # take the Flame Brand
         self.assertEqual(w.player.weapon.key, "brand")
-        self.assertIn(("gear", "bronze_sword"), c.loot,
+        self.assertIn(("gear", "bronze_sword", 0), c.loot,
                       "your Bronze Sword must stay on the body, not vanish")
         # and the save agrees
         saved = codex.corpse_at(1)
         self.assertIsNotNone(saved)
-        self.assertIn(["gear", "bronze_sword"], saved["loot"])
+        self.assertIn(["gear", "bronze_sword", 0], saved["loot"])
 
     def test_take_all_does_not_leave_you_juggling_your_own_cast_offs(self):
         from .dungeon import Chest
@@ -3449,7 +3449,7 @@ class TestGearSwapsAreNotThefts(unittest.TestCase):
         # the shiv it displaced is in the chest, and 'all' left it there rather than
         # picking it straight back up again
         self.assertEqual(w.player.weapon.key, "brand")
-        self.assertIn(("gear", "shiv"), ch.loot)
+        self.assertIn(("gear", "shiv", 0), ch.loot)
 
 
 class TestTheCorpseDuplicationBug(unittest.TestCase):
@@ -7991,6 +7991,30 @@ class TestFloorArmourPlacement(unittest.TestCase):
         w.take_all()
         self.assertEqual(w.player.armour.key, "leather",
                          "the first armour still auto-equips over the starter")
+
+
+class TestDisplacedMasterworkKeepsBonus(unittest.TestCase):
+    def _chest_under_player(self, w, loot):
+        from .dungeon import Chest
+        w.level.monsters = []
+        w.level.chests = [Chest(w.player.x, w.player.y, loot)]
+        w.level.drops = []
+        w.level.corpse = None
+        return w.level.chests[0]
+
+    def test_a_swapped_off_masterwork_armour_keeps_its_plus_in_a_chest(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["plate"].copy(bonus=2)     # Full Plate +2
+        self._chest_under_player(w, [("gear", "leather")])
+        w.take_option(0)                                       # equip leather; plate -> chest
+        self.assertEqual(w.player.armour.key, "leather")
+        ch = w.level.chest_at(w.player.x, w.player.y)
+        back = [t for t in ch.loot if t[0] == "gear" and t[1] == "plate"]
+        self.assertTrue(back, "the plate must return to the chest")
+        self.assertEqual(back[0][2] if len(back[0]) > 2 else 0, 2,
+                         "the displaced masterwork plate kept its +2")
 
 
 class TestMonsterSerialization(unittest.TestCase):
