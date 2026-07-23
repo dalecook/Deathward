@@ -786,6 +786,8 @@ class World:
         raw = dmg
         if not ignore_armour:
             dmg = max(0, dmg - p.defense)
+            if p.armour.trait == "bastion":
+                dmg = min(dmg, config.BASTION_CAP)
         if dmg == 0:
             self.log("The %s %s you -- your armour turns it." % (self._mname(m), verb),
                      config.DIM)

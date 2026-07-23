@@ -8591,6 +8591,42 @@ class TestRetaliationArmour(unittest.TestCase):
         self.assertEqual(m.burning, 0, "must not re-trigger mid-recharge")
 
 
+class TestBastionAndLifeweaver(unittest.TestCase):
+    def test_bastion_caps_a_big_hit(self):
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        from . import config
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["bastion"].copy()
+        m = Monster("brute", w.player.x + 1, w.player.y)
+        w.level.monsters = [m]
+        hp = w.player.hp
+        w.monster_attacks_player(m, 40)     # a huge hit
+        lost = hp - w.player.hp
+        self.assertLessEqual(lost, config.BASTION_CAP,
+                             "no single hit may exceed Bastion's cap")
+
+    def test_lifeweaver_knits_hp_each_turn(self):
+        from .items import ALL_GEAR
+        from . import config
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["lifeweave"].copy()
+        w.player.hp = w.player.max_hp - 5
+        w.player.tick_effects(w)
+        self.assertEqual(w.player.hp, w.player.max_hp - 5 + config.LIFEWEAVE_HEAL)
+
+    def test_lifeweaver_never_overheals(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["lifeweave"].copy()
+        w.player.hp = w.player.max_hp
+        w.player.tick_effects(w)
+        self.assertEqual(w.player.hp, w.player.max_hp)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

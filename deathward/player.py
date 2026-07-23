@@ -208,6 +208,8 @@ class Player:
                 world.add_fx("pulse", self.x, self.y, color=config.HEAL, life=0.3)
             if self.regen == 0:
                 world.log("The knitting warmth fades.", config.DIM)
+        if self.armour.trait == "lifeweave" and self.hp < self.max_hp:
+            self.heal(config.LIFEWEAVE_HEAL)
         if self.vigor > 0:
             self.vigor_t -= 1
             if self.vigor_t <= 0:
