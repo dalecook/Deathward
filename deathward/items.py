@@ -507,11 +507,11 @@ def roll_deep_steel(rng, depth):
 
 
 def roll_ordinary(rng, depth):
-    """Floors 1-7: the one ordinary weapon a floor may hold (Plan 1 of the rebalance).
-    Floor 1 is a guaranteed unenhanced Bone Axe. Returns (key, bonus) or None. Unchanged
-    behaviour from the original roll_floor_weapon for these floors."""
+    """Floors 2-7: the one ordinary weapon a floor may hold. Floor 1 places NO random
+    weapon -- its only gear is the coin-flip gift (Bone Sword or Leather Jerkin), placed
+    in dungeon.py. Returns (key, bonus) or None."""
     if depth == 1:
-        return ("bone_axe", 0)
+        return None
     if rng.random() >= 0.80:
         return None
     material = "bone" if depth <= 2 else "bronze" if depth <= 4 else "steel"

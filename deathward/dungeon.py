@@ -26,7 +26,7 @@ see a monster, it can see you.
 import random
 
 from . import config
-from .items import (gear_pool, is_magical, roll_chest, roll_floor_boots,
+from .items import (is_magical, roll_chest, roll_floor_boots,
                     roll_floor_boots_magical, roll_floor_weapons, roll_loot)
 from .monsters import Monster, spawn_count, spawn_roster
 from .traps import TRAP_POOL, Trap
@@ -628,19 +628,17 @@ class Level:
                 # it now EXISTS: never rolls again this game (persistence lands in Plan B).
                 codex.record_magical_boot_placed(mbkey, d, spot[0], spot[1])
 
-        # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. There is exactly one guaranteed gear
-        # upgrade down here, placed as far from the gate as the level allows, so it
-        # is a reward for exploring rather than a handout at the door. It is claimed
-        # once per GAME: it must not regrow on every respawn, or death becomes a way
-        # to farm it. (Armour only now -- gear_pool excludes weapons and ordinary boots,
-        # both generation-placed above; the floor's weapon is placed unconditionally.)
+        # FLOOR 1 PAYS FOR CURIOSITY -- ONCE. Exactly one guaranteed gift, placed as far
+        # from the gate as the level allows, so it is a reward for exploring rather than a
+        # handout at the door. It is a 50/50 coin-flip: a Bone Sword (start better at
+        # killing) or a Leather Jerkin (start better at surviving) -- the whole triad
+        # thesis in the first pickup. Claimed once per GAME: it must not regrow on every
+        # respawn, or death becomes a way to farm it.
         if d == 1 and not codex.gift_claimed("floor1"):
-            pool = gear_pool(1)
-            if pool:
-                spot = self._far_room_spot()
-                if spot:
-                    self.drops.append(Drop(spot[0], spot[1], "gear",
-                                           rng.choice(pool), gift="floor1"))
+            spot = self._far_room_spot()
+            if spot:
+                gkey = "bone_sword" if rng.random() < 0.5 else "leather"
+                self.drops.append(Drop(spot[0], spot[1], "gear", gkey, gift="floor1"))
 
         # one chest per floor from depth 2 is not a chest
         if d >= 2 and self.chests and rng.random() < 0.55:

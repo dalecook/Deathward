@@ -543,6 +543,19 @@ class TestFloorOne(unittest.TestCase):
         self.assertEqual(len(self._gift(w2)), 1,
                          "a NEW GAME must restore the floor 1 upgrade")
 
+    def test_the_floor_one_gift_is_a_bone_sword_or_leather_jerkin(self):
+        seen = set()
+        for ws in range(120):
+            codex = FakeSave()
+            codex.world_seed = ws
+            w = World(codex, seed=1)
+            gift = [d for d in w.level.drops if d.gift == "floor1"]
+            self.assertEqual(len(gift), 1, "world %d has no gift" % ws)
+            self.assertIn(gift[0].payload, ("bone_sword", "leather"))
+            seen.add(gift[0].payload)
+        self.assertEqual(seen, {"bone_sword", "leather"},
+                         "both sides of the coin must appear across 120 worlds")
+
     def test_floor_one_has_angry_rats_and_no_plague_rats(self):
         for seed in range(40):
             w = World(FakeSave(), seed=seed)
@@ -5922,12 +5935,12 @@ class TestWeaponSprites(unittest.TestCase):
 
 
 class TestWeaponGeneration(unittest.TestCase):
-    def test_floor_one_is_always_an_unenhanced_bone_axe(self):
+    def test_floor_one_places_no_random_weapon(self):
         import random
         from .items import roll_floor_weapons
         for seed in range(50):
-            self.assertEqual(roll_floor_weapons(random.Random(seed), 1),
-                             [("bone_axe", 0)])
+            self.assertEqual(roll_floor_weapons(random.Random(seed), 1), [],
+                             "floor 1's only gear is the coin-flip gift")
 
     def test_material_bands(self):
         import random
@@ -5961,11 +5974,11 @@ class TestWeaponGeneration(unittest.TestCase):
 
 
 class TestFloorWeaponsList(unittest.TestCase):
-    def test_floor_one_is_a_single_bone_axe(self):
+    def test_floor_one_places_no_random_weapon(self):
         import random
         from .items import roll_floor_weapons
         for s in range(30):
-            self.assertEqual(roll_floor_weapons(random.Random(s), 1), [("bone_axe", 0)])
+            self.assertEqual(roll_floor_weapons(random.Random(s), 1), [])
 
     def test_floors_1_to_7_place_at_most_one(self):
         import random
@@ -6003,15 +6016,17 @@ class TestFloorWeaponPlacement(unittest.TestCase):
         from .items import WEAPONS
         return [d for d in lvl.drops if d.kind == "gear" and d.payload in WEAPONS]
 
-    def test_floor_one_always_has_exactly_one_bone_axe(self):
+    def test_floor_one_has_no_bone_axe_only_the_gift(self):
         for seed in range(20):
             codex = FakeSave()
             codex.world_seed = seed
             w = World(codex, seed=seed)
             drops = self._weapon_drops(w.level)
-            self.assertEqual(len(drops), 1, "one weapon on floor 1")
-            self.assertEqual(drops[0].payload, "bone_axe")
-            self.assertEqual(drops[0].bonus, 0)
+            # the only weapon that can be on floor 1 is a Bone Sword gift (never the axe)
+            self.assertLessEqual(len(drops), 1, "at most the coin-flip gift's sword")
+            for d in drops:
+                self.assertEqual(d.payload, "bone_sword")
+                self.assertEqual(d.gift, "floor1")
 
     def test_no_floor_holds_more_than_two_weapons(self):
         from .dungeon import Level
