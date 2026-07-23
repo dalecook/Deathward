@@ -819,6 +819,28 @@ class World:
                 self.log("Your thorns bite back for 2.", config.HEAL)
                 self.add_fx("impact", m.x, m.y, color=config.HEAL, radius=0.6,
                             life=0.32)
+        # Reactive magical armour: on being struck (raw > 0), if the piece's cooldown
+        # is ready, it answers, then recharges. One armour is worn, so one cooldown.
+        if raw > 0 and p.armour_cd == 0 and m.alive:
+            t = p.armour.trait
+            if t == "cinder":
+                m.burning = max(m.burning, config.CINDER_BURN_TURNS)
+                self.log("Your armour flares -- the %s catches fire." % self._mname(m),
+                         (255, 150, 80))
+                self.add_fx("burning", m.x, m.y, life=0.7, tiles=[(m.x, m.y)])
+                p.armour_cd = config.ARMOUR_RETAL_RECHARGE
+            elif t == "venom":
+                m.poisoned = max(m.poisoned, config.VENOM_POISON_TURNS)
+                self.log("Your armour weeps venom -- the %s is envenomed."
+                         % self._mname(m), (150, 220, 130))
+                self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9, life=0.4)
+                p.armour_cd = config.ARMOUR_RETAL_RECHARGE
+            elif t == "glacial":
+                m.stunned = max(m.stunned, config.FREEZE_TURNS)
+                self.log("Your armour rimes over -- the %s freezes solid."
+                         % self._mname(m), (150, 210, 255))
+                self.add_fx("freeze", m.x, m.y, color=(150, 210, 255), life=0.5)
+                p.armour_cd = config.ARMOUR_RETAL_RECHARGE
 
     def hurt_player(self, dmg, cause, silent=False):
         p = self.player

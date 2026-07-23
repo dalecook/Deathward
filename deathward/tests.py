@@ -8555,6 +8555,42 @@ class TestRehomedArmourTraits(unittest.TestCase):
         self.assertEqual(w.player.hp, hp, "wraithsilk must eat the wraith's touch")
 
 
+class TestRetaliationArmour(unittest.TestCase):
+    def _hit(self, key):
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR[key].copy()
+        m = Monster("kobold", w.player.x + 1, w.player.y)
+        w.level.monsters = [m]
+        w.monster_attacks_player(m, 3)
+        return w, m
+
+    def test_cinderplate_burns_the_attacker_then_recharges(self):
+        from . import config
+        w, m = self._hit("cinder")
+        self.assertEqual(m.burning, config.CINDER_BURN_TURNS)
+        self.assertEqual(w.player.armour_cd, config.ARMOUR_RETAL_RECHARGE)
+
+    def test_venomweave_poisons_the_attacker(self):
+        from . import config
+        w, m = self._hit("venom")
+        self.assertEqual(m.poisoned, config.VENOM_POISON_TURNS)
+
+    def test_glacial_mail_freezes_the_attacker(self):
+        from . import config
+        w, m = self._hit("glacial")
+        self.assertEqual(m.stunned, config.FREEZE_TURNS)
+
+    def test_it_does_not_fire_again_while_recharging(self):
+        from .monsters import Monster
+        w, m = self._hit("cinder")
+        m.burning = 0                       # clear the mark; cooldown is now > 0
+        w.monster_attacks_player(m, 3)
+        self.assertEqual(m.burning, 0, "must not re-trigger mid-recharge")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
