@@ -8461,6 +8461,40 @@ class TestArmourEndToEnd(unittest.TestCase):
         self.assertEqual(p.defense, 4 + 2)          # +4 armour, +2 boots
 
 
+class TestReactiveArmourInfra(unittest.TestCase):
+    def test_new_reactive_state_defaults_and_ticks(self):
+        from .player import Player
+        p = Player()
+        self.assertEqual(p.armour_cd, 0)
+        self.assertFalse(p.lastbreath_used)
+
+    def test_armour_cd_ticks_down_each_turn(self):
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour_cd = 3
+        w.player.tick_effects(w)
+        self.assertEqual(w.player.armour_cd, 2)
+
+    def test_reactive_state_round_trips_and_old_saves_default(self):
+        import json
+        from .items import ALL_GEAR
+        from .player import Player
+        p = Player()
+        p.armour_cd = 2
+        p.lastbreath_used = True
+        blob = p.to_dict()
+        q = Player.from_dict(json.loads(json.dumps(blob)))
+        self.assertEqual(q.armour_cd, 2)
+        self.assertTrue(q.lastbreath_used)
+        # an OLD save that predates these fields must load with defaults, not crash
+        old = p.to_dict()
+        del old["armour_cd"]
+        del old["lastbreath_used"]
+        r = Player.from_dict(old)
+        self.assertEqual(r.armour_cd, 0)
+        self.assertFalse(r.lastbreath_used)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

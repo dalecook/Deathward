@@ -130,6 +130,17 @@ FEAR_TURNS          = 6           # turns a frightened thing flees
 POISON_TURNS        = 3           # Basilisk Maul: turns the venom keeps eating
 POISON_DMG          = 2           # damage per poisoned turn
 
+# --- magical armour (Phase 1) ---
+ARMOUR_RETAL_RECHARGE = 3      # retaliation trio: turns between on-struck triggers
+ARMOUR_CAPSTONE_RECHARGE = 4   # Blinding Light / Robe of Hades
+CINDER_BURN_TURNS = 2          # Cinderplate: attacker burns this many turns
+VENOM_POISON_TURNS = 3         # Venomweave: attacker poisoned this many turns
+BASTION_CAP = 8                # Bastion: no single hit exceeds this
+LIFEWEAVE_HEAL = 2             # Lifeweaver: hp knitted per turn while worn
+BLINDING_RADIUS = 2            # Blinding Light: stun radius (tiles)
+BLINDING_STUN_TURNS = 2        # Blinding Light: stun duration
+LASTBREATH_SANCTUARY = 1       # Last Breath: turns untouchable after the save
+
 ENRAGE_CHANCE       = 0.20        # Betrayer's Edge: chance to send the struck thing berserk
 ENRAGE_TURNS        = 6           # turns it attacks whatever is nearest
 

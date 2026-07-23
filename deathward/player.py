@@ -48,7 +48,7 @@ _PLAYER_STATE = (
     "poison", "stuck", "haste", "might", "stoneskin", "regen", "vigor",
     "vigor_t", "weak", "berserk", "resist", "levitate", "invisible",
     "confused", "heroism", "sanctuary", "phoenix", "frozen",
-    "slipstep_hits", "blade_coat", "gift",
+    "slipstep_hits", "blade_coat", "gift", "armour_cd", "lastbreath_used",
 )
 
 
@@ -85,6 +85,8 @@ class Player:
         self.phoenix = False      # a Phoenix draught: the next death is refused, once
         self.frozen = 0           # beholder: turns you cannot act while the world does
         self.slipstep_hits = 0    # Slipstep boots: damaging hits taken, for the every-4th escape
+        self.armour_cd = 0          # magical armour: on-struck reactive cooldown
+        self.lastbreath_used = False # Last Breath: the once-per-life save, spent
         # a NEGATIVE potion, once identified, is not swallowed -- it is wiped down the
         # blade and spent on the very next strike you land. one coat, one strike, and
         # you have to decide which enemy gets it. None, or the potion's effect string
@@ -169,7 +171,7 @@ class Player:
     def from_dict(cls, data):
         p = cls()
         for k in _PLAYER_STATE:
-            setattr(p, k, data[k])
+            setattr(p, k, data.get(k, getattr(p, k)))
         w = data["weapon"]
         p.weapon = ALL_GEAR[w["key"]].copy(bonus=w["bonus"])
         a = data["armour"]
@@ -180,6 +182,8 @@ class Player:
 
     # --- per-turn -------------------------------------------------------
     def tick_effects(self, world):
+        if self.armour_cd > 0:
+            self.armour_cd -= 1
         if self.poison > 0:
             self.poison -= 1
             world.hurt_player(1, "poison", silent=True)
