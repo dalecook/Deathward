@@ -1310,13 +1310,13 @@ class TestLootMenu(unittest.TestCase):
                          "'all' must never swap a Flame Brand for a Bronze Sword")
 
     def test_an_explicit_choice_may_downgrade_you_if_you_insist(self):
-        from .items import ARMOURS
+        from .items import ALL_GEAR
         codex = FakeSave()
         w = World(codex, seed=6)
-        w.player.armour = ARMOURS["plate"]
-        self._chest_under_player(w, [("gear", "silk")])   # same tier, but a trait
+        w.player.armour = ALL_GEAR["plate"].copy()        # +4 def, heavy
+        self._chest_under_player(w, [("gear", "leather")])  # +2 def, but fast
         w.take_option(0)
-        self.assertEqual(w.player.armour.key, "silk",
+        self.assertEqual(w.player.armour.key, "leather",
                          "if the player picks it deliberately, give it to them")
 
     def test_G_is_offered_even_for_a_single_item(self):
@@ -1440,9 +1440,9 @@ class TestEveryItemLooksLikeItself(unittest.TestCase):
         self.assertGreater(g, b, "leather must be brown: green above blue")
         self.assertGreater(r - b, 30, "leather is not brown enough (r-b=%.0f)" % (r - b))
 
-        r, g, b = average(sprites.gear("scale"))
+        r, g, b = average(sprites.gear("mail"))
         self.assertLess(max(r, g, b) - min(r, g, b), 22,
-                        "scale must be GREY: its channels should be near-equal "
+                        "mail must be GREY: its channels should be near-equal "
                         "(got %.0f/%.0f/%.0f)" % (r, g, b))
 
     def test_the_potions_match_their_descriptions(self):
@@ -1890,8 +1890,9 @@ class TestTheArsenalCheat(unittest.TestCase):
             self.assertEqual(len(picks[cat]), 3, "%s offers exactly three" % cat)
             best = max(g.tier for g in pool.values())
             self.assertEqual(picks[cat][0].tier, best, "the first pick is the top tier")
-            self.assertTrue(all(g.tier >= 2 for g in picks[cat]),
-                            "%s picks are all genuinely high-end" % cat)
+            top_three_tiers = sorted((g.tier for g in pool.values()), reverse=True)[:3]
+            self.assertEqual([g.tier for g in picks[cat]], top_three_tiers,
+                             "%s picks are the three highest tiers available" % cat)
 
     def test_it_drops_the_choice_on_an_open_tile_beside_you(self):
         w = self._world()
@@ -4527,7 +4528,7 @@ class TestWaveTwoBuffs(unittest.TestCase):
         from .items import WEAPONS, ARMOURS
         w = self._world()
         w.player.weapon = WEAPONS["bronze_sword"].copy()   # Bronze Sword, 2-5 dmg
-        w.player.armour = ARMOURS["leather"]      # Leather Jerkin, 1 def
+        w.player.armour = ARMOURS["leather"]      # Leather Jerkin, 2 def
         self.assertEqual(w.player.gear_display("weapon"), ("Bronze Sword", "2-5 dmg"))
 
         self._use(w, "krav")                       # enchant the weapon +1
@@ -4540,7 +4541,7 @@ class TestWaveTwoBuffs(unittest.TestCase):
 
         self._use(w, "dwen")                       # enchant the armour +1
         self.assertEqual(w.player.gear_display("armour"),
-                         ("Leather Jerkin +1", "2 def"))
+                         ("Leather Jerkin +1", "3 def"))
         # unenchanted gear reads plain
         self.assertEqual(w.player.gear_display("boots")[0], w.player.boots.name)
 
@@ -7839,6 +7840,26 @@ class TestArmourBonusModel(unittest.TestCase):
                          "the shared template must stay untouched")
         self.assertEqual(Player().armour.bonus, 0,
                          "a fresh player must not inherit the cheat's mutation")
+
+
+class TestArmourLadder(unittest.TestCase):
+    def test_the_four_rungs_have_the_agreed_stats(self):
+        from .items import ARMOURS
+        expected = {
+            "rags":    (0, 0, 0),
+            "leather": (1, 2, 0),
+            "mail":    (2, 3, -10),
+            "plate":   (3, 4, -20),
+        }
+        self.assertEqual(set(ARMOURS), set(expected), "exactly the four-rung ladder")
+        for key, (tier, defense, speed) in expected.items():
+            a = ARMOURS[key]
+            self.assertEqual((a.tier, a.defense, a.speed_mod), (tier, defense, speed), key)
+
+    def test_the_trait_armours_are_gone(self):
+        from .items import ARMOURS
+        for gone in ("scale", "chain", "thorn", "silk"):
+            self.assertNotIn(gone, ARMOURS, "%s graduated / retired" % gone)
 
 
 class TestMonsterSerialization(unittest.TestCase):

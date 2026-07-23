@@ -167,15 +167,14 @@ WEAPONS.update({
 })
 
 ARMOURS = {
-    "rags":     Armour("rags", "Padded Rags", 0, 0),
-    "leather":  Armour("leather", "Leather Jerkin", 1, 1),
-    "scale":    Armour("scale", "Scale Vest", 1, 2, -5),
-    "chain":    Armour("chain", "Chain Hauberk", 2, 3, -10),
-    "thorn":    Armour("thorn", "Thorned Cuirass", 2, 2, -5, "thorns",
-                       "returns 2 damage to anything that hits you"),
-    "plate":    Armour("plate", "Warden Plate", 3, 5, -18),
-    "silk":     Armour("silk", "Wraithsilk", 3, 2, 0, "wraithsilk",
-                       "a wraith's touch cannot find you"),
+    # A clean four-rung leather/mail/plate ladder sharing the material vocabulary of
+    # ordinary boots. A sidegrade tradeoff, not a power ladder: more defense costs more
+    # speed, and armour + boots spend from the SAME speed budget. No traits -- thorns and
+    # wraithsilk graduate to the magical roster.
+    "rags":    Armour("rags", "Padded Rags", 0, 0),
+    "leather": Armour("leather", "Leather Jerkin", 1, 2, 0),
+    "mail":    Armour("mail", "Mail Shirt", 2, 3, -10),
+    "plate":   Armour("plate", "Full Plate", 3, 4, -20),
 }
 
 BOOTS = {

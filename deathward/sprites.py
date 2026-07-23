@@ -1097,6 +1097,15 @@ def _armour_sprite(key, s, S):
             y = S * (0.38 + i * 0.13)
             _circ(s, (206, 170, 120), cx - S * 0.10, y, S * 0.018)
             _circ(s, (206, 170, 120), cx + S * 0.10, y, S * 0.018)
+    elif key == "mail":                     # grey chainmail rings
+        steel = (138, 144, 156)
+        cuirass(steel, _shade(steel, 0.6))
+        for row in range(5):
+            for col in range(5):
+                x = cx - S * 0.18 + col * S * 0.09 + (S * 0.045 if row % 2 else 0)
+                y = S * 0.34 + row * S * 0.10
+                pygame.draw.circle(s, _shade(steel, 1.3), (int(x), int(y)),
+                                   int(S * 0.028), int(S * 0.012))
     elif key == "scale":                    # GREY scales
         grey = (146, 152, 162)
         cuirass(grey, _shade(grey, 0.62))
