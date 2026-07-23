@@ -771,6 +771,17 @@ class World:
             self.log("THE WARDEN FALLS.", config.GOLD)
             return
 
+    def _firestorm(self):
+        """Fire through everything visible; the CASTER/WEARER is spared. Shared by the
+        VORN scroll and the Robe of Hades. Damage draws the world RNG (deterministic)."""
+        hit = [m for m in list(self.level.monsters) if self.visible(m.x, m.y)]
+        self.add_fx("flash", color=(255, 150, 70), life=0.55)
+        self.add_fx("burning", life=1.1, tiles=self.visible_floor())
+        for m in hit:
+            self.add_fx("burst", m.x, m.y, radius=0.6, color=(255, 170, 70), life=0.6)
+            self.hurt_monster(m, self.rng.randint(8, 14), source="scroll")
+        return len(hit)
+
     def monster_attacks_player(self, m, dmg, ignore_armour=False, verb="hits"):
         p = self.player
         if p.sanctuary > 0:
@@ -843,6 +854,19 @@ class World:
                          % self._mname(m), (150, 210, 255))
                 self.add_fx("freeze", m.x, m.y, color=(150, 210, 255), life=0.5)
                 p.armour_cd = config.ARMOUR_RETAL_RECHARGE
+            elif t == "blinding":
+                for mm in self.level.monsters:
+                    if mm.alive and mm.dist(p.x, p.y) <= config.BLINDING_RADIUS:
+                        mm.stunned = max(mm.stunned, config.BLINDING_STUN_TURNS)
+                        mm.intent = None
+                self.log("Your armour ERUPTS with light. Everything near you reels.",
+                         config.GOLD)
+                self.add_fx("flash", color=(255, 250, 210), life=0.5)
+                p.armour_cd = config.ARMOUR_CAPSTONE_RECHARGE
+            elif t == "hades":
+                self.log("Struck, your robe answers in fire.", (255, 140, 70))
+                self._firestorm()
+                p.armour_cd = config.ARMOUR_CAPSTONE_RECHARGE
 
     def hurt_player(self, dmg, cause, silent=False):
         p = self.player
@@ -1687,21 +1711,9 @@ class World:
             self.add_fx("ripple", p.x, p.y, radius=26, color=config.MANA, life=0.9,
                         tiles=newly)
         elif effect == "fire":
-            hit = [m for m in list(self.level.monsters) if self.visible(m.x, m.y)]
             self.log("Fire roars through everything you can see.", (255, 140, 70))
             self.shake(10)
-            # the whole visible floor lights up, and every single thing it touches --
-            # including you -- burns where it stands. VORN is indiscriminate, and the
-            # player needs to watch it be indiscriminate. so: every tile it reaches
-            # is literally set alight, which is also a precise map of its range.
-            self.add_fx("flash", color=(255, 150, 70), life=0.55)
-            self.add_fx("burning", life=1.1, tiles=self.visible_floor())
-            for m in hit:
-                self.add_fx("burst", m.x, m.y, radius=0.6, color=(255, 170, 70),
-                            life=0.6)
-                self.hurt_monster(m, self.rng.randint(8, 14), source="scroll")
-            self.add_fx("burst", p.x, p.y, radius=0.6, color=(255, 110, 60), life=0.6)
-            self.hurt_player(self.rng.randint(2, 5), "glyph")
+            self._firestorm()
         elif effect == "blink":
             # UUL: the camera cuts to somewhere else entirely. Without a mark on the
             # tile you LEFT and the tile you ARRIVED at, the player cannot tell a

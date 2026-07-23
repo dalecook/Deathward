@@ -3881,8 +3881,8 @@ class TestFireIsVisible(unittest.TestCase):
         for spot in placed:
             self.assertIn(spot, bursts,
                           "every monster it burned must be shown burning")
-        self.assertIn((w.player.x, w.player.y), bursts,
-                      "VORN burns YOU too -- and it must show you that it did")
+        self.assertNotIn((w.player.x, w.player.y), bursts,
+                         "VORN spares its own caster -- no burst on the player's tile")
 
     def test_the_glyph_sets_the_floor_it_damages_on_fire(self):
         """The burning tiles must BE the damage area. An animation that lies about
@@ -8648,6 +8648,47 @@ class TestLastBreath(unittest.TestCase):
         w.player.lastbreath_used = True         # already spent
         w.kill_player("brute")
         self.assertTrue(w.dead, "a spent Last Breath cannot save you again")
+
+
+class TestArmourCapstones(unittest.TestCase):
+    def test_firestorm_scroll_no_longer_burns_the_caster(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.level.monsters = [Monster("kobold", w.player.x + 1, w.player.y)]
+        hp = w.player.hp
+        w._apply_effect("fire")
+        self.assertEqual(w.player.hp, hp, "VORN must not cook its own caster")
+
+    def test_robe_of_hades_burns_the_room_and_spares_you(self):
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        from . import config
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["hades"].copy()
+        m = Monster("kobold", w.player.x + 1, w.player.y)
+        w.level.monsters = [m]
+        hp, mhp = w.player.hp, m.hp
+        w.monster_attacks_player(m, 3)
+        self.assertLess(m.hp, mhp, "the Robe answers in fire")
+        self.assertEqual(w.player.hp, hp + 0, "the Robe's fire spares the wearer "
+                         "(barring the incoming hit already applied)")
+        self.assertEqual(w.player.armour_cd, config.ARMOUR_CAPSTONE_RECHARGE)
+
+    def test_blinding_light_stuns_the_ring_and_wipes_windups(self):
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        from . import config
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["blinding"].copy()
+        near = Monster("kobold", w.player.x + 1, w.player.y)
+        near.intent = ("smash", w.player.x, w.player.y)
+        w.level.monsters = [near]
+        w.monster_attacks_player(near, 3)
+        self.assertEqual(near.stunned, config.BLINDING_STUN_TURNS)
+        self.assertIsNone(near.intent, "a wiped windup")
 
 
 if __name__ == "__main__":
