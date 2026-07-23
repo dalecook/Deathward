@@ -8529,6 +8529,32 @@ class TestReactiveArmourInfra(unittest.TestCase):
         self.assertFalse(r.lastbreath_used)
 
 
+class TestRehomedArmourTraits(unittest.TestCase):
+    def test_thorned_cuirass_returns_damage(self):
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["thorn"].copy()
+        m = Monster("kobold", w.player.x + 1, w.player.y)
+        w.level.monsters = [m]
+        before = m.hp
+        w.monster_attacks_player(m, 3)
+        self.assertLess(m.hp, before, "thorns must bite an attacker back")
+
+    def test_wraithsilk_negates_a_wraith_touch(self):
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["silk"].copy()
+        m = Monster("wraith", w.player.x + 1, w.player.y)
+        w.level.monsters = [m]
+        hp = w.player.hp
+        m._ai_wraith(w, w.player)          # the adjacency-touch path
+        self.assertEqual(w.player.hp, hp, "wraithsilk must eat the wraith's touch")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
