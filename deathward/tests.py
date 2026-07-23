@@ -8353,6 +8353,33 @@ class TestSuspendResumeLifecycle(unittest.TestCase):
         self.assertEqual(g.state, DYING)
 
 
+class TestArmourEndToEnd(unittest.TestCase):
+    def test_a_deep_masterwork_armour_equips_with_its_bonus(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        # a masterwork Full Plate lying on the floor, picked up off bare ground
+        from .dungeon import Drop
+        p = w.player
+        w.level.drops.append(Drop(p.x, p.y, "gear", "plate", bonus=2))
+        p.armour = ALL_GEAR["rags"].copy()          # so the swap is an upgrade over starter
+        base = ALL_GEAR["plate"].defense
+        w.take_all()
+        self.assertEqual(p.armour.key, "plate")
+        self.assertEqual(p.armour.bonus, 2)
+        self.assertEqual(p.defense, base + 2 + p.boots.defense)
+
+    def test_full_plate_and_plate_boots_share_the_speed_budget(self):
+        from .items import ALL_GEAR
+        from .player import Player
+        from . import config
+        p = Player()
+        p.armour = ALL_GEAR["plate"].copy()         # -20 spd
+        p.boots = ALL_GEAR["boots_plate"]           # -10 spd
+        self.assertEqual(p.speed(), max(30, config.BASE_SPEED - 30))
+        self.assertEqual(p.defense, 4 + 2)          # +4 armour, +2 boots
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
