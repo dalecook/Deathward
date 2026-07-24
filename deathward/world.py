@@ -875,6 +875,13 @@ class World:
                 self.log("Struck, your robe answers in fire.", (255, 140, 70))
                 self._firestorm()
                 p.armour_cd = config.ARMOUR_CAPSTONE_RECHARGE
+        if raw > 0 and not self.dead and p.armour.trait == "fade":
+            p.fade_hits += 1
+            if p.fade_hits % config.FADE_HIT_CADENCE == 0:
+                p.invisible = max(p.invisible, config.FADE_INVIS_TURNS)
+                self._deaggro_mundane()
+                self.log("The cloak drinks the light -- you vanish.", (190, 200, 220))
+                self.add_fx("pulse", p.x, p.y, color=(190, 200, 220), life=0.6)
 
     def hurt_player(self, dmg, cause, silent=False):
         p = self.player

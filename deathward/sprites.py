@@ -1168,6 +1168,8 @@ def _armour_sprite(key, s, S):
         cuirass((140, 134, 124), (92, 86, 78))
     elif key == "hades":                    # dark robe, ember trim
         cuirass((70, 54, 66), (150, 70, 50))
+    elif key == "fade":                     # dim violet-grey, half-there
+        cuirass((132, 120, 150), (84, 76, 100))
 
 
 def _boots_sprite(key, s, S):

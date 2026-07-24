@@ -5104,6 +5104,25 @@ class TestUntimedInvisibility(unittest.TestCase):
         self.assertTrue(wr.awake, "the wraith keeps hunting")
 
 
+class TestFadecloak(unittest.TestCase):
+    def test_every_fourth_hit_vanishes_and_deaggros(self):
+        from .items import ALL_GEAR
+        from .monsters import Monster
+        from . import config
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["fade"].copy()
+        m = Monster("kobold", w.player.x + 1, w.player.y); m.awake = True
+        w.level.monsters = [m]
+        for _ in range(3):
+            w.monster_attacks_player(m, 1)
+        self.assertFalse(w.player_hidden(), "not yet -- three hits")
+        w.monster_attacks_player(m, 1)      # the 4th
+        self.assertEqual(w.player.invisible, config.FADE_INVIS_TURNS)
+        self.assertTrue(w.player_hidden(), "the 4th hit drops the cloak of shadow")
+        self.assertFalse(m.awake, "and shakes the mundane hunt")
+
+
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
 
@@ -8066,8 +8085,8 @@ class TestMagicalArmourDistribution(unittest.TestCase):
                 if k:
                     seen.add(k)
         self.assertTrue(seen <= FINDABLE_MAGICAL_ARMOUR_KEYS)
-        # boss-reserved / Phase-2 pieces never drop
-        for boss in ("shade", "nightcloak", "fade"):
+        # boss-reserved pieces never drop; fade is Phase 2 findable now
+        for boss in ("shade", "nightcloak"):
             self.assertNotIn(boss, seen)
 
     def test_uniqueness_via_exclude_and_determinism(self):

@@ -200,6 +200,8 @@ ARMOURS = {
                          "heavy as stone, yet it never slows you"),
     "hades":   Armour("hades", "Robe of Hades", 5, 3, 0, "hades",
                       "struck, it answers in fire that will not touch you"),
+    "fade":    Armour("fade", "Fadecloak", 4, 2, 10, "fade",
+                      "every fourth blow, you are simply not there"),
 }
 
 BOOTS = {
@@ -499,10 +501,10 @@ def roll_floor_boots_magical(rng, depth, exclude=()):
     return rng.choice(pool)
 
 
-# The magical armour a floor can DROP. Phase 1 excludes the invisibility/wall-walk
-# pieces (fade -> Phase 2; shade/nightcloak -> boss-reserved, like Windfang/Void).
+# The magical armour a floor can DROP. fade joined in Phase 2; shade/nightcloak stay
+# boss-reserved, like Windfang/Void.
 FINDABLE_MAGICAL_ARMOUR = {
-    4: ["thorn", "silk", "venom", "cinder", "glacial", "lifeweave"],
+    4: ["thorn", "silk", "venom", "cinder", "glacial", "lifeweave", "fade"],
     5: ["bastion", "lastbreath", "blinding", "stonegolem", "hades"],
 }
 FINDABLE_MAGICAL_ARMOUR_KEYS = (set(FINDABLE_MAGICAL_ARMOUR[4])
