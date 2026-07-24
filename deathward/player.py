@@ -116,6 +116,14 @@ class Player:
             s += 40
         return max(30, s)
 
+    def hidden(self):
+        """True while the player is invisible by ANY source -- the timed cloak (Fadecloak /
+        the old-style counter), the untimed Potion/Scroll (`invis_hold`), or Nightcloak while
+        worn and not exposed. The single source of truth for both the stealth GATE and the
+        on-screen VISUAL (a ghost sprite + the UNSEEN tag)."""
+        return (self.invisible > 0 or self.invis_hold
+                or (self.armour.trait == "nightcloak" and not self.nightcloak_exposed))
+
     STONESKIN_DEF = 4         # how much the grey potion hardens you
 
     @property

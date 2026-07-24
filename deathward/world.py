@@ -366,10 +366,10 @@ class World:
         """True while MUNDANE monsters cannot see or track the player. Ethereal monsters
         (is_incorporeal) see through it -- handled in monster_can_see_player. Nightcloak
         hides the wearer permanently, until an action exposes them (break_stealth sets
-        nightcloak_exposed) -- see recloak_check for when the cloak reclaims them."""
-        p = self.player
-        return (p.invisible > 0 or p.invis_hold
-                or (p.armour.trait == "nightcloak" and not p.nightcloak_exposed))
+        nightcloak_exposed) -- see recloak_check for when the cloak reclaims them.
+
+        The logic lives on the Player (`hidden()`) so the render/HUD can share the one truth."""
+        return self.player.hidden()
 
     def region_of(self, x, y):
         """The stealth region a tile belongs to: the Room that contains it, or None for

@@ -133,8 +133,11 @@ def draw_hud(surf, world, codex):
         eff.append(("WARDED %d" % p.resist, (60, 190, 176)))
     if p.levitate:
         eff.append(("AFLOAT %d" % p.levitate, (130, 206, 220)))
-    if p.invisible:
-        eff.append(("UNSEEN %d" % p.invisible, (190, 200, 220)))
+    if p.hidden():
+        # timed sources (Fadecloak) show the countdown; untimed ones (potion / Nightcloak)
+        # just read UNSEEN -- they last until you act.
+        label = "UNSEEN %d" % p.invisible if p.invisible > 0 else "UNSEEN"
+        eff.append((label, (190, 200, 220)))
     if p.heroism:
         eff.append(("HEROISM %d" % p.heroism, config.GOLD))
     if p.sanctuary:

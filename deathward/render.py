@@ -339,8 +339,10 @@ def draw_world(surf, world, codex, cam, t):
     pygame.draw.circle(halo, (*glow, 34), (T // 2, T // 2), int(T * 0.44))
     surf.blit(halo, topleft(p.x, p.y))
     hero = sprites.player(p.weapon.tier, p.armour.tier)
-    if p.invisible > 0:
-        # you can still see yourself, but only just -- a ghost of a hero
+    if p.hidden():
+        # you can still see yourself, but only just -- a ghost of a hero. ANY invisibility
+        # source (Fadecloak, the untimed potion, or Nightcloak) fades the sprite, not just
+        # the old timed counter.
         hero = hero.copy()
         hero.set_alpha(70)
     surf.blit(hero, topleft(p.x, p.y))

@@ -5154,6 +5154,37 @@ class TestNightcloak(unittest.TestCase):
         self.assertTrue(w.player_hidden(), "clear the hunters -> re-cloak")
 
 
+class TestHiddenVisualState(unittest.TestCase):
+    """Regression: the on-screen invisibility (ghost sprite + UNSEEN tag) must reflect EVERY
+    invisibility source, not just the old timed `invisible` counter -- Nightcloak and the
+    untimed potion (`invis_hold`) were invisible in effect but rendered opaque."""
+
+    def test_player_hidden_covers_every_source(self):
+        from .items import ALL_GEAR
+        from .player import Player
+        p = Player()
+        self.assertFalse(p.hidden(), "a plain player is not hidden")
+        p.invisible = 2
+        self.assertTrue(p.hidden(), "the timed cloak (Fadecloak) hides you")
+        p.invisible = 0
+        p.invis_hold = True
+        self.assertTrue(p.hidden(), "the untimed potion hides you")
+        p.invis_hold = False
+        p.armour = ALL_GEAR["nightcloak"].copy()
+        self.assertTrue(p.hidden(), "Nightcloak worn (unexposed) hides you")
+        p.nightcloak_exposed = True
+        self.assertFalse(p.hidden(), "an exposed Nightcloak wearer is visible")
+
+    def test_world_gate_and_player_visual_share_one_truth(self):
+        from .items import ALL_GEAR
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        w.player.armour = ALL_GEAR["nightcloak"].copy()
+        # the stealth GATE and the VISUAL flag are the same call now
+        self.assertTrue(w.player_hidden())
+        self.assertEqual(w.player_hidden(), w.player.hidden())
+
+
 class TestShademail(unittest.TestCase):
     def _wear(self, w):
         from .items import ALL_GEAR
