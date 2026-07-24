@@ -143,24 +143,62 @@ scroll the same (still "everything you can see", 8–14 each). The **Robe of Had
 same routine on-struck (4-turn recharge), so the scroll and the robe share one implementation
 and neither cooks its own user. Damage draws the world RNG (deterministic per seed).
 
+### The invisibility model (shared — and a coupled fix to the Invisibility potion)
+
+Fadecloak and Nightcloak both grant *invisibility*, so this pass settles what invisibility
+MEANS and fixes the Potion/Scroll of Invisibility in the same stroke (this phase's
+Firestorm-style coupled fix). ONE model, for every source:
+
+- **Mundane-only.** Invisibility hides you from ordinary monsters; the **ethereal** ones —
+  wraiths and poltergeists (`is_incorporeal`) — always see and attack you, and going invisible
+  never de-aggros them ("it puts you in their realm"). Mechanically, `monster_can_see_player`
+  applies the `player_hidden()` gate ONLY to non-incorporeal monsters.
+- **Breaks on any turn-ending action EXCEPT walking, waiting, and taking stairs.** Attacking,
+  looting/pickup, and using an item all drop invisibility; move/wait/stairs do not — so you can
+  slip past, but you cannot loot the floor clean while cloaked. A shared break-stealth hook is
+  called by attack / take / use-item, and deliberately NOT by move / wait / descend.
+
+**Potion/Scroll of Invisibility (the fix):** both share the `"invisible"` effect. It becomes
+**untimed** — no turn counter; it persists until an action breaks it — and, on use, **de-aggros
+every mundane monster hunting you and clears their windups** (`m.awake = False`, `m.intent =
+None` for non-ethereal). A real power bump (indefinite stealth-until-you-act + a fight-reset),
+accepted; the action-break is what keeps it fair. No RNG. Tune the break-strictness in playtest.
+
+Representation (plan settles exact shape): `player.invisible` stays an int — `0` visible, a
+**positive N** = timed turns (Fadecloak), a **persistent sentinel** = until-you-act (potion),
+which `tick_effects` does not decrement; `player_hidden()` also folds in Nightcloak's
+not-exposed state.
+
 **8. Fadecloak — reactive invisibility (T4).** A counter of hits *taken* (styled after Slipstep
-boots / the hammer cadence, no RNG): on **every 4th** hit, set `player.invisible` for 2 turns,
-**de-aggro** every currently-awake monster (the wake/aggro system), and clear the `intent` of
-any that had not yet landed a blow (windup-wipe). Reuses `player.invisible` (world.py aggro /
-`monster_can_see_player`) and the intent-clear. **+2 def / +10 spd** — it's a cloak.
+boots / the hammer cadence, no RNG): on **every 4th** hit, go invisible for **2 turns**,
+**de-aggro** every currently-awake *mundane* monster (the wake/aggro system), and clear the
+`intent` of any that had not yet landed a blow (windup-wipe). Follows the shared model
+(mundane-only; the 2-turn vanish also ends early if you act). **+2 def / +10 spd** — it's a cloak.
 
-**9. Nightcloak — permanent invisibility (T5, boss-reserved).** `player.invisible` held
-**continuously** while worn, so monsters neither see nor aggro the wearer — until the wearer
-**attacks**, which breaks it; it **re-cloaks a set number of turns after the last strike**
-(turn-tuned, deterministic — no aggro-set tracking). Reuses the invisibility path. Its drop is
-reserved for the floor-15 mini-boss; until then it is cheat-only and excluded from floor drops.
+**9. Nightcloak — permanent invisibility (T5, boss-reserved).** While worn the wearer is hidden
+(folded into `player_hidden()`) UNLESS *exposed*. Any action exposes them (per the shared
+model); while exposed they are visible and can be hunted. It **re-cloaks automatically the
+moment no mundane monster is hunting the wearer** — every hunter dead or disengaged — via a
+per-turn check of the hunt-set (a living monster that is awake with eyes on the wearer). So a
+stray action near nothing flickers and re-cloaks instantly; an action near monsters exposes you
+until you clear them. Drinking Invisibility de-aggros the mundane hunters (shared model), which
+empties the hunt-set and re-cloaks Nightcloak for free. Ethereal monsters ignore all of it. Its
+drop is reserved for the floor-15 mini-boss; cheat-only until then.
 
-**10. Shademail — wall-walk (T4, boss-reserved).** The wearer may step **onto wall (stone)
-tiles**, but never off the map / into the void — `walkable()` (or the player-move check) treats
-in-bounds stone as passable for the wearer. Monsters cannot follow into stone (except wraiths,
-who already move through walls). A **5-turn cooldown** starts when the wearer **leaves** the
-stone, so wall-walking is a periodic escape, not a permanent state. FOV inside stone shows the
-immediate surroundings. Its drop is reserved for the floor-8 mini-boss; cheat-only until then.
+**10. Shademail — wall-walk (T4, boss-reserved).** The wearer may step **onto in-bounds wall
+(stone) tiles** (never off the map / into the void) — the player-move `walkable` check treats
+in-bounds stone as passable for a Shademail wearer. A **room/hall bypass**, deliberately bounded:
+- **Submerged up to 10 turns** (a per-turn turns-in-stone counter); at the limit the wearer
+  **auto-surfaces** onto a free adjacent floor tile.
+- **If every adjacent floor tile is blocked** (a monster on each exit), the wearer is stuck in
+  the rock and takes **2 damage/turn** until an exit opens — a well-guarded wall can drown you.
+- **Ethereal monsters (wraiths, poltergeists) can still reach you** in the stone; everything
+  else cannot path in, so the stone is a refuge from the mundane.
+- **No traps, loot, or stairs while submerged** — step back onto floor first. FOV in stone shows
+  only the immediate surroundings.
+- **A 5-turn re-enter cooldown** starts when the wearer surfaces, so it is a periodic escape, not
+  a permanent state. (Monsters can't follow into stone except wraiths, who already do.)
+Its drop is reserved for the floor-8 mini-boss; cheat-only until then.
 
 ### Data model
 
@@ -168,7 +206,8 @@ immediate surroundings. Its drop is reserved for the floor-8 mini-boss; cheat-on
 identities need a few parameters the single `trait` string can't hold — the **retaliation
 element + on-hit magnitude + recharge**, the **Fadecloak hit cadence + invis duration**, the
 **Bastion's cap N**, the **Lifeweaver regen amount**, the **Blinding/Robe radius + recharge**, the
-**Nightcloak re-cloak delay**, the **Shademail cooldown**. These become either fields on
+**Nightcloak exposed/hunt-set state**, and the **Shademail submerge limit + crush damage + re-enter
+cooldown**. These become either fields on
 `Armour` or **config constants keyed by the identity** (as the boots roster did); the
 implementation plan settles the exact shape. Parameterless identities (thorns, wraithsilk,
 last-breath, stone-golem, wall-walk) stay a `trait` flag. The one-armour-at-a-time invariant
@@ -211,10 +250,11 @@ Too large for one plan. Proposed phases, each shippable and testable:
    roll), and every identity that reuses existing systems — thorns, wraithsilk, the retaliation
    trio, Lifeweaver regen, Bastion's cap, Last Breath (phoenix pattern), Blinding Light, Robe of
    Hades + the VORN self-burn fix.
-2. **The novel subsystems.** Invisibility (Fadecloak reactive + Nightcloak continuous) and
-   wall-walk (Shademail) — the higher-risk pieces touching aggro/FOV/pathing. Its own plan.
-   Nightcloak/Shademail ship cheat-reachable + boss-reserved (drop wiring deferred to the
-   mini-boss task).
+2. **The novel subsystems.** The shared **invisibility model rework** (mundane-only / ethereal
+   bypass; break-on-action; the untimed Potion/Scroll of Invisibility + de-aggro-on-use), then
+   Fadecloak (reactive) + Nightcloak (permanent, hunt-set re-cloak) + wall-walk (Shademail) —
+   the higher-risk pieces touching aggro/FOV/pathing. Its own plan. Nightcloak/Shademail ship
+   cheat-reachable + boss-reserved (drop wiring deferred to the mini-boss task).
 3. **Deep economy (Plan C, later).** Rarity, one-per-game uniqueness, death-persistence, a
    collection gold star — mirroring the boots economy.
 
