@@ -49,6 +49,7 @@ _PLAYER_STATE = (
     "vigor_t", "weak", "berserk", "resist", "levitate", "invisible",
     "confused", "heroism", "sanctuary", "phoenix", "frozen",
     "slipstep_hits", "blade_coat", "gift", "armour_cd", "lastbreath_used",
+    "invis_hold", "nightcloak_exposed", "fade_hits", "submerged", "shade_cd",
 )
 
 
@@ -87,6 +88,11 @@ class Player:
         self.slipstep_hits = 0    # Slipstep boots: damaging hits taken, for the every-4th escape
         self.armour_cd = 0          # magical armour: on-struck reactive cooldown
         self.lastbreath_used = False # Last Breath: the once-per-life save, spent
+        self.invis_hold = False     # untimed invisibility (Potion/Scroll) -- until you act
+        self.nightcloak_exposed = False  # Nightcloak: visible after acting, until the hunt clears
+        self.fade_hits = 0          # Fadecloak: hits taken, for the every-4th vanish
+        self.submerged = 0          # Shademail: consecutive turns standing in stone
+        self.shade_cd = 0           # Shademail: re-enter cooldown
         # a NEGATIVE potion, once identified, is not swallowed -- it is wiped down the
         # blade and spent on the very next strike you land. one coat, one strike, and
         # you have to decide which enemy gets it. None, or the potion's effect string

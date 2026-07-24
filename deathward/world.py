@@ -363,10 +363,10 @@ class World:
         return self.level.visible[y][x]
 
     def player_hidden(self):
-        """True while the player cannot be seen or tracked by ANYTHING -- the whole
-        floor loses them. Right now that means invisible; the poltergeist's `hidden`
-        hook and future stealth would fold in here."""
-        return self.player.invisible > 0
+        """True while MUNDANE monsters cannot see or track the player. Ethereal monsters
+        (is_incorporeal) see through it -- handled in monster_can_see_player."""
+        p = self.player
+        return p.invisible > 0 or p.invis_hold
 
     def region_of(self, x, y):
         """The stealth region a tile belongs to: the Room that contains it, or None for
@@ -403,7 +403,7 @@ class World:
     def monster_can_see_player(self, m):
         # symmetric FOV: if the player can see it, it can see the player. unless the
         # player is hidden -- then nothing acquires them.
-        if self.player_hidden():
+        if self.player_hidden() and not is_incorporeal(m.key):
             return False
         if not self.in_bounds(m.x, m.y):
             return False
@@ -582,10 +582,18 @@ class World:
             return got
         return 0
 
+    def break_stealth(self):
+        """Any turn-ending action except move/wait/stairs drops invisibility. Attacking,
+        looting, and using an item call this; move/wait/descend deliberately do not."""
+        p = self.player
+        p.invisible = 0
+        p.invis_hold = False
+        p.nightcloak_exposed = True     # Nightcloak: now exposed until the hunt clears (Task 4)
+
     def player_attack(self, m):
         p = self.player
-        if p.invisible > 0:
-            p.invisible = 0          # you cannot strike from hiding and stay hidden
+        if self.player_hidden():
+            self.break_stealth()     # you cannot strike from hiding and stay hidden
             self.log("You break cover to strike.", config.DIM)
         dmg = p.damage_roll(self.rng)
         traits = p.weapon.traits
@@ -1101,6 +1109,7 @@ class World:
         """Take one option. `auto` is the 'take all' sweep, which refuses to swap a
         good piece of gear for a worse one behind your back -- an explicit choice is
         allowed to downgrade you, but 'all' never will."""
+        self.break_stealth()
         p, lvl = self.player, self.level
         kind, payload, src = o["kind"], o["payload"], o["src"]
 
@@ -1575,6 +1584,7 @@ class World:
         flavor = p.pack_remove(index)     # takes one, then consolidates downward
         if flavor is None:
             return False
+        self.break_stealth()
         c = CONSUMABLES[flavor]
         was_known = self.codex.identified(flavor)
 

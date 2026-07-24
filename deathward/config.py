@@ -141,6 +141,13 @@ BLINDING_RADIUS = 2            # Blinding Light: stun radius (tiles)
 BLINDING_STUN_TURNS = 2        # Blinding Light: stun duration
 LASTBREATH_SANCTUARY = 1       # Last Breath: turns untouchable after the save
 
+# --- magical armour (Phase 2) ---
+FADE_INVIS_TURNS = 2       # Fadecloak: turns of vanish on the 4th hit
+FADE_HIT_CADENCE = 4       # Fadecloak: every Nth hit taken triggers it
+SHADE_SUBMERGE_MAX = 10    # Shademail: max turns you may stay in stone
+SHADE_CRUSH_DMG = 2        # Shademail: damage/turn when submerged with no exit
+SHADE_REENTER_CD = 5       # Shademail: turns before you may dive again
+
 ENRAGE_CHANCE       = 0.20        # Betrayer's Edge: chance to send the struck thing berserk
 ENRAGE_TURNS        = 6           # turns it attacks whatever is nearest
 

@@ -5051,6 +5051,37 @@ class TestInvisibility(unittest.TestCase):
         self.assertEqual(w.player.invisible, 0)
 
 
+class TestInvisibilityModel(unittest.TestCase):
+    def _setup_invis(self, seed=6):
+        codex = FakeSave()
+        w = World(codex, seed=seed)
+        w.player.invis_hold = True          # hidden via the (Task 2) untimed potion state
+        return w
+
+    def test_ethereal_sees_through_invisibility_mundane_does_not(self):
+        from .monsters import Monster
+        w = self._setup_invis()
+        kobold = Monster("kobold", w.player.x + 2, w.player.y)
+        wraith = Monster("wraith", w.player.x + 2, w.player.y)
+        w.level.monsters = [kobold, wraith]
+        w.level.compute_fov(w.player.x, w.player.y)
+        self.assertFalse(w.monster_can_see_player(kobold), "mundane loses an invisible player")
+        self.assertTrue(w.monster_can_see_player(wraith), "ethereal see through invisibility")
+
+    def test_looting_and_using_break_invisibility_but_moving_does_not(self):
+        from .dungeon import Drop
+        w = self._setup_invis()
+        w.player.x, w.player.y = w.level.start
+        # moving does NOT break it
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if w.walkable(w.player.x + dx, w.player.y + dy):
+                w.player_move(dx, dy); break
+        self.assertTrue(w.player_hidden(), "sneaking past keeps you hidden")
+        # taking something DOES break it
+        w.break_stealth()                    # the hook loot/use call; asserted directly here
+        self.assertFalse(w.player_hidden(), "an action drops the cloak")
+
+
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
 
