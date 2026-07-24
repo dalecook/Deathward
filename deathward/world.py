@@ -1704,6 +1704,14 @@ class World:
         self.log("The next thing you hit is going to feel it.", config.DIM)
         return self._end_player_turn()
 
+    def _deaggro_mundane(self):
+        """Every awake MUNDANE monster loses the player and its windup. Ethereal monsters
+        (is_incorporeal) are unaffected -- invisibility never shakes them."""
+        for m in self.level.monsters:
+            if m.alive and m.awake and not is_incorporeal(m.key):
+                m.awake = False
+                m.intent = None
+
     def _apply_effect(self, effect):
         p = self.player
         if effect == "heal":
@@ -1983,9 +1991,10 @@ class World:
                      % (p.armour.name, p.armour.bonus), config.GOLD)
             self.add_fx("pulse", p.x, p.y, color=config.GOLD, life=0.6)
         elif effect == "invisible":
-            p.invisible = 16
-            self.log("The light bends around you. Nothing down here can find you now "
-                     "-- until you strike, or it thins away.", (190, 200, 220))
+            p.invis_hold = True
+            self._deaggro_mundane()
+            self.log("The light bends around you. The hunt loses your trail -- and nothing "
+                     "mundane will find you again until you act.", (190, 200, 220))
             self.add_fx("pulse", p.x, p.y, color=(190, 200, 220), life=0.7)
         elif effect == "fear":
             hit = [m for m in self.level.monsters

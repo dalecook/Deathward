@@ -5010,7 +5010,9 @@ class TestInvisibility(unittest.TestCase):
             w.codex.known.append("id.%s" % flavor)
             w.player.slots = [[flavor, 1], None, None, None, None, None]
             w.use_item(0)
-            self.assertGreater(w.player.invisible, 0, "%s hides you" % flavor)
+            # untimed now (Task 2): the potion/scroll sets invis_hold, not the timed counter
+            self.assertTrue(w.player.invis_hold, "%s hides you, untimed" % flavor)
+            self.assertTrue(w.player_hidden(), "%s leaves you hidden" % flavor)
 
     def test_nothing_can_see_you_while_hidden(self):
         from .monsters import Monster
@@ -5080,6 +5082,26 @@ class TestInvisibilityModel(unittest.TestCase):
         # taking something DOES break it
         w.break_stealth()                    # the hook loot/use call; asserted directly here
         self.assertFalse(w.player_hidden(), "an action drops the cloak")
+
+
+class TestUntimedInvisibility(unittest.TestCase):
+    def test_potion_is_untimed_and_deaggros_mundane_not_ethereal(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        kob = Monster("kobold", w.player.x + 1, w.player.y); kob.awake = True
+        kob.intent = ("smash", w.player.x, w.player.y)
+        wr = Monster("wraith", w.player.x + 1, w.player.y); wr.awake = True
+        w.level.monsters = [kob, wr]
+        w._apply_effect("invisible")
+        self.assertTrue(w.player.invis_hold, "the potion sets untimed invisibility")
+        # untimed: a turn tick does not end it
+        w.player.tick_effects(w)
+        self.assertTrue(w.player_hidden(), "invisibility does not tick away")
+        # de-aggro hit the mundane, not the ethereal
+        self.assertFalse(kob.awake, "the mundane hunter loses you")
+        self.assertIsNone(kob.intent, "and its windup is wiped")
+        self.assertTrue(wr.awake, "the wraith keeps hunting")
 
 
 class TestTheKodexTabs(unittest.TestCase):
