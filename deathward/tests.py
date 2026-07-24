@@ -8540,6 +8540,40 @@ class TestArmourCollection(unittest.TestCase):
         self.assertEqual(c.armour_collected, [])
 
 
+class TestArmourEconomyWiring(unittest.TestCase):
+    def test_picking_a_magical_armour_off_the_floor_collects_it(self):
+        w = World(FakeSave(), seed=3)
+        spot = w.drop_gear_near("thorn")                # a magical armour on the floor
+        w.player.x, w.player.y = spot
+        w.take_all()                                    # auto-equips over the T0 starter (rags)
+        self.assertEqual(w.player.armour.key, "thorn")
+        self.assertIn("thorn", w.codex.armour_collected, "picking it up collects it")
+
+    def test_bench_collects_and_awards_at_all_findable(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
+        w = World(FakeSave(), seed=3)
+        for k in FINDABLE_MAGICAL_ARMOUR_KEYS:
+            w.cheat_equip_armour(k)                     # the bench collects each
+        self.assertEqual(w.codex.stats.get("magical_armours_collected_all"), 1,
+                         "gathering all 12 fires the gold star")
+        self.assertIn("self.magical_armour_collector", w.codex.known)
+
+    def test_displacing_a_magical_armour_persists_it_to_bare_ground(self):
+        from .items import ARMOURS
+        from .dungeon import Chest
+        w = World(FakeSave(), seed=3)
+        w.player.armour = ARMOURS["thorn"].copy()       # wearing a magical armour
+        old = w.player.equip(ARMOURS["bastion"].copy()) # swap it off -> `old` is thorn
+        chest = Chest(w.player.x, w.player.y, [])        # a container at our feet
+        w._put_back(old, chest)
+        self.assertNotIn(("gear", "thorn", 0), chest.loot,
+                        "a magical armour never goes into a container")
+        self.assertIn("thorn", w.codex.armour_ground,
+                      "the displaced magical armour persists on bare ground")
+        self.assertTrue(any(d.kind == "gear" and d.payload == "thorn"
+                            for d in w.level.drops), "it is a floor drop")
+
+
 class TestArmourLadder(unittest.TestCase):
     def test_the_four_rungs_have_the_agreed_stats(self):
         from .items import ARMOURS

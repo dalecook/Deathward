@@ -34,8 +34,8 @@ import random
 from . import config
 from .codex import CAUSE_NAME, fact_title
 from .dungeon import WALL, Chest, Corpse, Drop, Level, Slain
-from .items import (ALL_GEAR, CONSUMABLES, is_magical, is_magical_boot, roll_loot,
-                     roll_monster_loot)
+from .items import (ALL_GEAR, CONSUMABLES, is_magical, is_magical_armour, is_magical_boot,
+                     roll_loot, roll_monster_loot)
 from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
 
 MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
@@ -1329,6 +1329,11 @@ class World:
                     self.codex.award_boots_collection()
                     self.log("EVERY STEP THE DEEP STILL HIDES is yours. A gold star of its "
                              "own, for the feet that walked every hidden path.", config.GOLD)
+            if is_magical_armour(payload):
+                if self.codex.magical_armour_picked_up(payload):
+                    self.codex.award_armour_collection()
+                    self.log("EVERY WARD THE DEEP STILL KEEPS is yours. A gold star of "
+                             "its own, for the back that bore every ward.", config.GOLD)
             name, desc = p.gear_display(g.slot)   # shows any enchant it already carried
             self.log("You put on the %s.  (%s)" % (name, desc), config.ITEM)
 
@@ -1440,6 +1445,11 @@ class World:
         g = ARMOURS[key]                    # equip stores its own per-instance copy
         old = self.player.equip(g)
         self.codex.see_gear(key)            # you have handled it -> a Kodex entry
+        if is_magical_armour(key):
+            if self.codex.magical_armour_picked_up(key):
+                self.codex.award_armour_collection()
+                self.log("EVERY WARD THE DEEP STILL KEEPS is yours. A gold star of its own.",
+                         config.GOLD)
         self.log("[CHEAT] You don the %s.  (%s)" % (g.name, g.desc()), config.GOLD)
         self.add_fx("pulse", self.player.x, self.player.y, color=config.GOLD, life=0.6)
         if old:
@@ -1598,7 +1608,9 @@ class World:
             return
         magical = is_magical(gear.key)
         magical_boot = is_magical_boot(gear.key)
-        if sink is not None and hasattr(sink, "loot") and not (magical or magical_boot):
+        magical_armour = is_magical_armour(gear.key)
+        if sink is not None and hasattr(sink, "loot") and not (magical or magical_boot
+                                                               or magical_armour):
             sink.loot.append(("gear", gear.key, getattr(gear, "bonus", 0)))
             where = ("chest" if isinstance(sink, Chest)
                      else "body" if isinstance(sink, Slain)
@@ -1612,6 +1624,9 @@ class World:
                 self.codex.drop_magical_to_ground(gear.key, self.depth, p.x, p.y, bonus)
             elif magical_boot:
                 self.codex.drop_magical_boot_to_ground(gear.key, self.depth, p.x, p.y)
+            elif magical_armour:
+                self.codex.drop_magical_armour_to_ground(gear.key, self.depth,
+                                                         p.x, p.y, bonus)
 
     def use_item(self, index):
         """`index` is a SLOT, 0-5. The number you press is the slot you drink from --
