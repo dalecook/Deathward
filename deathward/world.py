@@ -154,7 +154,7 @@ class World:
                 if (r.cx, r.cy) == (rx, ry):
                     self.player_region = r
                     break
-        self.level.compute_fov(self.player.x, self.player.y)
+        self._refresh_fov()
 
     def to_dict(self):
         return {

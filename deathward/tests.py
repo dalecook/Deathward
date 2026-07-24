@@ -5293,6 +5293,33 @@ class TestShademail(unittest.TestCase):
         from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
         self.assertNotIn("shade", FINDABLE_MAGICAL_ARMOUR_KEYS)
 
+    def test_suspend_resume_while_submerged_does_not_wallhack(self):
+        """Quitting mid-dive autosaves the player standing on a WALL tile. Resume
+        must rebuild FOV the same restricted way _refresh_fov does every other
+        turn (radius=1 while submerged) -- not a raw full-radius compute_fov,
+        which casts out through the doorway's open neighbour and reveals the
+        room beyond the stone. That reveal would get folded into PERMANENT map
+        memory on the next remember_map(), a persistent info leak."""
+        from .world import World
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=6); w.level.monsters = []
+        self._wear(w)
+        spot, d = self._wall_walk_spot(w)
+        self.assertIsNotNone(spot, "the pinned floor has a wall-adjacent doorway")
+        w.player.x, w.player.y = spot
+        w.level.compute_fov(*spot)
+        w.player_move(*d)                       # into the stone
+        self.assertTrue(w.player_submerged())
+
+        blob = w.to_dict()
+        resumed = World(codex, restore=blob)
+
+        self.assertTrue(resumed.player_submerged(), "resumed run is still submerged")
+        visible_count = sum(row.count(True) for row in resumed.level.visible)
+        self.assertLessEqual(visible_count, 9,
+            "resume must use the radius-1 submerged reveal, not a full-radius "
+            "wallhack out through the doorway (~49 tiles unfixed)")
+
 
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
