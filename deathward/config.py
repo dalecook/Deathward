@@ -27,6 +27,15 @@ FPS = 60
 
 MAP_W, MAP_H = 64, 40
 DEPTH_MAX = 20
+
+# --- Magical-armour drop bands (Plan C) -------------------------------------
+# At most ONE magical-armour piece per floor. T5 is rolled first (its own,
+# deep-weighted band); only if it misses is T4 rolled. Each entry is
+# (lo_floor, hi_floor, present_chance). Floors 8-9 give T4 a higher chance
+# because T5 does not start until floor 10 (no early dead zone).
+ARMOUR_MAGICAL_T4_BANDS = [(8, 9, 0.20), (10, 11, 0.12), (12, 15, 0.10), (16, 20, 0.06)]
+ARMOUR_MAGICAL_T5_BANDS = [(10, 13, 0.08), (14, 17, 0.12), (18, 20, 0.20)]
+
 FOV_RADIUS = 8
 MONSTER_SIGHT = 9         # how close (in tiles, within FOV) a monster notices the player
 

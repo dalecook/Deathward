@@ -37,7 +37,7 @@ import pygame  # noqa: E402
 
 from . import config  # noqa: E402
 from .codex import FACTS, TOTAL_FACTS, Codex  # noqa: E402
-from .items import ALL_GEAR, BOOTS, CONSUMABLES  # noqa: E402
+from .items import ALL_GEAR, BOOTS, CONSUMABLES, roll_floor_armour_magical  # noqa: E402
 from .world import World  # noqa: E402
 
 
@@ -49,6 +49,20 @@ class FakeSave(Codex):
 
     def save(self):
         pass
+
+
+class _SeqRng:
+    """A random() that returns a scripted sequence, so a floor's magical-armour roll
+    is fully controllable. choice() is deterministic (first element)."""
+    def __init__(self, values):
+        self.values = list(values)
+        self.i = 0
+    def random(self):
+        v = self.values[self.i]
+        self.i += 1
+        return v
+    def choice(self, seq):
+        return seq[0]
 
 
 def _assert_solid_hits(case, key, lo=3, hi=5):
@@ -8377,6 +8391,55 @@ class TestMagicalArmourDistribution(unittest.TestCase):
         got = [roll_floor_armour_magical(random.Random(s), 12,
                exclude=FINDABLE_MAGICAL_ARMOUR_KEYS) for s in range(200)]
         self.assertTrue(all(g is None for g in got))
+
+
+class TestArmourMagicalDistribution(unittest.TestCase):
+    def test_none_below_floor_eight_without_consuming_a_draw(self):
+        rng = _SeqRng([])                              # no draw available
+        self.assertIsNone(roll_floor_armour_magical(rng, 7))
+        self.assertEqual(rng.i, 0, "shallow floors draw no rng")
+
+    def test_floor_eight_rolls_t4_only(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR
+        hit = roll_floor_armour_magical(_SeqRng([0.0]), 8)      # T4 present hit
+        self.assertIn(hit, FINDABLE_MAGICAL_ARMOUR[4])
+        self.assertIsNone(roll_floor_armour_magical(_SeqRng([0.99]), 8))  # T4 miss -> nothing
+
+    def test_t5_only_from_floor_ten_and_gets_first_dibs(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR
+        # floor 9: no T5 band -> a single draw is the T4 roll
+        self.assertIn(roll_floor_armour_magical(_SeqRng([0.0]), 9),
+                      FINDABLE_MAGICAL_ARMOUR[4])
+        # floor 10: T5 rolled first; a hit yields a T5 and consumes ONE draw (no T4 roll)
+        rng = _SeqRng([0.0])
+        self.assertIn(roll_floor_armour_magical(rng, 10), FINDABLE_MAGICAL_ARMOUR[5])
+        self.assertEqual(rng.i, 1, "a T5 hit does not also roll T4")
+
+    def test_t5_miss_falls_through_to_t4(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR
+        # floor 12: T5 misses (0.99), T4 hits (0.0)
+        self.assertIn(roll_floor_armour_magical(_SeqRng([0.99, 0.0]), 12),
+                      FINDABLE_MAGICAL_ARMOUR[4])
+        # both miss -> nothing
+        self.assertIsNone(roll_floor_armour_magical(_SeqRng([0.99, 0.99]), 12))
+
+    def test_uniqueness_exclusion_and_exhausted_pool(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR
+        # floor 8, all T4 already generated -> a "hit" finds an empty pool -> None
+        self.assertIsNone(
+            roll_floor_armour_magical(_SeqRng([0.0]), 8,
+                                      exclude=FINDABLE_MAGICAL_ARMOUR[4]))
+        # floor 12, T5 pool exhausted but T5 hits -> falls through to a T4 hit
+        self.assertIn(
+            roll_floor_armour_magical(_SeqRng([0.0, 0.0]), 12,
+                                      exclude=FINDABLE_MAGICAL_ARMOUR[5]),
+            FINDABLE_MAGICAL_ARMOUR[4])
+
+    def test_same_inputs_same_result_regardless_of_kodex(self):
+        # determinism at the unit level: identical (rng-seq, depth, exclude) -> identical key
+        a = roll_floor_armour_magical(_SeqRng([0.99, 0.0]), 14)
+        b = roll_floor_armour_magical(_SeqRng([0.99, 0.0]), 14)
+        self.assertEqual(a, b)
 
 
 class TestArmourLadder(unittest.TestCase):

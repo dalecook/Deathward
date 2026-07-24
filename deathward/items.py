@@ -33,6 +33,8 @@ with it unopened in your pack.
 
 import random
 
+from . import config
+
 
 class Weapon:
     slot = "weapon"
@@ -521,21 +523,34 @@ def is_magical_armour(key):
     return key in ARMOURS and ARMOURS[key].tier >= 4
 
 
+def _band_chance(bands, depth):
+    """The present-chance for `depth` from a list of (lo, hi, chance) bands, or 0.0."""
+    for lo, hi, chance in bands:
+        if lo <= depth <= hi:
+            return chance
+    return 0.0
+
+
 def roll_floor_armour_magical(rng, depth, exclude=()):
-    """The rare magical-armour slot for floors 8-20: at most one per floor, one-per-game
-    unique. Draws only from (rng, depth, exclude) -- never the Kodex -- so blind and
-    omniscient runs stay bit-identical. Returns an armour key, or None."""
+    """The rare magical-armour slot for floors 8-19: at most ONE piece per floor.
+    T5 is rolled first (its own deep-weighted band); only if it misses is T4 rolled --
+    so P(any) = p5 + (1-p5)*p4. One-per-game unique (exclude the already-generated); a
+    rolled tier whose pool is exhausted falls through to the other tier. Draws only from
+    (rng, depth, exclude) -- never the Kodex -- so blind and omniscient runs stay
+    bit-identical. Returns an armour key, or None."""
     if depth < 8:
         return None
-    present = 0.14 if depth <= 11 else 0.12 if depth <= 15 else 0.10
-    if rng.random() >= present:
-        return None
-    t5_share = 0.20 if depth <= 11 else 0.40 if depth <= 15 else 0.65
-    tier = 5 if rng.random() < t5_share else 4
-    pool = [k for k in FINDABLE_MAGICAL_ARMOUR[tier] if k not in exclude]
-    if not pool:
-        return None
-    return rng.choice(pool)
+    for tier, bands in ((5, config.ARMOUR_MAGICAL_T5_BANDS),
+                        (4, config.ARMOUR_MAGICAL_T4_BANDS)):
+        chance = _band_chance(bands, depth)
+        if chance <= 0.0:
+            continue
+        if rng.random() < chance:
+            pool = [k for k in FINDABLE_MAGICAL_ARMOUR[tier] if k not in exclude]
+            if pool:
+                return rng.choice(pool)
+            # tier present but exhausted -- fall through to the other tier
+    return None
 
 
 def roll_magical(rng, depth, exclude=()):
