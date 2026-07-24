@@ -204,6 +204,9 @@ ARMOURS = {
                       "every fourth blow, you are simply not there"),
     "nightcloak": Armour("nightcloak", "Nightcloak", 5, 3, 0, "nightcloak",
                          "the dark keeps you until you break it"),
+    # --- boss-reserved (never drops from the floor; see FINDABLE_MAGICAL_ARMOUR) ---
+    "shade":   Armour("shade", "Shademail", 4, 3, 0, "shade",
+                      "the stone parts for you -- for a while"),
 }
 
 BOOTS = {

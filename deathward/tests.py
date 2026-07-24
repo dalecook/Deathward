@@ -5154,6 +5154,146 @@ class TestNightcloak(unittest.TestCase):
         self.assertTrue(w.player_hidden(), "clear the hunters -> re-cloak")
 
 
+class TestShademail(unittest.TestCase):
+    def _wear(self, w):
+        from .items import ALL_GEAR
+        w.player.armour = ALL_GEAR["shade"].copy()
+
+    def _wall_walk_spot(self, w):
+        """A FLOOR tile with an in-bounds adjacent WALL tile, and the direction into
+        it. NOTE: unlike the brief's sketch, this does not check the player's spawn
+        tile -- the entrance is always a room CENTER (Level._carve_room's gate_room),
+        which for any room wider than 2 tiles is never itself wall-adjacent. Scanning
+        the whole (pinned) floor for a corridor doorway is the reliable way to find
+        one."""
+        from .dungeon import WALL, FLOOR
+        lvl = w.level
+        for y in range(lvl.h):
+            for x in range(lvl.w):
+                if lvl.grid[y][x] != FLOOR:
+                    continue
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nx, ny = x + dx, y + dy
+                    if lvl.in_bounds(nx, ny) and lvl.grid[ny][nx] == WALL:
+                        return (x, y), (dx, dy)
+        return None, None
+
+    def test_shademail_lets_you_step_into_stone_others_cannot(self):
+        codex = FakeSave(); codex.world_seed = 3     # pin the stone: a reliable doorway
+        w = World(codex, seed=6); w.level.monsters = []
+        spot, d = self._wall_walk_spot(w)
+        self.assertIsNotNone(spot, "the pinned floor has a wall-adjacent doorway")
+        w.player.x, w.player.y = spot
+        w.level.compute_fov(*spot)
+        px, py = spot
+        # without Shademail: blocked
+        w.player_move(*d)
+        self.assertEqual((w.player.x, w.player.y), (px, py), "stone is solid without Shademail")
+        # with Shademail: you step in
+        self._wear(w)
+        w.player_move(*d)
+        self.assertEqual((w.player.x, w.player.y), (px + d[0], py + d[1]), "you enter the stone")
+        self.assertTrue(w.player_submerged())
+
+    def test_submerge_limit_ejects_and_starts_the_cooldown(self):
+        from . import config
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=6); w.level.monsters = []
+        self._wear(w)
+        spot, d = self._wall_walk_spot(w)
+        self.assertIsNotNone(spot)
+        w.player.x, w.player.y = spot
+        w.level.compute_fov(*spot)
+        w.player_move(*d)                          # into the stone
+        for _ in range(config.SHADE_SUBMERGE_MAX + 1):
+            w.player_wait()
+        self.assertFalse(w.player_submerged(), "the limit surfaces you")
+        self.assertGreater(w.player.shade_cd, 0, "and starts the re-enter cooldown")
+
+    def test_boxed_in_crushes_instead_of_ejecting(self):
+        """If every adjacent tile is blocked when the limit hits, there is nowhere to
+        surface -- the rock crushes you for SHADE_CRUSH_DMG instead."""
+        from . import config
+        from .dungeon import FLOOR
+        from .monsters import Monster
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=6); w.level.monsters = []
+        self._wear(w)
+        spot, d = self._wall_walk_spot(w)
+        w.player.x, w.player.y = spot
+        w.level.compute_fov(*spot)
+        w.player_move(*d)                          # into the stone
+        px, py = w.player.x, w.player.y
+        # jam every chebyshev-distance-1 tile around the submerged player with monsters,
+        # so blink_tile_near(1, 1) has no candidate to eject onto
+        blockers = []
+        for by in range(py - 1, py + 2):
+            for bx in range(px - 1, px + 2):
+                if (bx, by) == (px, py) or not w.level.in_bounds(bx, by):
+                    continue
+                if w.level.grid[by][bx] == FLOOR:
+                    m = Monster("angry_rat", bx, by)
+                    blockers.append(m)
+        w.level.monsters = blockers
+        before_hp = w.player.hp
+        # the entering move already ticked submerged to 1; SHADE_SUBMERGE_MAX - 1 more
+        # waits brings it to exactly SHADE_SUBMERGE_MAX -- the FIRST turn the limit
+        # bites. (One more wait beyond this would crush a second time: the counter
+        # is not reset when boxed in, so every turn past the limit crushes again.)
+        for _ in range(config.SHADE_SUBMERGE_MAX - 1):
+            w.player_wait()
+        self.assertTrue(w.player_submerged(), "boxed in: no eject tile, so still submerged")
+        self.assertEqual(w.player.hp, before_hp - config.SHADE_CRUSH_DMG,
+                          "the rock crushes you instead")
+
+    def test_mundane_monster_cannot_strike_you_in_stone_but_a_wraith_can(self):
+        """Drive this through take_turn -- not a raw monster_attacks_player() call --
+        because the guard lives in Monster._hit (the one caller of
+        monster_attacks_player), not in monster_attacks_player itself."""
+        from .monsters import Monster
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=6); w.level.monsters = []
+        self._wear(w)
+        spot, d = self._wall_walk_spot(w)
+        px, py = spot                               # the doorway floor tile, left behind
+        w.player.x, w.player.y = spot
+        w.level.compute_fov(*spot)
+        w.player_move(*d)                            # into the stone
+        self.assertTrue(w.player_submerged())
+
+        before = w.player.hp
+        m = Monster("kobold", px, py)                 # adjacent: chebyshev dist 1
+        m.awake = True
+        w.level.monsters = [m]
+        m.take_turn(w)
+        self.assertEqual(w.player.hp, before, "a mundane monster cannot reach you in stone")
+
+        wraith = Monster("wraith", px, py)
+        wraith.awake = True
+        w.level.monsters = [wraith]
+        wraith.take_turn(w)
+        self.assertLess(w.player.hp, before, "an ethereal monster still reaches into stone")
+
+    def test_re_enter_cooldown_blocks_a_second_dive(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=6); w.level.monsters = []
+        self._wear(w)
+        spot, d = self._wall_walk_spot(w)
+        w.player.x, w.player.y = spot
+        w.level.compute_fov(*spot)
+        w.player_move(*d)                           # in
+        w.player_move(-d[0], -d[1])                  # back out onto floor
+        self.assertFalse(w.player_submerged())
+        self.assertGreater(w.player.shade_cd, 0, "surfacing starts the cooldown")
+        px, py = w.player.x, w.player.y
+        w.player_move(*d)                            # try to dive again, on cooldown
+        self.assertEqual((w.player.x, w.player.y), (px, py), "stone is solid during the cooldown")
+
+    def test_shade_is_boss_reserved_never_floor_findable(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
+        self.assertNotIn("shade", FINDABLE_MAGICAL_ARMOUR_KEYS)
+
+
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
 

@@ -33,7 +33,7 @@ import random
 
 from . import config
 from .codex import CAUSE_NAME, fact_title
-from .dungeon import Chest, Corpse, Drop, Level, Slain
+from .dungeon import WALL, Chest, Corpse, Drop, Level, Slain
 from .items import (ALL_GEAR, CONSUMABLES, is_magical, is_magical_boot, roll_loot,
                      roll_monster_loot)
 from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
@@ -993,6 +993,14 @@ class World:
             self.player_attack(m)
             return self._end_player_turn()
         if not self.walkable(nx, ny):
+            # Shademail: step INTO in-bounds stone (never off-map), if not on cooldown.
+            # No _enter_tile() here -- traps, drops, chests and the stairs live only
+            # on floor, so a stone tile has nothing to trigger by design.
+            if (p.armour.trait == "shade" and p.shade_cd == 0
+                    and self.in_bounds(nx, ny) and self.level.grid[ny][nx] == WALL):
+                p.x, p.y = nx, ny
+                self.codex.stats["steps"] += 1
+                return self._end_player_turn()
             return False
         p.x, p.y = nx, ny
         self.codex.stats["steps"] += 1
@@ -2057,16 +2065,64 @@ class World:
         if t and not (t.sprung and t.key in ("gas", "alarm", "glyph", "dart")):
             t.trigger(self, p)
 
+    # --- Shademail --------------------------------------------------------
+    def player_submerged(self):
+        """Standing inside STONE, wearing the one armour that lets you. This is the
+        single check every stone-related guard (attacks, FOV) is built on."""
+        p = self.player
+        return p.armour.trait == "shade" and self.level.grid[p.y][p.x] == WALL
+
+    def _refresh_fov(self):
+        """The normal per-turn FOV refresh -- except while submerged. Full-radius
+        shadowcasting does not check the ORIGIN tile's own opacity (only radius,
+        distance, and the tiles it walks through), so calling it from inside solid
+        rock does not crash -- but it happily casts rays out through whichever
+        neighbouring tile is open floor, at full radius. Verified empirically: from
+        a corridor-doorway wall tile, a full-radius call revealed ~49 tiles (most of
+        the room beyond), vs. ~9 for the doorway's own floor tile. That is a wallhack,
+        not "the immediate surroundings" the design wants. radius=1 keeps the reveal
+        to the properly LOS-blocked 3x3 ring around the player and nothing further."""
+        p = self.player
+        if self.player_submerged():
+            self.level.compute_fov(p.x, p.y, radius=1)
+        else:
+            self.level.compute_fov(p.x, p.y)
+
+    def _shade_tick(self):
+        """Per player turn: count time in stone, surface at the limit (or crush if
+        boxed in), and tick the re-enter cooldown while on floor."""
+        p = self.player
+        if self.player_submerged():
+            p.submerged += 1
+            if p.submerged >= config.SHADE_SUBMERGE_MAX:
+                spot = self.blink_tile_near(p.x, p.y, 1, 1)   # a free adjacent FLOOR tile
+                if spot:
+                    p.x, p.y = spot
+                    p.submerged = 0
+                    p.shade_cd = config.SHADE_REENTER_CD
+                    self.log("The stone spits you out.", config.DIM)
+                else:
+                    self.hurt_player(config.SHADE_CRUSH_DMG, "shade")   # boxed in
+                    self.log("The stone closes on you. There is nowhere to surface.",
+                             config.BLOOD)
+        else:
+            if p.submerged:                       # just stepped back onto floor
+                p.submerged = 0
+                p.shade_cd = config.SHADE_REENTER_CD
+            if p.shade_cd > 0:
+                p.shade_cd -= 1
+
     # --- the turn engine ------------------------------------------------
     def _end_player_turn(self):
         p = self.player
         p.energy -= config.ACT_COST
         p.tick_effects(self)
-        self.level.compute_fov(p.x, p.y)
+        self._refresh_fov()
         if self.dead:
             return True
         self.advance()
-        self.level.compute_fov(p.x, p.y)
+        self._shade_tick()
+        self._refresh_fov()
         self.recloak_check()
         self._autosave()
         return True

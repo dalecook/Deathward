@@ -1172,6 +1172,8 @@ def _armour_sprite(key, s, S):
         cuirass((132, 120, 150), (84, 76, 100))
     elif key == "nightcloak":               # near-black, star-flecked
         cuirass((34, 32, 48), (12, 12, 22))
+    elif key == "shade":                    # slate grey, stone-toned
+        cuirass((96, 96, 104), (52, 52, 60))
 
 
 def _boots_sprite(key, s, S):

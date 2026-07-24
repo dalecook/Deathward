@@ -370,6 +370,13 @@ class Monster:
         return self.dist(world.player.x, world.player.y) <= 1
 
     def _hit(self, world, mult=1.0, ignore_armour=False, verb="hits"):
+        # Shademail: the stone parts for its wearer alone -- a mundane thing standing
+        # next to a submerged tile simply cannot reach into it. Only the ethereal
+        # (wraith, poltergeist) already walk through walls, so stone is no obstacle
+        # to them either. This is the single call site for every monster's strike
+        # (see monster_attacks_player's only caller), so gating here covers all of them.
+        if world.player_submerged() and not is_incorporeal(self.key):
+            return
         dmg = int(round(world.rng.randint(self.t.lo, self.t.hi) * mult))
         if self.weak > 0:
             dmg = max(1, dmg - 3)     # sapped by a weakness-coated blow -- but always >=1
