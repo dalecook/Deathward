@@ -93,6 +93,7 @@ class Player:
         self.fade_hits = 0          # Fadecloak: hits taken, for the every-4th vanish
         self.submerged = 0          # Shademail: consecutive turns standing in stone
         self.shade_cd = 0           # Shademail: re-enter cooldown
+        self.stealth_broke = False  # transient: stealth broke THIS turn (blocks same-turn recloak)
         # a NEGATIVE potion, once identified, is not swallowed -- it is wiped down the
         # blade and spent on the very next strike you land. one coat, one strike, and
         # you have to decide which enemy gets it. None, or the potion's effect string

@@ -5136,7 +5136,10 @@ class TestNightcloak(unittest.TestCase):
         self.assertTrue(w.player_hidden(), "Nightcloak hides you while worn")
         w.break_stealth()                                # simulate an action
         self.assertFalse(w.player_hidden(), "acting exposes you")
-        w.recloak_check()                                # no monsters -> re-cloak
+        w.recloak_check()                                # SAME turn: the grace holds you visible
+        self.assertFalse(w.player_hidden(), "even alone, you stay visible the turn you act")
+        w.player.stealth_broke = False                   # end-of-turn clears the one-turn grace
+        w.recloak_check()                                # a later quiet turn -> re-cloak
         self.assertTrue(w.player_hidden(), "with nothing hunting, you vanish again")
 
     def test_a_living_nearby_hunter_keeps_you_exposed(self):
@@ -5150,8 +5153,53 @@ class TestNightcloak(unittest.TestCase):
         w.recloak_check()
         self.assertFalse(w.player_hidden(), "an awake mundane hunter nearby blocks the re-cloak")
         m.hp = 0                                          # kill it
+        w.player.stealth_broke = False                    # a later turn: the grace has cleared
         w.recloak_check()
         self.assertTrue(w.player_hidden(), "clear the hunters -> re-cloak")
+
+
+class TestInvisibilityBreakingActions(unittest.TestCase):
+    """Four playtest fixes: a trap, an ethereal hunter, an ethereal strike, and the
+    one-turn Nightcloak grace must each break -- or hold -- invisibility correctly."""
+
+    def _wear_nightcloak(self, w):
+        from .items import ALL_GEAR
+        w.player.armour = ALL_GEAR["nightcloak"].copy()
+
+    def test_springing_a_trap_breaks_invisibility(self):
+        from .traps import Trap
+        codex = FakeSave()
+        w = World(codex, seed=6); w.level.monsters = []
+        w.player.invis_hold = True                        # hidden via the untimed potion
+        self.assertTrue(w.player_hidden())
+        w.level.traps = [Trap("alarm", w.player.x, w.player.y)]   # a no-damage rune
+        w._enter_tile()
+        self.assertFalse(w.player_hidden(), "the rune gives you away, invisible or not")
+
+    def test_ethereal_hunts_and_its_strike_breaks_invisibility(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        start_hp = w.player.hp
+        wr = Monster("wraith", w.player.x + 1, w.player.y); wr.awake = True
+        w.level.monsters = [wr]
+        w.player.invis_hold = True                        # invisible -- but you are in ITS realm
+        w.level.compute_fov(w.player.x, w.player.y)
+        wr.take_turn(w)
+        self.assertLess(w.player.hp, start_hp, "the wraith ignores invisibility and strikes")
+        self.assertFalse(w.player_hidden(), "and its touch drags you back into sight")
+
+    def test_nightcloak_stays_visible_the_turn_you_act_even_alone(self):
+        codex = FakeSave()
+        w = World(codex, seed=6); w.level.monsters = []
+        self._wear_nightcloak(w)
+        w.break_stealth()                                 # e.g. picking something up
+        w.recloak_check()                                 # SAME turn -> grace holds
+        self.assertFalse(w.player_hidden(),
+                         "acting is visible for its turn, even with nothing hunting")
+        w.player.stealth_broke = False                    # end-of-turn clears the grace
+        w.recloak_check()                                 # a later quiet turn
+        self.assertTrue(w.player_hidden(), "then you vanish again")
 
 
 class TestHiddenVisualState(unittest.TestCase):

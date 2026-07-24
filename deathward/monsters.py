@@ -259,7 +259,9 @@ class Monster:
 
         # the player has gone unseen (invisible): even a monster that was hunting
         # loses the thread. it cannot approach, cannot strike -- it just casts about.
-        if world.player_hidden():
+        # ethereal monsters are exempt: invisibility puts you in THEIR realm, so a
+        # wraith or poltergeist sees you plainly and keeps hunting.
+        if world.player_hidden() and not is_incorporeal(self.key):
             self.intent = None
             if world.rng.random() < 0.6:
                 self._wander(world)

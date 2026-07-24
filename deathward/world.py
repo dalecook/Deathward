@@ -591,13 +591,18 @@ class World:
         p = self.player
         p.invisible = 0
         p.invis_hold = False
-        p.nightcloak_exposed = True     # Nightcloak: now exposed until the hunt clears (Task 4)
+        p.nightcloak_exposed = True     # Nightcloak: now exposed until the hunt clears
+        p.stealth_broke = True          # ...and never re-cloaks on the SAME turn it broke, so
+                                        # the break is actually visible even in an empty room
 
     def recloak_check(self):
         """Nightcloak re-cloaks the moment no mundane monster is hunting the wearer -- every
-        hunter dead or out of sight range. Deterministic; no RNG."""
+        hunter dead or out of sight range -- but never on the turn stealth was just broken, so
+        acting always reveals you for at least a beat. Deterministic; no RNG."""
         p = self.player
         if p.armour.trait != "nightcloak" or not p.nightcloak_exposed:
+            return
+        if p.stealth_broke:             # you acted or were struck THIS turn -- stay visible
             return
         hunting = any(m.alive and m.awake and not is_incorporeal(m.key)
                       and m.dist(p.x, p.y) <= config.MONSTER_SIGHT
@@ -817,6 +822,12 @@ class World:
                      config.DIM)
             self.add_fx("impact", p.x, p.y, color=(200, 204, 220), radius=0.6, life=0.25)
             return
+        if is_incorporeal(m.key) and self.player_hidden():
+            # an ethereal touch reaches across into your realm and drags you back into
+            # sight -- so every mundane monster in the room can now respond.
+            self.break_stealth()
+            self.log("The %s's touch drags you back into sight." % self._mname(m),
+                     config.DIM)
         raw = dmg
         if not ignore_armour:
             dmg = max(0, dmg - p.defense)
@@ -2063,6 +2074,8 @@ class World:
         p = self.player
         t = self.level.trap_at(p.x, p.y)
         if t and not (t.sprung and t.key in ("gas", "alarm", "glyph", "dart")):
+            if self.player_hidden():
+                self.break_stealth()   # springing a trap gives you away, invisible or not
             t.trigger(self, p)
 
     # --- Shademail --------------------------------------------------------
@@ -2124,6 +2137,7 @@ class World:
         self._shade_tick()
         self._refresh_fov()
         self.recloak_check()
+        p.stealth_broke = False     # grace consumed: from here a quiet turn may re-cloak
         self._autosave()
         return True
 
