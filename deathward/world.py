@@ -364,9 +364,12 @@ class World:
 
     def player_hidden(self):
         """True while MUNDANE monsters cannot see or track the player. Ethereal monsters
-        (is_incorporeal) see through it -- handled in monster_can_see_player."""
+        (is_incorporeal) see through it -- handled in monster_can_see_player. Nightcloak
+        hides the wearer permanently, until an action exposes them (break_stealth sets
+        nightcloak_exposed) -- see recloak_check for when the cloak reclaims them."""
         p = self.player
-        return p.invisible > 0 or p.invis_hold
+        return (p.invisible > 0 or p.invis_hold
+                or (p.armour.trait == "nightcloak" and not p.nightcloak_exposed))
 
     def region_of(self, x, y):
         """The stealth region a tile belongs to: the Room that contains it, or None for
@@ -589,6 +592,18 @@ class World:
         p.invisible = 0
         p.invis_hold = False
         p.nightcloak_exposed = True     # Nightcloak: now exposed until the hunt clears (Task 4)
+
+    def recloak_check(self):
+        """Nightcloak re-cloaks the moment no mundane monster is hunting the wearer -- every
+        hunter dead or out of sight range. Deterministic; no RNG."""
+        p = self.player
+        if p.armour.trait != "nightcloak" or not p.nightcloak_exposed:
+            return
+        hunting = any(m.alive and m.awake and not is_incorporeal(m.key)
+                      and m.dist(p.x, p.y) <= config.MONSTER_SIGHT
+                      for m in self.level.monsters)
+        if not hunting:
+            p.nightcloak_exposed = False
 
     def player_attack(self, m):
         p = self.player
@@ -2052,6 +2067,7 @@ class World:
             return True
         self.advance()
         self.level.compute_fov(p.x, p.y)
+        self.recloak_check()
         self._autosave()
         return True
 

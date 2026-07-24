@@ -1170,6 +1170,8 @@ def _armour_sprite(key, s, S):
         cuirass((70, 54, 66), (150, 70, 50))
     elif key == "fade":                     # dim violet-grey, half-there
         cuirass((132, 120, 150), (84, 76, 100))
+    elif key == "nightcloak":               # near-black, star-flecked
+        cuirass((34, 32, 48), (12, 12, 22))
 
 
 def _boots_sprite(key, s, S):

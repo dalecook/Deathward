@@ -202,6 +202,8 @@ ARMOURS = {
                       "struck, it answers in fire that will not touch you"),
     "fade":    Armour("fade", "Fadecloak", 4, 2, 10, "fade",
                       "every fourth blow, you are simply not there"),
+    "nightcloak": Armour("nightcloak", "Nightcloak", 5, 3, 0, "nightcloak",
+                         "the dark keeps you until you break it"),
 }
 
 BOOTS = {

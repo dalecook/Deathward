@@ -5123,6 +5123,37 @@ class TestFadecloak(unittest.TestCase):
         self.assertFalse(m.awake, "and shakes the mundane hunt")
 
 
+class TestNightcloak(unittest.TestCase):
+    def _wear(self, w):
+        from .items import ALL_GEAR
+        w.player.armour = ALL_GEAR["nightcloak"].copy()
+
+    def test_worn_hides_you_until_you_act_then_recloaks_when_clear(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6); w.level.monsters = []
+        self._wear(w)
+        self.assertTrue(w.player_hidden(), "Nightcloak hides you while worn")
+        w.break_stealth()                                # simulate an action
+        self.assertFalse(w.player_hidden(), "acting exposes you")
+        w.recloak_check()                                # no monsters -> re-cloak
+        self.assertTrue(w.player_hidden(), "with nothing hunting, you vanish again")
+
+    def test_a_living_nearby_hunter_keeps_you_exposed(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=6)
+        self._wear(w)
+        m = Monster("kobold", w.player.x + 1, w.player.y); m.awake = True
+        w.level.monsters = [m]
+        w.break_stealth()
+        w.recloak_check()
+        self.assertFalse(w.player_hidden(), "an awake mundane hunter nearby blocks the re-cloak")
+        m.hp = 0                                          # kill it
+        w.recloak_check()
+        self.assertTrue(w.player_hidden(), "clear the hunters -> re-cloak")
+
+
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
 
