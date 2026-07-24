@@ -9029,6 +9029,41 @@ class TestMagicalArmourEndToEnd(unittest.TestCase):
         self.assertEqual(m.burning, config.CINDER_BURN_TURNS)
 
 
+class TestPhase2Distribution(unittest.TestCase):
+    def test_fade_is_findable_but_boss_pieces_are_not(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
+        self.assertIn("fade", FINDABLE_MAGICAL_ARMOUR_KEYS)
+        self.assertNotIn("shade", FINDABLE_MAGICAL_ARMOUR_KEYS)
+        self.assertNotIn("nightcloak", FINDABLE_MAGICAL_ARMOUR_KEYS)
+
+    def test_the_bench_now_reaches_all_three_new_pieces(self):
+        from .game import Game
+        from .items import ARMOURS
+        g = Game.__new__(Game)
+        g.open_armour_cheat()
+        covered = set().union(*g.weapon_pages)
+        for key in ("fade", "shade", "nightcloak"):
+            self.assertIn(key, covered, key)
+        self.assertEqual(covered, set(ARMOURS))
+
+    def test_a_found_fadecloak_works_end_to_end(self):
+        from .items import ALL_GEAR
+        from .dungeon import Drop
+        from .monsters import Monster
+        from . import config
+        codex = FakeSave(); w = World(codex, seed=6)
+        p = w.player
+        w.level.drops.append(Drop(p.x, p.y, "gear", "fade"))
+        p.armour = ALL_GEAR["rags"].copy()
+        w.take_all()
+        self.assertEqual(p.armour.key, "fade")
+        m = Monster("kobold", p.x + 1, p.y); m.awake = True
+        w.level.monsters = [m]
+        for _ in range(config.FADE_HIT_CADENCE):
+            w.monster_attacks_player(m, 1)
+        self.assertTrue(w.player_hidden())
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
