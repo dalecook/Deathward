@@ -443,12 +443,14 @@ class Level:
         # not also replayed as if it were an heirloom.
         persisted_magicals = dict(codex.magical_ground)
         persisted_boots = dict(codex.boots_ground)
+        persisted_armours = dict(codex.armour_ground)
         if self.depth >= config.DEPTH_MAX:
             self._populate_boss()
         else:
             self._populate(codex)
         self._replay_magicals(persisted_magicals)
         self._replay_magicals(persisted_boots)
+        self._replay_magicals(persisted_armours)
 
         self._place_corpse(codex)
 

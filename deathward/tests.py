@@ -8442,6 +8442,65 @@ class TestArmourMagicalDistribution(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+class TestArmourPersistence(unittest.TestCase):
+    def test_record_grounds_the_armour_for_replay(self):
+        c = FakeSave()
+        self.assertEqual(c.armour_ground, {})
+        c.record_magical_armour_placed("thorn", 9, 5, 6)
+        c.record_magical_armour_placed("thorn", 9, 5, 6)      # idempotent
+        self.assertIn("thorn", c.armour_generated)
+        self.assertEqual(len(c.armour_generated), 1, "no duplicate keys")
+        self.assertEqual(c.armour_ground["thorn"],
+                         {"depth": 9, "x": 5, "y": 6, "bonus": 0})
+
+    def test_dropping_an_enchanted_armour_persists_its_bonus(self):
+        c = FakeSave()
+        c.drop_magical_armour_to_ground("bastion", 12, 3, 4, 2)
+        self.assertIn("bastion", c.armour_generated)
+        self.assertEqual(c.armour_ground["bastion"],
+                         {"depth": 12, "x": 3, "y": 4, "bonus": 2})
+
+    def test_ground_ledger_round_trips_and_resets(self):
+        c = FakeSave()
+        c.record_magical_armour_placed("thorn", 10, 2, 2)
+        d = c._save_dict()
+        self.assertEqual(d["armour_ground"], c.armour_ground)
+        c.new_dungeon()
+        self.assertEqual(c.armour_ground, {}, "a new dungeon clears the ground")
+
+    def test_a_magical_armour_survives_death_and_replays_where_it_fell(self):
+        codex = FakeSave()
+        codex.world_seed = 7
+        w0 = World(codex, seed=7)
+        w0.new_level(10)
+        ex, ey = w0.level.entrance                     # guaranteed-walkable on floor 10
+        codex.armour_ground = {}
+        codex.armour_generated = []
+        codex.record_magical_armour_placed("thorn", 10, ex, ey)
+        w = World(codex, seed=7)                       # a new life, same codex
+        w.new_level(10)
+        found = [d for d in w.level.drops
+                 if d.kind == "gear" and d.payload == "thorn"]
+        self.assertEqual(len(found), 1, "the armour is still on floor 10")
+        self.assertEqual((found[0].x, found[0].y), (ex, ey), "exactly where it fell")
+
+    def test_replayed_armour_keeps_its_enchant_bonus(self):
+        codex = FakeSave()
+        codex.world_seed = 7
+        w0 = World(codex, seed=7)
+        w0.new_level(10)
+        ex, ey = w0.level.entrance
+        codex.armour_ground = {}
+        codex.armour_generated = []
+        codex.drop_magical_armour_to_ground("bastion", 10, ex, ey, 2)
+        w = World(codex, seed=7)
+        w.new_level(10)
+        found = [d for d in w.level.drops
+                 if d.kind == "gear" and d.payload == "bastion"]
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].bonus, 2, "the enchant survives death")
+
+
 class TestArmourLadder(unittest.TestCase):
     def test_the_four_rungs_have_the_agreed_stats(self):
         from .items import ARMOURS

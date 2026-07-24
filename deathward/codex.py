@@ -660,6 +660,7 @@ class Codex:
         self.boots_ground = {}         # magical boots lying on a floor (re-placed each life)
         self.boots_collected = []      # magical boots ever picked up (drives the boots award)
         self.armour_generated = []     # magical-armour keys generated this GAME (uniqueness set)
+        self.armour_ground = {}        # magical armour lying on a floor (re-placed each life)
         self.gifts = []         # one-time-per-GAME rewards already claimed
         self.gift_item = None   # WHICH gear the gift turned out to be, so we can
                                 # still recognise it after it has been swapped out
@@ -733,6 +734,7 @@ class Codex:
         self.boots_ground = data.get("boots_ground", {})
         self.boots_collected = data.get("boots_collected", [])
         self.armour_generated = data.get("armour_generated", [])
+        self.armour_ground = data.get("armour_ground", {})
 
         # The suspended run, if the save carries one whose shape this build still
         # understands. A version bump (the serialization changed) discards it, as
@@ -768,6 +770,7 @@ class Codex:
             "boots_ground": self.boots_ground,
             "boots_collected": self.boots_collected,
             "armour_generated": self.armour_generated,
+            "armour_ground": self.armour_ground,
             "run": (None if self.run is None
                     else {"version": config.RUN_SAVE_VERSION, "world": self.run}),
         }
@@ -869,6 +872,7 @@ class Codex:
         self.boots_ground = {}
         self.boots_collected = []
         self.armour_generated = []
+        self.armour_ground = {}
         self.gifts = []
         self.gift_item = None
         self.run = None          # a new stone: any suspended run is meaningless now
@@ -964,10 +968,19 @@ class Codex:
 
     def record_magical_armour_placed(self, key, depth, x, y):
         """A magical armour has entered the world (rolled at generation). It never rolls
-        again (uniqueness). This is the minimal uniqueness ledger only -- persistence and
-        collection (armour_ground/armour_collected) are Plan C, not yet built."""
+        again this game (uniqueness) and lies where it was placed until picked up
+        (persistence) -- re-placed each life by Level._replay_magicals. Fresh generation
+        is never masterworked, so it grounds at bonus 0."""
         if key not in self.armour_generated:
             self.armour_generated.append(key)
+        self.armour_ground[key] = {"depth": depth, "x": x, "y": y, "bonus": 0}
+
+    def drop_magical_armour_to_ground(self, key, depth, x, y, bonus):
+        """The hero left a magical armour on the bare floor; it stays there across lives,
+        at whatever bonus it was enchanted to."""
+        if key not in self.armour_generated:
+            self.armour_generated.append(key)
+        self.armour_ground[key] = {"depth": depth, "x": x, "y": y, "bonus": bonus}
 
     def drop_magical_boot_to_ground(self, key, depth, x, y):
         """The hero left a magical boot on the bare floor; it stays there across lives."""
