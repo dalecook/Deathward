@@ -1380,6 +1380,21 @@ class World:
         if old:
             self._put_back(old, None)       # onto the floor at your feet
 
+    def cheat_equip_armour(self, key):
+        """CTRL+34 armour bench: don any armour -- ordinary or magical -- straight onto the
+        hero, so you can wear each one through the deep floors. Your current armour drops at
+        your feet (a T0 starter simply falls away), so nothing worth keeping is lost."""
+        from .items import ARMOURS
+        if key not in ARMOURS:
+            return
+        g = ARMOURS[key]                    # equip stores its own per-instance copy
+        old = self.player.equip(g)
+        self.codex.see_gear(key)            # you have handled it -> a Kodex entry
+        self.log("[CHEAT] You don the %s.  (%s)" % (g.name, g.desc()), config.GOLD)
+        self.add_fx("pulse", self.player.x, self.player.y, color=config.GOLD, life=0.6)
+        if old:
+            self._put_back(old, None)       # onto the floor at your feet
+
     def drop_gear_near(self, gear_key):
         """CTRL+87 arsenal tester: lay a chosen piece of gear on an open tile right
         next to the player, so they can step onto it and try it. Prefers an empty

@@ -289,6 +289,17 @@ def boots_bench_pages():
     return [ordinary, tier4, tier5]
 
 
+def armour_bench_pages():
+    """The CTRL+34 armour bench's pages: the ordinary armour, then the magical roster split
+    into tier 4 and tier 5, so every piece stays reachable through a single digit (1-9).
+    Order within a page follows ARMOURS' insertion order, keeping the on-screen list stable
+    run to run."""
+    ordinary = [key for key, g in ARMOURS.items() if g.tier <= 3]
+    tier4 = [key for key, g in ARMOURS.items() if g.tier == 4]
+    tier5 = [key for key, g in ARMOURS.items() if g.tier == 5]
+    return [ordinary, tier4, tier5]
+
+
 # --- consumables ---------------------------------------------------------
 class Consumable:
     slot = "pack"

@@ -7471,6 +7471,25 @@ class TestMagicalBoots(unittest.TestCase):
         self.assertTrue(all(len(p) <= 9 for p in g.weapon_pages),
                         "each page still fits the 1-9 digit keys")
 
+    def test_armour_bench_cheat_dons_a_chosen_piece(self):
+        w = World(FakeSave(), seed=17)
+        w.cheat_equip_armour("blinding")
+        self.assertEqual(w.player.armour.key, "blinding", "the bench dons the pick")
+        w.cheat_equip_armour("stonegolem")
+        self.assertEqual(w.player.armour.key, "stonegolem", "and swaps to the next pick")
+
+    def test_ctrl34_opens_an_armour_bench_reaching_every_armour(self):
+        from .game import Game, WEAPON_PICK
+        from .items import ARMOURS
+        g = Game.__new__(Game)          # bypass pygame init; drive the opener directly
+        g.open_armour_cheat()
+        self.assertEqual(g.state, WEAPON_PICK)
+        self.assertEqual(g.bench_slot, "armour")
+        covered = set().union(*g.weapon_pages)
+        self.assertEqual(covered, set(ARMOURS), "the armour bench reaches every armour")
+        self.assertTrue(all(len(p) <= 9 for p in g.weapon_pages),
+                        "each page still fits the 1-9 digit keys")
+
     def test_knockback_interrupts_a_wound_up_smash(self):
         from .items import BOOTS
         from .monsters import Monster

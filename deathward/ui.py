@@ -956,15 +956,15 @@ def draw_weapon_cheat(surf, keys, t, page_label="", slot="weapon"):
     drops at your feet. The instruction lives at the bottom, where the eye lands last."""
     from .items import ALL_GEAR
 
-    boots = slot == "boots"
+    is_weapon = slot not in ("boots", "armour")
     layer = pygame.Surface((config.W, config.H), pygame.SRCALPHA)
     layer.fill((6, 6, 10, 238))
     surf.blit(layer, (0, 0))
     cx = config.W // 2
 
-    noun = "boots" if boots else "weapon"
-    text(surf, "BOOTS BENCH" if boots else "WEAPON BENCH", (cx, 52), 34, config.GOLD,
-         bold=True, center=True)
+    noun = {"boots": "boots", "armour": "armour"}.get(slot, "weapon")
+    title = {"boots": "BOOTS BENCH", "armour": "ARMOUR BENCH"}.get(slot, "WEAPON BENCH")
+    text(surf, title, (cx, 52), 34, config.GOLD, bold=True, center=True)
     text(surf, "[ CHEAT ]   equip any %s -- your current one drops at your feet" % noun,
          (cx, 88), 14, config.DIM, center=True)
     if page_label:
@@ -985,10 +985,10 @@ def draw_weapon_cheat(surf, keys, t, page_label="", slot="weapon"):
     g2 = _pulse(t, 0.8)
     glow = (int(150 + 60 * g2), int(150 + 60 * g2), int(160 + 60 * g2))
     text(surf, "press 1-9 to equip the base %s" % noun, (cx, y + 12), 15, glow, center=True)
-    if not boots:
+    if is_weapon:
         text(surf, "hold SHIFT + 1-9 for the +2 masterwork version", (cx, y + 36), 16,
              config.GOLD, bold=True, center=True)
-    text(surf, "TAB  next page   •   ESC  cancel", (cx, y + (60 if not boots else 36)), 13,
+    text(surf, "TAB  next page   •   ESC  cancel", (cx, y + (60 if is_weapon else 36)), 13,
          config.FAINT, center=True)
 
 

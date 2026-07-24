@@ -87,6 +87,7 @@ class Game:
         self.weapon_cheat = CheatCode([pygame.K_1, pygame.K_2])   # CTRL+12: weapon bench
         self.magic_cheat = CheatCode([pygame.K_2, pygame.K_1])    # CTRL+21: magic-weapon bench
         self.boots_cheat = CheatCode([pygame.K_5, pygame.K_6])    # CTRL+56: boots bench
+        self.armour_cheat = CheatCode([pygame.K_3, pygame.K_4])   # CTRL+34: armour bench
         self.weapon_pages = [[]]   # the bench pages (weapon or boots -- see bench_slot)
         self.weapon_page_labels = [""]
         self.weapon_page = 0
@@ -271,6 +272,18 @@ class Game:
         self.bench_slot = "boots"
         self.state = WEAPON_PICK
 
+    def open_armour_cheat(self):
+        """CTRL+34. The armour bench: every armour, split into an Ordinary page and the
+        magical Tier 4 / Tier 5 pages (TAB switches). A digit dons the chosen piece
+        straight onto you and your current armour drops at your feet."""
+        from .items import armour_bench_pages
+        self.weapon_pages = armour_bench_pages()
+        self.weapon_page_labels = ["Ordinary", "Magical -- Tier 4", "Magical -- Tier 5"]
+        self.weapon_page = 0
+        self.weapon_picks = self.weapon_pages[self.weapon_page]
+        self.bench_slot = "armour"
+        self.state = WEAPON_PICK
+
     def open_consumable_cheat(self, kind):
         """CTRL+67 (scrolls) / CTRL+76 (potions): pick any uncommon or rare one, and it
         goes into your pack (identified). For testing the deeper consumables."""
@@ -388,6 +401,8 @@ class Game:
                 if idx < len(self.weapon_picks):
                     if self.bench_slot == "boots":
                         self.world.cheat_equip_boots(self.weapon_picks[idx])
+                    elif self.bench_slot == "armour":
+                        self.world.cheat_equip_armour(self.weapon_picks[idx])
                     else:
                         self.world.cheat_equip_weapon(self.weapon_picks[idx],
                                                       2 if shift else 0)
@@ -532,6 +547,7 @@ class Game:
             (self.weapon_cheat, lambda: self.open_weapon_cheat()),     # 12   weapon bench
             (self.magic_cheat, lambda: self.open_magic_cheat()),       # 21   magic bench
             (self.boots_cheat, lambda: self.open_boots_cheat()),       # 56   boots bench
+            (self.armour_cheat, lambda: self.open_armour_cheat()),     # 34   armour bench
         ]
         if held or any(c.progress for c, _ in cheats):
             done = [c.feed(k, held) for c, _ in cheats]
