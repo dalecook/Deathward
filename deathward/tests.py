@@ -8501,6 +8501,45 @@ class TestArmourPersistence(unittest.TestCase):
         self.assertEqual(found[0].bonus, 2, "the enchant survives death")
 
 
+class TestArmourCollection(unittest.TestCase):
+    def test_pickup_grounds_off_and_collects(self):
+        c = FakeSave()
+        c.record_magical_armour_placed("thorn", 9, 5, 5)
+        c.magical_armour_picked_up("thorn")
+        self.assertNotIn("thorn", c.armour_ground, "picked up -> off the ground")
+        self.assertIn("thorn", c.armour_collected, "and into the collected set")
+
+    def test_collecting_all_findable_awards_the_star_once(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
+        c = FakeSave()
+        results = [c.magical_armour_picked_up(k) for k in FINDABLE_MAGICAL_ARMOUR_KEYS]
+        self.assertEqual(sum(results), 1, "exactly one pickup completes the set")
+        c.award_armour_collection()
+        self.assertEqual(c.stats.get("magical_armours_collected_all"), 1, "the gold star")
+        self.assertIn("self.magical_armour_collector", c.known, "the Kodex fact")
+        c.award_armour_collection()                       # idempotent
+        self.assertEqual(c.known.count("self.magical_armour_collector"), 1)
+
+    def test_a_boss_piece_neither_completes_nor_blocks_the_star(self):
+        from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
+        c = FakeSave()
+        self.assertFalse(c.magical_armour_picked_up("shade"),
+                         "a boss piece alone does not complete the findable set")
+        # now collect all findable -> the last one still completes it
+        results = [c.magical_armour_picked_up(k) for k in FINDABLE_MAGICAL_ARMOUR_KEYS]
+        self.assertEqual(sum(results), 1)
+        # picking up the other boss piece afterwards does not re-fire
+        self.assertFalse(c.magical_armour_picked_up("nightcloak"))
+
+    def test_collected_ledger_round_trips_and_resets(self):
+        c = FakeSave()
+        c.magical_armour_picked_up("thorn")
+        d = c._save_dict()
+        self.assertIn("thorn", d["armour_collected"])
+        c.new_dungeon()
+        self.assertEqual(c.armour_collected, [])
+
+
 class TestArmourLadder(unittest.TestCase):
     def test_the_four_rungs_have_the_agreed_stats(self):
         from .items import ARMOURS

@@ -94,6 +94,11 @@ FACT_LIST = [
        "You have laced on every magical boot this dungeon will yield -- the whole rare "
        "roster, gathered by one hand across many deaths. A gold star of its own, for the "
        "feet that have walked every hidden path the deep still keeps."),
+    _f("self.magical_armour_collector", "self", "secret",
+       "EVERY WARD THE DEEP STILL KEEPS",
+       "You have worn every magical armour this dungeon will yield -- the whole rare "
+       "roster, gathered by one hand across many deaths. A gold star of its own, for the "
+       "back that has borne every ward the deep still keeps."),
     _f("self.the_deep_is_patient", "self", "secret",
        "YOU WAKE, AGAIN",
        "Death is not the end of the descent -- it is how you go on. You wake on the same "
@@ -661,6 +666,7 @@ class Codex:
         self.boots_collected = []      # magical boots ever picked up (drives the boots award)
         self.armour_generated = []     # magical-armour keys generated this GAME (uniqueness set)
         self.armour_ground = {}        # magical armour lying on a floor (re-placed each life)
+        self.armour_collected = []     # magical armour ever picked up (drives the armour award)
         self.gifts = []         # one-time-per-GAME rewards already claimed
         self.gift_item = None   # WHICH gear the gift turned out to be, so we can
                                 # still recognise it after it has been swapped out
@@ -698,6 +704,7 @@ class Codex:
             "deepest_kill": {},
             "magical_collected_all": 0,
             "magical_boots_collected_all": 0,
+            "magical_armours_collected_all": 0,
         }
 
     # --- persistence ----------------------------------------------------
@@ -735,6 +742,7 @@ class Codex:
         self.boots_collected = data.get("boots_collected", [])
         self.armour_generated = data.get("armour_generated", [])
         self.armour_ground = data.get("armour_ground", {})
+        self.armour_collected = data.get("armour_collected", [])
 
         # The suspended run, if the save carries one whose shape this build still
         # understands. A version bump (the serialization changed) discards it, as
@@ -771,6 +779,7 @@ class Codex:
             "boots_collected": self.boots_collected,
             "armour_generated": self.armour_generated,
             "armour_ground": self.armour_ground,
+            "armour_collected": self.armour_collected,
             "run": (None if self.run is None
                     else {"version": config.RUN_SAVE_VERSION, "world": self.run}),
         }
@@ -873,6 +882,7 @@ class Codex:
         self.boots_collected = []
         self.armour_generated = []
         self.armour_ground = {}
+        self.armour_collected = []
         self.gifts = []
         self.gift_item = None
         self.run = None          # a new stone: any suspended run is meaningless now
@@ -981,6 +991,19 @@ class Codex:
         if key not in self.armour_generated:
             self.armour_generated.append(key)
         self.armour_ground[key] = {"depth": depth, "x": x, "y": y, "bonus": bonus}
+
+    def magical_armour_picked_up(self, key):
+        """The hero has a magical armour on their back: mark it collected, take it off the
+        ground. Returns True the first time the 12 findable armours are all collected."""
+        from .items import FINDABLE_MAGICAL_ARMOUR_KEYS
+        self.armour_ground.pop(key, None)
+        if key not in self.armour_generated:
+            self.armour_generated.append(key)
+        was_complete = FINDABLE_MAGICAL_ARMOUR_KEYS <= set(self.armour_collected)
+        if key not in self.armour_collected:
+            self.armour_collected.append(key)
+        now_complete = FINDABLE_MAGICAL_ARMOUR_KEYS <= set(self.armour_collected)
+        return now_complete and not was_complete
 
     def drop_magical_boot_to_ground(self, key, depth, x, y):
         """The hero left a magical boot on the bare floor; it stays there across lives."""
@@ -1143,6 +1166,14 @@ class Codex:
         self.stats["magical_boots_collected_all"] = 1
         if "self.magical_boot_collector" not in self.known:
             self._grant("self.magical_boot_collector")
+            self.save()
+
+    def award_armour_collection(self):
+        """Grant the armour collector's Kodex fact once. Permanent (survives a new dungeon);
+        the collected-set that earns it is per-game."""
+        self.stats["magical_armours_collected_all"] = 1
+        if "self.magical_armour_collector" not in self.known:
+            self._grant("self.magical_armour_collector")
             self.save()
 
     def reveal_random(self, rng):
