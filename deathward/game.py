@@ -672,6 +672,12 @@ class Game:
         stops and you attack deliberately, with a keypress -- and it aborts the
         instant you take damage, so you cannot hold W straight through a spike pit
         and into a brute.
+
+        It also gives way whenever the floor has something to say: loot under your
+        feet, or a monster arriving in view. Those stops are what keep a hold from
+        walking you past the thing you were looking for -- or past a wind-up you were
+        meant to step off. The stop is sticky by construction: Repeater.start only
+        fires on KEYDOWN, so resuming costs you a deliberate re-press.
         """
         w = self.world
         if w.dead or w.won:
@@ -683,9 +689,15 @@ class Game:
         if not w.walkable(nx, ny):
             return False                     # a wall stops the walk
         hp_before = p.hp
+        seen_before = {id(m) for m in w.monsters if w.player_can_see(m)}
         w.player_move(dx, dy)
         if p.hp < hp_before or w.dead:
             return False                     # something hurt you: stop walking
+        if w.loot_options():
+            return False                     # you are standing on something: look down
+        if any(id(m) not in seen_before
+               for m in w.monsters if w.player_can_see(m)):
+            return False                     # something just walked into view
         return True
 
     def pump_repeat(self):

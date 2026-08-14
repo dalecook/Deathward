@@ -362,6 +362,19 @@ class World:
     def visible(self, x, y):
         return self.level.visible[y][x]
 
+    def player_can_see(self, m):
+        """True when a monster is actually DRAWN on screen: on a lit tile, and not a
+        poltergeist you have not earned yet -- render gives that one no sprite at all
+        until you know its counter, so as far as the player is concerned it is not
+        there. The auto-walk interrupt shares this truth, because a walk that halted
+        for something the screen is not showing would hand you knowledge you had not
+        paid for, and this game never does that."""
+        if not self.visible(m.x, m.y):
+            return False
+        if m.key == "poltergeist":
+            return self.codex.knows_tier("poltergeist", "counter")
+        return True
+
     def player_hidden(self):
         """True while MUNDANE monsters cannot see or track the player. Ethereal monsters
         (is_incorporeal) see through it -- handled in monster_can_see_player. Nightcloak

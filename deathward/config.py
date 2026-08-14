@@ -168,5 +168,10 @@ FULGURITE_INCORP_MULT = 1.5       # Fulgurite's bonus vs wraith/poltergeist
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole
 # point of a turn-based game) never turn into an accidental charge into a brute.
+#
+# The interval is a LEGIBILITY number, not a safety one -- safety is walk_step's job,
+# which halts the walk for loot underfoot or a monster arriving in view. This is only
+# about the walk being readable as movement instead of a blur: 0.085 was ~12 steps a
+# second, faster than the eye tracks. Tune it by feel; nothing is pinned to it.
 MOVE_REPEAT_DELAY    = 0.22      # seconds held before auto-walking begins
-MOVE_REPEAT_INTERVAL = 0.085     # seconds between steps while held
+MOVE_REPEAT_INTERVAL = 0.13      # seconds between steps while held (~7.7 a second)

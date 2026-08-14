@@ -751,6 +751,157 @@ class TestHoldToWalk(unittest.TestCase):
         self.fail("this level has no walls at all -- the test is broken")
 
 
+class TestAutoWalkStopsForInterestingThings(unittest.TestCase):
+    """Hold-to-walk exists so the dungeon is not a typing exercise. But a walk that
+    runs you past the thing you were looking for is its own kind of failure, so the
+    walk gives way the moment the floor has something to say."""
+
+    def _game(self, seed=6):
+        from .game import Game
+        g = Game.__new__(Game)          # no pygame display needed
+        g.state = None
+        g.world = World(FakeSave(), seed=seed)
+        w = g.world
+        w.level.monsters = []
+        w.level.drops = []
+        w.level.chests = []
+        w.level.slain = []
+        return g
+
+    def _empty_neighbour(self, w):
+        """A walkable neighbouring tile with nothing on it, or None."""
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = w.player.x + dx, w.player.y + dy
+            if w.walkable(nx, ny) and not w.level.trap_at(nx, ny):
+                return dx, dy, nx, ny
+        return None
+
+    def test_an_empty_tile_does_not_stop_the_walk(self):
+        """The guard on the other two: an interrupt that fires on nothing would just
+        be hold-to-walk deleted."""
+        g = self._game()
+        w = g.world
+        spot = self._empty_neighbour(w)
+        if spot is None:
+            self.skipTest("no clear neighbour on this seed")
+        dx, dy, nx, ny = spot
+        self.assertTrue(g.walk_step(dx, dy),
+                        "an empty tile must not interrupt the walk")
+        self.assertEqual((w.player.x, w.player.y), (nx, ny))
+
+    def test_stepping_onto_loot_stops_the_walk(self):
+        """You walked over it, which is exactly how you miss it. Stop ON the tile so
+        the take prompt is under you when you look up."""
+        from .dungeon import Drop
+        g = self._game()
+        w = g.world
+        spot = self._empty_neighbour(w)
+        if spot is None:
+            self.skipTest("no clear neighbour on this seed")
+        dx, dy, nx, ny = spot
+        w.level.drops = [Drop(nx, ny, "gold", 25)]
+        cont = g.walk_step(dx, dy)
+        self.assertEqual((w.player.x, w.player.y), (nx, ny),
+                         "the step itself must still happen -- you stop ON the loot")
+        self.assertFalse(cont, "stepping onto loot must stop the auto-walk")
+
+    def _reveal_spot(self, w):
+        """A step that opens fresh ground: (dx, dy, nx, ny, (mx, my)) where (mx, my)
+        is walkable, unseen from here, and seen from there. None if the seed has no
+        such step."""
+        lvl = w.level
+        px, py = w.player.x, w.player.y
+
+        def seen_from(x, y):
+            lvl.compute_fov(x, y)
+            return {(cx, cy)
+                    for cy in range(lvl.h) for cx in range(lvl.w)
+                    if lvl.visible[cy][cx]}
+
+        here = seen_from(px, py)
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = px + dx, py + dy
+            if not w.walkable(nx, ny) or lvl.trap_at(nx, ny):
+                continue
+            fresh = sorted(t for t in seen_from(nx, ny) - here
+                           if lvl.walkable(*t) and t not in ((px, py), (nx, ny)))
+            lvl.compute_fov(px, py)          # put the world back as we found it
+            if fresh:
+                return dx, dy, nx, ny, fresh[0]
+        lvl.compute_fov(px, py)
+        return None
+
+    def test_a_monster_coming_into_view_stops_the_walk(self):
+        """The one that matters. A brute you walk past is a brute that gets its
+        wind-up for free, and stepping off the wind-up is the whole fight."""
+        from .monsters import Monster
+        g = self._game()
+        w = g.world
+        spot = self._reveal_spot(w)
+        if spot is None:
+            self.skipTest("no neighbour on this seed reveals fresh ground")
+        dx, dy, nx, ny, (mx, my) = spot
+        w.level.monsters = [Monster("brute", mx, my)]
+        cont = g.walk_step(dx, dy)
+        self.assertEqual((w.player.x, w.player.y), (nx, ny),
+                         "the step itself must still happen")
+        self.assertFalse(cont, "a monster entering view must stop the auto-walk")
+
+    def test_a_poltergeist_you_cannot_see_does_not_stop_the_walk(self):
+        """The dungeon draws NOTHING for a poltergeist until you have learned its
+        counter. Halting the walk for one would hand you knowledge you have not paid
+        for -- an invisible hand on the reins. Knowledge is information, never power."""
+        from .monsters import Monster
+        g = self._game()
+        w = g.world
+        spot = self._reveal_spot(w)
+        if spot is None:
+            self.skipTest("no neighbour on this seed reveals fresh ground")
+        dx, dy, nx, ny, (mx, my) = spot
+        w.level.monsters = [Monster("poltergeist", mx, my)]
+        self.assertFalse(w.codex.knows_tier("poltergeist", "counter"),
+                         "this test needs an ignorant codex to mean anything")
+        self.assertTrue(g.walk_step(dx, dy),
+                        "a poltergeist you cannot see must not stop the walk")
+
+    def test_a_poltergeist_you_have_learned_does_stop_the_walk(self):
+        """...and the moment you HAVE earned it, it is a monster like any other."""
+        from .monsters import Monster
+        g = self._game()
+        w = g.world
+        spot = self._reveal_spot(w)
+        if spot is None:
+            self.skipTest("no neighbour on this seed reveals fresh ground")
+        dx, dy, nx, ny, (mx, my) = spot
+        w.level.monsters = [Monster("poltergeist", mx, my)]
+        w.codex.known.append("poltergeist.counter")
+        self.assertFalse(g.walk_step(dx, dy),
+                         "once you can see it, it stops the walk like anything else")
+
+    def test_a_monster_already_in_view_does_not_re_stop_the_walk(self):
+        """Otherwise you could never walk anywhere with a monster on screen -- the
+        interrupt is about the moment it ARRIVES, not about it existing."""
+        from .monsters import Monster
+        g = self._game()
+        w = g.world
+        lvl = w.level
+        spot = self._empty_neighbour(w)
+        if spot is None:
+            self.skipTest("no clear neighbour on this seed")
+        dx, dy, nx, ny = spot
+        lvl.compute_fov(w.player.x, w.player.y)
+        for cy in range(lvl.h):
+            for cx in range(lvl.w):
+                if (not lvl.visible[cy][cx] or not lvl.walkable(cx, cy)
+                        or (cx, cy) in ((w.player.x, w.player.y), (nx, ny))):
+                    continue
+                lvl.monsters = [Monster("rat", cx, cy)]
+                self.assertTrue(g.walk_step(dx, dy),
+                                "a monster you could already see must not stop you")
+                return
+        self.skipTest("nothing else visible on this seed")
+
+
 class TestRoomVariety(unittest.TestCase):
     """Rooms come in real size classes, the big ones are placed first and spread out,
     and the boss always gets a hall."""
