@@ -1,7 +1,13 @@
 # Armour Rebalance — Ordinary Tier (Plan A)
 
 **Date:** 2026-07-22
-**Status:** design, pending review
+**Status:** SHIPPED — and **partly superseded.** See [the design archive note](../README.md).
+
+> **Superseded below:** this spec lists `thorn` and `silk` under **Removed**. That was
+> true on 2026-07-22. Both returned on 2026-07-23 as magical **T4** pieces (Thorned
+> Cuirass, Wraithsilk) and are live in `deathward/items.py` today — exactly as the
+> "graduate to the magical roster" note in the Scope paragraph anticipated. Everything
+> else here still matches the code. `items.py` is the authority.
 **Scope:** the first of the armour passes — the **final** leg of the gear triad, after
 weapons and boots. This plan clean-slates the *ordinary* armour tier (leather/mail/plate),
 moves armour to the same scarce, generation-placed, found-only model as weapons and boots,

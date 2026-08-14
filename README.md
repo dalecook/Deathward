@@ -83,10 +83,40 @@ bigger number.
 | **armour** | *what you survive* — a flat subtraction from **every** hit, so it is a swarm answer, not a boss answer. And it **costs you speed.** |
 | **boots** | *how you move* — and speed is turns, and turns are the only real resource in a roguelike |
 
-Warden Plate turns a plague rat's whole damage range into zero and makes you
+Full Plate turns a plague rat's whole damage range into zero and makes you
 visibly slower. Windwalkers buy you a free action every few turns. Padded Soles are
 too light to depress a pressure plate. A wraith ignores armour entirely, which
 means the plate you are so proud of is dead weight the moment one appears.
+
+The ordinary rungs are a **sidegrade, not a ladder**: armour and boots spend from the
+*same* speed budget, so Full Plate with Plate Boots is +6 defense at −30 speed, while
+Mail with Leather Boots is +3 at nothing. Which one is better is a question about the
+floor you are on, not a number you can rank. From floor 8 the dungeon starts putting
+**magical** pieces down — one identity each, never just a bigger number: armour that
+sets its attacker alight, boots that blink you clear, a cuirass that returns damage,
+a cloak that simply stops the mundane dead from seeing you at all. Deep ordinary
+armour can also come **masterwork**, carrying a +1 or +2 it keeps forever.
+
+## Being unseen
+
+Invisibility is not a timer you spend, it is a **posture you hold**. It lasts until you
+*act*: walking, waiting and taking the stairs keep you hidden, while attacking, looting,
+using an item or springing a trap all give you away instantly. So being invisible is not
+a free hit — it is a question about whether you are willing to stop being invisible.
+
+It comes from a potion or scroll (untimed, held until you act), from **Fadecloak**
+(which flares every few times you are struck), or from **Nightcloak**, which is
+permanent and simply re-cloaks you once nothing is hunting you any more.
+
+And it only fools the **living**. Wraiths and poltergeists walk through walls and see
+straight through you, so the deep floors are exactly where the trick stops working.
+
+## Between runs
+
+Closing the window mid-run **suspends** it — the floor, your pack, your wounds, the
+map — and `ENTER` on the title picks it back up where you stood. Dying discards the
+suspended run, because dying is not a thing you get to undo. That is the only
+asymmetry: you may stop playing, you may not stop dying.
 
 ## Scrolls and potions
 
@@ -123,7 +153,7 @@ a brand-new game.
 
 ## What is down there
 
-**Monsters** — thirteen of them plus the boss, each built around a tactic rather than
+**Monsters** — twelve of them plus the boss, each built around a tactic rather than
 a stat:
 
 - **angry rats** — floor 1 only, the one thing down here you can simply hit
@@ -152,8 +182,9 @@ becomes a weapon.
 
 **Treasure** — gold, chests, gear upgrades, and hoard rooms that are visibly richer
 and guarded in proportion. From floor 5 down a **vendor** may hold a floor, more
-likely the deeper you go, willing to trade gold for gear. The dungeon puts its gold
-where its teeth are.
+likely the deeper you go, dealing in potions and scrolls — and buying them back. It
+does not stock gear: **every weapon, armour and boot in the game is found, never
+bought.** The dungeon puts its gold where its teeth are.
 
 ## Controls
 
@@ -170,7 +201,7 @@ where its teeth are.
 | `L` | message log (scrollable, newest first) |
 | `?` | help |
 | `N` (title) | NEW GAME — erases the Kodex, your dead, everything (asks first) |
-| `ENTER` (title) | CONTINUE — a new run; you keep the Kodex and your dead |
+| `ENTER` (title) | CONTINUE — resumes your suspended run if you have one, else starts a fresh one; either way you keep the Kodex and your dead |
 
 ## Tests
 
@@ -178,7 +209,7 @@ where its teeth are.
 python -m deathward.tests
 ```
 
-360 tests, including the two load-bearing proofs: hundreds of consecutive deaths
+641 tests, including the two load-bearing proofs: hundreds of consecutive deaths
 never repeat a lesson (and the telemetry tier is inexhaustible), and
 blind-vs-omniscient runs of the same seed produce identical dungeons. Plus: the
 stairs are reachable on every floor across many seeds, the Warden is never walled
@@ -193,10 +224,11 @@ corpse comes back with your gold.
 ```
 run_deathward.py       entry point
 deathward/
+  config.py            constants, palette and every tuning number
   game.py              main loop, state machine (death -> autopsy -> new run)
   world.py             turn economy, combat, consequences of curiosity
   dungeon.py           generation, hoards, boss arena, field of view
-  monsters.py          thirteen monsters, each built around one tactic
+  monsters.py          twelve monsters plus the Warden, each built around one tactic
   traps.py             five traps; invisible until YOU spring that one
   items.py             the gear triad, and the 36 consumables (looks shuffled per game)
   player.py            the hero, buffs, blade-coating, enchantments
