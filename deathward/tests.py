@@ -41,6 +41,30 @@ from .items import ALL_GEAR, BOOTS, CONSUMABLES, roll_floor_armour_magical  # no
 from .world import World  # noqa: E402
 
 
+def setUpModule():
+    """Point the whole suite at a scratch save before a single test runs.
+
+    This is the guard that makes every other test safe by construction. It is not
+    theoretical: config.SAVE_PATH lives INSIDE the package, and wipe() unlinks it
+    directly, so running the suite used to delete the player's own Kodex -- their
+    deaths, their gold, every fact they had paid for. No test may ever see the real
+    path again, whatever methods it reaches for.
+    """
+    import tempfile
+    global _REAL_SAVE_PATH
+    _REAL_SAVE_PATH = config.SAVE_PATH
+    config.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_test_scratch.json")
+
+
+def tearDownModule():
+    if os.path.exists(config.SAVE_PATH):
+        os.remove(config.SAVE_PATH)
+    config.SAVE_PATH = _REAL_SAVE_PATH
+
+
+_REAL_SAVE_PATH = config.SAVE_PATH
+
+
 class FakeSave(Codex):
     """A Codex that never touches disk, so tests cannot clobber a real save."""
 
@@ -49,6 +73,12 @@ class FakeSave(Codex):
 
     def save(self):
         pass
+
+    def wipe(self):
+        """The real wipe() UNLINKS config.SAVE_PATH -- it does not route through
+        save(), so overriding save() alone never made this class honest. Keep the
+        meaning (a new game knows nothing) and drop the delete."""
+        self.__init__()
 
 
 class _SeqRng:
@@ -9514,6 +9544,51 @@ class TestPhase2Distribution(unittest.TestCase):
         for _ in range(config.FADE_HIT_CADENCE):
             w.monster_attacks_player(m, 1)
         self.assertTrue(w.player_hidden())
+
+
+class TestTheSuiteCannotReachARealSave(unittest.TestCase):
+    """This suite once deleted a player's Kodex. Never again.
+
+    FakeSave overrode load() and save() and claimed in its docstring that tests could
+    not clobber a real save -- but wipe() unlinks config.SAVE_PATH directly, without
+    going through save(), so eight unguarded wipe() calls reached straight past the
+    fake and deleted the file. Two guards now, belt and braces: the whole module runs
+    against a temp SAVE_PATH, and FakeSave refuses to unlink anything at all.
+    """
+
+    def test_the_suite_never_points_at_the_packaged_save(self):
+        """The guard that makes the other seven hundred tests safe by construction."""
+        from . import config as cfg
+        packaged = os.path.join(os.path.dirname(os.path.abspath(cfg.__file__)),
+                                "deathward_save.json")
+        self.assertNotEqual(os.path.abspath(cfg.SAVE_PATH), os.path.abspath(packaged),
+                            "the suite is pointed at the player's own save file")
+
+    def test_wiping_a_fakesave_unlinks_nothing(self):
+        from . import config as cfg
+        import tempfile
+        old = cfg.SAVE_PATH          # patched locally too: this test must be safe
+        cfg.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_fakesave_guard.json")
+        try:
+            with open(cfg.SAVE_PATH, "w", encoding="utf-8") as fh:
+                fh.write('{"sentinel": true}')
+            FakeSave().wipe()
+            self.assertTrue(os.path.exists(cfg.SAVE_PATH),
+                            "FakeSave.wipe() deleted a file from disk")
+        finally:
+            if os.path.exists(cfg.SAVE_PATH):
+                os.remove(cfg.SAVE_PATH)
+            cfg.SAVE_PATH = old
+
+    def test_wiping_a_fakesave_still_forgets_everything(self):
+        """The override has to keep wipe's MEANING -- a new game knows nothing -- or
+        every test leaning on wipe() to reset state quietly rots into a false pass."""
+        c = FakeSave()
+        c.known.append("brute.rule")
+        c.deaths = 7
+        c.wipe()
+        self.assertEqual(c.known, [], "a wiped codex must have forgotten the monsters")
+        self.assertEqual(c.deaths, 0, "...and the deaths")
 
 
 if __name__ == "__main__":
