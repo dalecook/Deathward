@@ -4,3 +4,6 @@ deathward/deathward_save.json
 # python
 __pycache__/
 *.pyc
+
+# pygbag web build output (pygbag . drops it here)
+build/

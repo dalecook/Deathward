@@ -15,6 +15,7 @@
 
 """Main loop and the state machine that turns a death into a lesson."""
 
+import asyncio
 import sys
 
 import pygame
@@ -726,7 +727,15 @@ class Game:
             self._begin_dying()
 
     # --- loop -----------------------------------------------------------
-    def run(self):
+    async def run(self):
+        """The loop is async so the SAME code drives desktop and browser.
+
+        In a browser there is no thread to block: the page's event loop must be handed
+        back control every frame or the tab simply freezes, canvas and all. That is
+        what the `await asyncio.sleep(0)` at the bottom is for -- it yields, it does
+        not pause, and the argument must stay 0. On desktop asyncio.run() drives the
+        same coroutine and the yield costs nothing measurable.
+        """
         while True:
             dt = min(0.05, self.clock.tick(config.FPS) / 1000.0)
             self.t += dt
@@ -756,6 +765,7 @@ class Game:
 
             self.draw()
             pygame.display.flip()
+            await asyncio.sleep(0)     # hand the frame back to the browser. keep it 0.
 
     def draw(self):
         if self.state == TITLE:
@@ -833,5 +843,10 @@ class Game:
                                    self.codex)
 
 
+async def amain():
+    """The browser entry point: pygbag awaits this. Desktop goes through main()."""
+    await Game().run()
+
+
 def main():
-    Game().run()
+    asyncio.run(amain())
