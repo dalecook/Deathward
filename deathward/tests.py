@@ -10048,12 +10048,25 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         self.assertIsNone(s.intent)
 
     def test_she_never_melee_attacks_even_when_adjacent_but_unaligned(self):
+        # She has no melee code path: every point of damage, always, comes from
+        # the telegraphed blow (self.intent == ("blow", 0, 0) set on a prior
+        # turn) -- never an instant, untelegraphed hit. Starting diagonally
+        # adjacent, hunting can walk her onto an aligned tile at distance 1 and
+        # she may telegraph-then-land a point-blank blow -- that's fine; a
+        # melee attack would instead deal damage on the SAME turn it triggers,
+        # with no telegraph turn before it.
         w = self._world()
         s = self._syrinx(w, 1, 1)            # adjacent, diagonal -- never aligned
-        hp = w.player.hp
-        for _ in range(4):
+        prev_intent = s.intent
+        prev_hp = w.player.hp
+        for _ in range(6):
             s.take_turn(w)
-        self.assertEqual(w.player.hp, hp, "no melee code path exists for her at all")
+            hp = w.player.hp
+            if hp < prev_hp:
+                self.assertEqual(prev_intent, ("blow", 0, 0),
+                                  "damage must be preceded by an observed telegraph turn")
+            prev_intent = s.intent
+            prev_hp = hp
 
 
 if __name__ == "__main__":

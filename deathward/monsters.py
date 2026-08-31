@@ -733,8 +733,7 @@ class Monster:
                 and world.line_clear(self.x, self.y, p.x, p.y, RANGE)):
             self.intent = ("blow", 0, 0)
             return
-        if d > 1.5:  # Only hunt for alignment if not already adjacent
-            self._step_toward(world, p.x, p.y)
+        self._step_toward(world, p.x, p.y)
 
 
 def spawn_count(depth, rng):
