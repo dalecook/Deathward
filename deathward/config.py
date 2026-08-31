@@ -41,6 +41,12 @@ MONSTER_SIGHT = 9         # how close (in tiles, within FOV) a monster notices t
 
 SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "deathward_save.json")
 
+# _autosave() updates the in-memory run every turn regardless, but only actually
+# persists (disk write, or a localStorage write in the browser build) once every
+# this-many turns. Written every turn was fine on disk but too hot for localStorage
+# (~8 turns/sec) with no suspend-on-close to fall back on in a browser tab.
+AUTOSAVE_INTERVAL_TURNS = 5
+
 # Bump this whenever the DUNGEON GENERATOR changes shape. A save from an older
 # generator still holds a map you drew and traps you found -- but of a dungeon whose
 # walls are now somewhere else. Rather than let the player walk around with a

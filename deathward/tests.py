@@ -81,6 +81,17 @@ class FakeSave(Codex):
         self.__init__()
 
 
+class _CountingSave(FakeSave):
+    """A FakeSave that counts save() calls instead of silently swallowing them, so
+    a test can prove HOW OFTEN persistence fires without touching real disk."""
+    def __init__(self):
+        super().__init__()
+        self.save_calls = 0
+
+    def save(self):
+        self.save_calls += 1
+
+
 class _SeqRng:
     """A random() that returns a scripted sequence, so a floor's magical-armour roll
     is fully controllable. choice() is deterministic (first element)."""
@@ -165,6 +176,146 @@ class TestAutosave(unittest.TestCase):
         w.dead = True
         w._autosave()
         self.assertIsNone(codex.run)
+
+    def test_autosave_persists_to_disk_only_every_n_turns(self):
+        """codex.run (in memory) updates every turn -- proven above -- but the
+        actual codex.save() write is throttled, so a browser tab isn't hammering
+        localStorage every turn (~8/sec) with no suspend-on-close to fall back on."""
+        codex = _CountingSave()
+        w = World(codex, seed=4)
+        for _ in range(config.AUTOSAVE_INTERVAL_TURNS - 1):
+            w._autosave()
+        self.assertEqual(codex.save_calls, 0,
+                         "must not persist before the interval elapses")
+        w._autosave()
+        self.assertEqual(codex.save_calls, 1,
+                         "must persist once the interval elapses")
+        for _ in range(config.AUTOSAVE_INTERVAL_TURNS - 1):
+            w._autosave()
+        self.assertEqual(codex.save_calls, 1, "still within the next interval")
+        w._autosave()
+        self.assertEqual(codex.save_calls, 2, "persists again after a second interval")
+
+
+class _FakeLocalStorage:
+    """Stands in for the browser's window.localStorage under pygbag. Can be told
+    to raise on get/set to simulate quota exhaustion or disabled storage (private
+    browsing), which real localStorage does by throwing."""
+    def __init__(self, raise_on_get=False, raise_on_set=False):
+        self._store = {}
+        self._raise_on_get = raise_on_get
+        self._raise_on_set = raise_on_set
+
+    def getItem(self, key):
+        if self._raise_on_get:
+            raise RuntimeError("storage unavailable")
+        return self._store.get(key)
+
+    def setItem(self, key, value):
+        if self._raise_on_set:
+            raise RuntimeError("quota exceeded")
+        self._store[key] = value
+
+    def removeItem(self, key):
+        self._store.pop(key, None)
+
+
+class _FakeWindow:
+    def __init__(self, **kwargs):
+        self.localStorage = _FakeLocalStorage(**kwargs)
+
+
+class TestWebStore(unittest.TestCase):
+    """deathward.webstore is the save-persistence seam: native CPython writes JSON
+    to config.SAVE_PATH on disk; pygbag's WASM/Pyodide runtime has no such disk, so
+    the web branch persists through window.localStorage instead. sys.platform is
+    never "emscripten" under a real CPython test run, so the web branch is exercised
+    here by monkeypatching sys.platform and injecting a fake window onto the real
+    platform module -- mirroring exactly what pygbag does at import time."""
+
+    def setUp(self):
+        import tempfile
+        from . import config as cfg
+        self._old_save_path = cfg.SAVE_PATH
+        cfg.SAVE_PATH = os.path.join(tempfile.gettempdir(), "dw_webstore_test.json")
+
+    def tearDown(self):
+        from . import config as cfg
+        if os.path.exists(cfg.SAVE_PATH):
+            os.remove(cfg.SAVE_PATH)
+        cfg.SAVE_PATH = self._old_save_path
+
+    # --- native branch ----------------------------------------------------
+    def test_native_load_returns_none_when_nothing_saved(self):
+        from .webstore import load_save
+        self.assertIsNone(load_save())
+
+    def test_native_round_trips_through_disk(self):
+        from .webstore import load_save, write_save
+        write_save({"deaths": 3, "known": ["rat.rule"]})
+        self.assertEqual(load_save(), {"deaths": 3, "known": ["rat.rule"]})
+
+    def test_native_delete_removes_the_save(self):
+        from .webstore import delete_save, load_save, write_save
+        write_save({"deaths": 1})
+        delete_save()
+        self.assertIsNone(load_save())
+
+    def test_native_load_returns_none_on_corrupt_json(self):
+        from . import config as cfg
+        from .webstore import load_save
+        with open(cfg.SAVE_PATH, "w", encoding="utf-8") as fh:
+            fh.write("{not valid json")
+        self.assertIsNone(load_save())
+
+    def test_native_write_swallows_a_bad_path(self):
+        from . import config as cfg
+        from .webstore import write_save
+        cfg.SAVE_PATH = os.path.join(cfg.SAVE_PATH, "nested", "unreachable.json")
+        write_save({"deaths": 1})  # must not raise
+
+    # --- web branch ---------------------------------------------------
+    def _patch_web(self, **window_kwargs):
+        import platform as platform_module
+        import sys
+        old_platform = sys.platform
+        sys.platform = "emscripten"
+        fake_window = _FakeWindow(**window_kwargs)
+        platform_module.window = fake_window
+
+        def restore():
+            sys.platform = old_platform
+            del platform_module.window
+        self.addCleanup(restore)
+        return fake_window
+
+    def test_web_load_returns_none_when_nothing_saved(self):
+        self._patch_web()
+        from .webstore import load_save
+        self.assertIsNone(load_save())
+
+    def test_web_round_trips_through_local_storage(self):
+        self._patch_web()
+        from .webstore import load_save, write_save
+        write_save({"deaths": 7, "corpses": {"3": {"gold": 40}}})
+        self.assertEqual(load_save(), {"deaths": 7, "corpses": {"3": {"gold": 40}}})
+
+    def test_web_delete_removes_the_save(self):
+        self._patch_web()
+        from .webstore import delete_save, load_save, write_save
+        write_save({"deaths": 1})
+        delete_save()
+        self.assertIsNone(load_save())
+
+    def test_web_write_swallows_a_localstorage_error(self):
+        self._patch_web(raise_on_set=True)
+        from .webstore import write_save
+        write_save({"deaths": 1})  # must not raise -- quota/private-mode failure
+
+    def test_web_load_swallows_a_localstorage_error(self):
+        self._patch_web(raise_on_get=True)
+        from .webstore import load_save
+        self.assertIsNone(load_save())  # must not raise
 
 
 class TestEveryDeathTeaches(unittest.TestCase):

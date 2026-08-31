@@ -125,6 +125,8 @@ class World:
         # just an unexplained wound -- you have to SEE the thing that burned you, or
         # you cannot learn from it, and learning from it is the entire game.
         self.fx = []
+        # throttles _autosave()'s actual persistence write; see config.AUTOSAVE_INTERVAL_TURNS
+        self._autosave_countdown = config.AUTOSAVE_INTERVAL_TURNS
         if restore is not None:
             self._resume(restore)
         else:
@@ -2170,13 +2172,19 @@ class World:
         return True
 
     def _autosave(self):
-        """Persist the live run every turn, so quitting and relaunching resumes
-        exactly here. Map memory is folded in first: to_dict does not store the
-        explored grid -- it is recalled from the codex on resume."""
+        """Keep the live run resumable. The in-memory run block is refreshed every
+        turn -- map memory folded in first, since to_dict does not store the explored
+        grid, it is recalled from the codex on resume -- but the actual persistence
+        write (disk, or localStorage in the browser build) is throttled to once every
+        config.AUTOSAVE_INTERVAL_TURNS turns; see that constant for why."""
         if self.dead:
             return
         self.remember_map()
         self.codex.run = self.to_dict()
+        self._autosave_countdown -= 1
+        if self._autosave_countdown > 0:
+            return
+        self._autosave_countdown = config.AUTOSAVE_INTERVAL_TURNS
         self.codex.save()
 
     def advance(self):

@@ -44,10 +44,7 @@ a '?' with no health bar and no readable intent. An un-codexed trap is invisible
 floor. An unidentified potion is just a colour.
 """
 
-import json
-import os
-
-from . import config
+from . import config, webstore
 
 
 class Fact:
@@ -709,12 +706,8 @@ class Codex:
 
     # --- persistence ----------------------------------------------------
     def load(self):
-        if not os.path.exists(config.SAVE_PATH):
-            return
-        try:
-            with open(config.SAVE_PATH, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
+        data = webstore.load_save()
+        if data is None:
             return
         self._load_from(data)
 
@@ -785,11 +778,7 @@ class Codex:
         }
 
     def save(self):
-        try:
-            with open(config.SAVE_PATH, "w", encoding="utf-8") as fh:
-                json.dump(self._save_dict(), fh, indent=1)
-        except OSError:
-            pass
+        webstore.write_save(self._save_dict())
 
     def has_progress(self):
         """Is there anything here worth continuing -- or worth warning about before
@@ -894,11 +883,7 @@ class Codex:
 
         This is irreversible, so the only caller is behind a confirmation prompt.
         """
-        try:
-            if os.path.exists(config.SAVE_PATH):
-                os.remove(config.SAVE_PATH)
-        except OSError:
-            pass
+        webstore.delete_save()
         self.__init__()
 
     # --- queries --------------------------------------------------------
