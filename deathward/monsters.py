@@ -117,6 +117,20 @@ INCORPOREAL = {"wraith", "poltergeist"}     # walk through walls, ignore armour
 def is_incorporeal(key):
     return key in INCORPOREAL
 
+
+def _syrinx_path_blocked(x0, y0, x1, y1, px, py):
+    """Does the player's body sit on, or diagonally beside, the straight walk from
+    (x0,y0) to (x1,y1)? A cheap per-turn re-route trigger, not real pathfinding --
+    the design spec leaves the exact heuristic as an implementation choice; this one
+    reacts to being blocked, which is the actual requirement."""
+    x, y = x0, y0
+    while (x, y) != (x1, y1):
+        if max(abs(x - px), abs(y - py)) <= 1:
+            return True
+        x += (x1 > x) - (x1 < x)
+        y += (y1 > y) - (y1 < y)
+    return max(abs(x1 - px), abs(y1 - py)) <= 1
+
 # what walks which floor. floor 1 is angry rats and the occasional kobold -- the
 # plague rat (faster, sicker, and it comes in numbers) does not appear until 2.
 #
@@ -385,6 +399,19 @@ class Monster:
         if best:
             self.x, self.y = best
             world.on_monster_moved(self)
+
+    def _syrinx_retreat_target(self, world, p):
+        """The pillar to head for once the stun ends: nearest first, never the one
+        she just emerged from, skipped in favour of the next-nearest whenever the
+        player's body sits on the straight walk to it."""
+        pillars = world.level.syrinx_pillars()
+        candidates = [sp for sp in pillars
+                     if sp != (self.pillar_x, self.pillar_y)] or pillars
+        ranked = sorted(candidates, key=lambda sp: self.dist(*sp))
+        for sp in ranked:
+            if not _syrinx_path_blocked(self.x, self.y, sp[0], sp[1], p.x, p.y):
+                return sp
+        return ranked[0] if ranked else None
 
     def _adjacent_to_player(self, world):
         return self.dist(world.player.x, world.player.y) <= 1
@@ -694,10 +721,18 @@ class Monster:
 
     def _ai_syrinx(self, world, p):
         """Hide/telegraph/emerge/hunt/blow/stun/retreat -- her whole loop, from the
-        design spec. This cut adds hunting and the ranged blow (a telegraph-then-
-        resolve pair on self.intent, the exact same shape as the Warden's spit --
-        see world.line_clear's docstring). The stun/knockback/retreat/re-hide tail
-        is added by the next task, which shows this method again in full.
+        design spec:
+          1. HIDDEN: off the grid, ticking toward a forced emergence.
+          2. TELEGRAPH: one turn's warning on the pillar she is already standing in.
+          3. EMERGE: targetable, moves at the player's own speed, never melees.
+          4. HUNT: actively seeks an aligned, clear line -- never waits passively.
+          5. BLOW: a telegraph-then-resolve pair (self.intent), same shape as the
+             Warden's spit; a pillar in the eyeline fizzles it.
+          6. STUNNED: fully vulnerable for one turn (config.SYRINX_STUN_TURNS) --
+             handled generically by Monster.take_turn's self.stunned early-return.
+          7. RETREAT: heads for the nearest pillar that is not the one she just left,
+             re-routing per turn if the player's body blocks the straight walk to it.
+          8. RE-HIDE: reaching it, she goes off-grid again and the budget resets.
         """
         RANGE = 9
 
@@ -714,22 +749,35 @@ class Monster:
                 world.add_fx("pulse", self.x, self.y, color=self.t.color, life=0.9)
             return
 
-        # the blow: telegraphed one turn, resolved the next -- the player can still
-        # break the line by moving or ducking behind a pillar in between.
         if self.intent and self.intent[0] == "blow":
             self.intent = None
             if world.line_clear(self.x, self.y, p.x, p.y, RANGE):
                 world.add_fx("beam", p.x, p.y, color=self.t.color, life=0.4,
                              tiles=[(self.x, self.y)])
                 self._hit(world, verb="buffets")
+                world._syrinx_knockback(self)
+                self.stunned = max(self.stunned, config.SYRINX_STUN_TURNS)
+                self.retreating = True
             else:
                 world.log("Syrinx's gust dies against the stone.", config.DIM)
             return
 
-        # hunt: actively seek an aligned, clear line -- never wait passively for one.
+        if self.retreating:
+            target = self._syrinx_retreat_target(world, p)
+            if target is None:
+                return                       # boxed in this turn; try again next turn
+            if (self.x, self.y) == target:
+                self.hidden = True
+                self.retreating = False
+                self.pillar_x, self.pillar_y = target
+                self.hidden_turns = 0
+                world.add_fx("vanish", self.x, self.y, color=self.t.color, life=0.5)
+                return
+            self._step_toward(world, *target)
+            return
+
         aligned = (self.x == p.x or self.y == p.y)
-        d = self.dist(p.x, p.y)
-        if (aligned and d <= RANGE
+        if (aligned and self.dist(p.x, p.y) <= RANGE
                 and world.line_clear(self.x, self.y, p.x, p.y, RANGE)):
             self.intent = ("blow", 0, 0)
             return

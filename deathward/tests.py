@@ -10069,6 +10069,72 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             prev_hp = hp
 
 
+class TestSyrinxStunAndRetreat(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=1)
+        w.new_level(8)
+        w.level.monsters = [m for m in w.level.monsters if m.key != "syrinx"]
+        return w
+
+    def _syrinx(self, w, x, y):
+        from .monsters import Monster
+        s = Monster("syrinx", x, y)
+        s.hidden = False
+        s.pillar_x, s.pillar_y = x, y
+        w.level.monsters.append(s)
+        return s
+
+    def test_a_landed_blow_stuns_her_and_knocks_the_player_back(self):
+        w = self._world()
+        w.player.x, w.player.y = 10, 10
+        s = self._syrinx(w, 6, 10)
+        for x in range(6, 13):                 # force the line clear and knockback room (1 == FLOOR)
+            w.level.grid[10][x] = 1
+        s.intent = ("blow", 0, 0)
+        px_before = w.player.x
+        s.take_turn(w)
+        self.assertEqual(s.stunned, config.SYRINX_STUN_TURNS)
+        self.assertTrue(s.retreating)
+        self.assertGreater(w.player.x, px_before, "the gust pushes the player away from her")
+
+    def test_a_fizzled_blow_does_not_stun_or_start_a_retreat(self):
+        w = self._world()
+        w.player.x, w.player.y = 10, 10
+        s = self._syrinx(w, 6, 10)
+        s.intent = ("blow", 0, 0)
+        w.level.grid[10][8] = 0                # a wall drops into the line (0 == WALL)
+        s.take_turn(w)
+        self.assertEqual(s.stunned, 0)
+        self.assertFalse(s.retreating)
+
+    def test_she_heads_for_the_nearest_pillar_that_is_not_the_one_she_left(self):
+        w = self._world()
+        s = self._syrinx(w, 6, 10)
+        s.pillar_x, s.pillar_y = s.x, s.y     # the pillar she just emerged from
+        s.retreating = True
+        target = s._syrinx_retreat_target(w, w.player)
+        self.assertNotEqual(target, (s.pillar_x, s.pillar_y))
+        self.assertIn(target, w.level.syrinx_pillars())
+
+    def test_reaching_the_target_pillar_re_hides_her(self):
+        w = self._world()
+        target = w.level.syrinx_pillars()[1]
+        s = self._syrinx(w, *target)
+        s.pillar_x, s.pillar_y = w.level.syrinx_pillars()[0]
+        s.retreating = True
+        s.take_turn(w)
+        self.assertTrue(s.hidden)
+        self.assertFalse(s.retreating)
+        self.assertEqual((s.pillar_x, s.pillar_y), target)
+        self.assertEqual(s.hidden_turns, 0)
+
+    def test_a_blocked_straight_walk_re_routes_to_another_pillar(self):
+        from .monsters import _syrinx_path_blocked
+        self.assertTrue(_syrinx_path_blocked(0, 0, 4, 0, 2, 0))   # player sits on the line
+        self.assertFalse(_syrinx_path_blocked(0, 0, 4, 0, 2, 5))  # player is far off it
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

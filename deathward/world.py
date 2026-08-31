@@ -732,6 +732,22 @@ class World:
             m.intent = None
             self.on_monster_moved(m)
 
+    def _syrinx_knockback(self, m):
+        """The gust: shove the player straight back along the line from her to you,
+        tile by tile, stopping at the first wall or body. Reposition is the point --
+        it can push you out of the cover you were using, or off her line entirely."""
+        p = self.player
+        dx = (p.x > m.x) - (p.x < m.x)
+        dy = (p.y > m.y) - (p.y < m.y)
+        if dx == 0 and dy == 0:
+            return
+        for _ in range(config.SYRINX_PUSH_DIST):
+            nx, ny = p.x + dx, p.y + dy
+            if not self.walkable(nx, ny) or self.monster_at(nx, ny):
+                break
+            p.x, p.y = nx, ny
+        self.level.compute_fov(p.x, p.y)
+
     def _void_immune(self, m):
         """The void cannot swallow a boss (the Warden, or a mini-boss)."""
         return m.key in BOSS_KEYS
