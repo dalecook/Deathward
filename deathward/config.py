@@ -170,6 +170,9 @@ VOID_KILL_CHANCE    = 0.10        # Scimitar of the Void: chance to unmake outri
 
 FULGURITE_INCORP_MULT = 1.5       # Fulgurite's bonus vs wraith/poltergeist
 
+# --- Syrinx (floor 8 mini-boss) -------------------------------------------
+SYRINX_HIDDEN_MAX = 5      # turns she may stay hidden before a forced emergence
+
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole

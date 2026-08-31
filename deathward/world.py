@@ -353,7 +353,7 @@ class World:
 
     def monster_at(self, x, y):
         for m in self.level.monsters:
-            if m.alive and m.x == x and m.y == y:
+            if m.alive and not m.hidden and m.x == x and m.y == y:
                 return m
         return None
 
@@ -817,7 +817,8 @@ class World:
     def _firestorm(self):
         """Fire through everything visible; the CASTER/WEARER is spared. Shared by the
         VORN scroll and the Robe of Hades. Damage draws the world RNG (deterministic)."""
-        hit = [m for m in list(self.level.monsters) if self.visible(m.x, m.y)]
+        hit = [m for m in list(self.level.monsters)
+               if self.visible(m.x, m.y) and not m.hidden]
         self.add_fx("flash", color=(255, 150, 70), life=0.55)
         self.add_fx("burning", life=1.1, tiles=self.visible_floor())
         for m in hit:
@@ -1934,7 +1935,8 @@ class World:
                 self.log("The floor runs downhill under you. You are standing on the "
                          "way down.", config.STAIRS)
         elif effect == "thunderclap":
-            hit = [m for m in list(self.level.monsters) if self.visible(m.x, m.y)]
+            hit = [m for m in list(self.level.monsters)
+                   if self.visible(m.x, m.y) and not m.hidden]
             self.log("You bring your hands together and the air itself CRACKS.",
                      (200, 220, 255))
             self.shake(10)

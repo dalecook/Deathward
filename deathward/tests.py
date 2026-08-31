@@ -9813,6 +9813,74 @@ class TestSyrinxIdentity(unittest.TestCase):
         self.assertEqual(CAUSE_NAME["syrinx"], "Syrinx")
 
 
+class TestSyrinxHiddenState(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave()
+        w = World(codex, seed=7)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _syrinx(self, w, dx, dy):
+        from .monsters import Monster
+        s = Monster("syrinx", w.player.x + dx, w.player.y + dy)
+        w.level.monsters.append(s)
+        return s
+
+    def test_she_spawns_hidden_awake_and_pinned_to_her_pillar(self):
+        w = self._world()
+        s = self._syrinx(w, 3, 0)
+        self.assertTrue(s.hidden)
+        self.assertTrue(s.awake)
+        self.assertEqual((s.pillar_x, s.pillar_y), (s.x, s.y))
+        self.assertEqual(s.hidden_turns, 0)
+        self.assertFalse(s.retreating)
+
+    def test_forced_emergence_after_the_hidden_cap(self):
+        from . import config
+        w = self._world()
+        s = self._syrinx(w, 4, 0)
+        for _ in range(config.SYRINX_HIDDEN_MAX - 1):
+            s.take_turn(w)
+            self.assertTrue(s.hidden)
+            self.assertIsNone(s.intent)
+        s.take_turn(w)                       # hits the cap: telegraph turn
+        self.assertTrue(s.hidden, "still off the grid during the telegraph")
+        self.assertEqual(s.intent, ("emerge", s.x, s.y))
+        s.take_turn(w)                       # resolves: she is out
+        self.assertFalse(s.hidden)
+        self.assertIsNone(s.intent)
+        self.assertEqual(s.hidden_turns, 0, "the budget resets on emergence")
+
+    def test_hidden_syrinx_cannot_be_targeted_by_monster_at(self):
+        w = self._world()
+        s = self._syrinx(w, 3, 0)
+        self.assertIsNone(w.monster_at(s.x, s.y))
+
+    def test_hidden_syrinx_is_untouched_by_area_damage(self):
+        w = self._world()
+        s = self._syrinx(w, 3, 0)
+        w.level.visible[s.y][s.x] = True   # even if her tile were somehow lit
+        hp = s.hp
+        w._firestorm()
+        w._apply_effect("thunderclap")
+        self.assertEqual(s.hp, hp, "nothing area-based can reach a hidden Syrinx")
+
+    def test_drawing_a_hidden_syrinx_never_crashes(self):
+        from . import render
+        w = self._world()
+        s = self._syrinx(w, 3, 0)
+        w.level.visible[s.y][s.x] = True
+        cam = render.Camera()
+        cam.center_on(w.player.x, w.player.y)
+        surf = pygame.Surface((config.W, config.H))
+        render.draw_world(surf, w, w.codex, cam, 0.0)   # must not raise
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

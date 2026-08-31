@@ -231,7 +231,7 @@ def draw_world(surf, world, codex, cam, t):
 
     # --- monsters --------------------------------------------------------
     for m in lvl.monsters:
-        if not lvl.visible[m.y][m.x] or not cam.on_screen(m.x, m.y):
+        if m.hidden or not lvl.visible[m.y][m.x] or not cam.on_screen(m.x, m.y):
             continue
         cx, cy = at(m.x, m.y)
         known = codex.tier(m.key)

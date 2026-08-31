@@ -173,6 +173,7 @@ _MONSTER_STATE = (
     "x", "y", "hp", "max_hp", "energy", "awake", "stunned", "burning",
     "poisoned", "fled", "disguised", "warden_last", "feed", "recharge",
     "ray_armed", "weak", "feared", "confused", "hammer_hits", "enraged",
+    "hidden", "hidden_turns", "pillar_x", "pillar_y", "retreating",
 )
 
 
@@ -199,7 +200,9 @@ class Monster:
         # its good eyes and to keep its pack together -- but being active is not the
         # same as being HOSTILE. it turns hostile only when it actually SEES you (see
         # _ai_orc). so it starts awake, unlike everything else, which sleeps until seen.
-        self.awake = (key == "orc")
+        # Syrinx is the same: her hidden-turn budget must tick down from the moment
+        # she is placed, whether or not the player has ever laid eyes on her.
+        self.awake = key in ("orc", "syrinx")
         self.recharge = 0         # flicker/beholder: turns before it can act again
         self.ray_armed = False    # beholder: its freeze landed -> next turn is the ray
         self.weak = 0             # turns of sapped strength (a weakness-coated blade)
@@ -207,6 +210,15 @@ class Monster:
         self.confused = 0         # turns stumbling at random (a confusion-coated blade)
         self.hammer_hits = 0      # stun-weapon blows landed on it -> the stagger cadence
         self.enraged = 0          # turns spent attacking whatever is nearest (Betrayer's Edge)
+        # Syrinx only: she starts hidden in the pillar she is built at. hidden_turns
+        # counts turns spent hidden this cycle, toward the forced-emergence cap.
+        # pillar_x/pillar_y remember which pillar that is, so a retreat never re-picks
+        # the one she just left. retreating is true from the moment her post-blow stun
+        # ends until she reaches a pillar and re-hides. See _ai_syrinx.
+        self.hidden = (key == "syrinx")
+        self.hidden_turns = 0
+        self.pillar_x, self.pillar_y = (x, y) if key == "syrinx" else (-1, -1)
+        self.retreating = False
 
     @property
     def name(self):
@@ -679,6 +691,30 @@ class Monster:
         else:
             self._step_toward(world, p.x, p.y)
             self.warden_last = None
+
+    def _ai_syrinx(self, world, p):
+        """Hide/telegraph/emerge/hunt/blow/stun/retreat -- her whole loop, from the
+        design spec. This first cut only covers hiding, the forced-emergence budget
+        and the one-turn emergence telegraph (reusing self.intent, exactly like the
+        Warden's smash/spit); hunt, the blow, and the stun/retreat/re-hide tail are
+        filled in by later tasks, which show this method again in full.
+
+        The telegraph is a REAL fact, not flavour: it marks the exact pillar she is
+        already standing in -- an unmet player and a veteran face identical odds.
+        """
+        if self.hidden:
+            if self.intent and self.intent[0] == "emerge":
+                self.intent = None
+                self.hidden = False
+                self.hidden_turns = 0
+                world.add_fx("arrive", self.x, self.y, color=self.t.color, life=0.5)
+                return
+            self.hidden_turns += 1
+            if self.hidden_turns >= config.SYRINX_HIDDEN_MAX:
+                self.intent = ("emerge", self.x, self.y)
+                world.add_fx("pulse", self.x, self.y, color=self.t.color, life=0.9)
+            return
+        self._step_toward(world, p.x, p.y)
 
 
 def spawn_count(depth, rng):
