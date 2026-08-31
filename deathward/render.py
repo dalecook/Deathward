@@ -31,18 +31,12 @@ import math
 
 import pygame
 
-from . import config, sprites
+from . import config, fontcache, sprites
 from .items import CONSUMABLES
-
-_fonts = {}
 
 
 def font(size, bold=False):
-    key = (size, bold)
-    if key not in _fonts:
-        _fonts[key] = pygame.font.SysFont(
-            "consolas,dejavusansmono,couriernew,monospace", size, bold=bold)
-    return _fonts[key]
+    return fontcache.get_font(size, bold)
 
 
 def glyph(surf, ch, cx, cy, color, size=20, bold=True):

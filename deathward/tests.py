@@ -318,6 +318,47 @@ class TestWebStore(unittest.TestCase):
         self.assertIsNone(load_save())  # must not raise
 
 
+class TestFontCache(unittest.TestCase):
+    """pygame.font.SysFont("consolas,dejavusansmono,...") depends on an OS font
+    registry that pygbag's WASM sandbox does not have, so it silently substitutes
+    pygame's own bundled freesansbold.ttf instead of raising -- a real, different,
+    non-monospace font, not just worse-rendered Consolas. fontcache.get_font()
+    loads a bundled .ttf directly instead, which needs no OS font-discovery step on
+    any platform."""
+
+    def setUp(self):
+        pygame.font.init()
+
+    def test_font_path_points_at_the_bundled_asset(self):
+        from . import fontcache
+        self.assertTrue(os.path.exists(fontcache._FONT_PATH),
+                        "the bundled font file must actually exist on disk")
+        self.assertTrue(fontcache._FONT_PATH.endswith("DejaVuSansMono.ttf"))
+
+    def test_same_size_and_weight_returns_the_cached_object(self):
+        from . import fontcache
+        a = fontcache.get_font(24)
+        b = fontcache.get_font(24)
+        self.assertIs(a, b)
+
+    def test_bold_and_plain_are_cached_separately(self):
+        from . import fontcache
+        plain = fontcache.get_font(18, bold=False)
+        bold = fontcache.get_font(18, bold=True)
+        self.assertIsNot(plain, bold)
+        self.assertFalse(plain.bold)
+        self.assertTrue(bold.bold)
+
+    def test_loads_the_bundled_ttf_not_pygames_default_fallback_font(self):
+        """The regression this exists to prevent: silently rendering with
+        pygame.font.Font(None, ...) (freesansbold) instead of our bundled ttf."""
+        from . import fontcache
+        bundled = fontcache.get_font(20)
+        default = pygame.font.Font(None, 20)
+        self.assertNotEqual(bundled.size("Deathward"), default.size("Deathward"),
+                            "must not be silently using pygame's default fallback font")
+
+
 class TestEveryDeathTeaches(unittest.TestCase):
     def test_500_deaths_never_repeat_a_lesson(self):
         rng = random.Random(20260713)
@@ -6708,6 +6749,13 @@ class TestWeaponSprites(unittest.TestCase):
         for key in WEAPONS:
             surf = sprites.gear(key)          # the public gear-sprite entry point
             self.assertIsNotNone(surf)
+
+
+class TestRenderFontDelegatesToFontcache(unittest.TestCase):
+    def test_font_returns_the_fontcache_instance(self):
+        pygame.font.init()
+        from . import fontcache, render
+        self.assertIs(render.font(22, bold=True), fontcache.get_font(22, bold=True))
 
 
 class TestWeaponGeneration(unittest.TestCase):

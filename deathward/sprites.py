@@ -32,7 +32,7 @@ import math
 
 import pygame
 
-from . import config
+from . import config, fontcache
 
 SS = 3                            # supersample factor
 _CACHE = {}
@@ -636,7 +636,7 @@ def unknown():
         pts.append((cx + math.cos(a) * r, cy + math.sin(a) * r * 1.05))
     _poly(s, config.UNKNOWN, pts)
     pygame.draw.polygon(s, config.UNKNOWN_EDGE, pts, int(S * 0.02))
-    f = pygame.font.SysFont("consolas,dejavusansmono,monospace", int(S * 0.42), bold=True)
+    f = fontcache.get_font(int(S * 0.42), bold=True)
     img = f.render("?", True, config.UNKNOWN_EDGE)
     s.blit(img, img.get_rect(center=(cx, cy)))
     _CACHE[ck] = _finish(s)
