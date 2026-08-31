@@ -213,6 +213,9 @@ class Level:
         self.start = (0, 0)
         self.entrance = (0, 0)     # where you came in, and where you always come in
         self.hoard = None
+        # Syrinx's arena, if this is floor 8 -- reserved BEFORE the ordinary
+        # population pass runs, so nothing ambient lands in it. None everywhere else.
+        self._reserved_room = None
         self.visible = [[False] * self.w for _ in range(self.h)]
         # THE STONE you have seen, in any previous run of this game. A death does not
         # un-draw your map, and a Scroll of Mapping fills this in for the whole floor.
@@ -446,6 +449,12 @@ class Level:
         persisted_armours = dict(codex.armour_ground)
         if self.depth >= config.DEPTH_MAX:
             self._populate_boss()
+        elif self.depth == config.SYRINX_DEPTH:
+            # her arena is reserved BEFORE the ordinary pass runs, so _free_tile
+            # (and the hoard/orc-pack room picks) never put ambient content in it.
+            self._reserved_room = self._syrinx_arena()
+            self._populate(codex)
+            self._populate_syrinx()
         else:
             self._populate(codex)
         self._replay_magicals(persisted_magicals)
@@ -533,6 +542,9 @@ class Level:
                 continue
             if (x, y) == self.stairs:
                 continue
+            if (room is None and self._reserved_room is not None
+                    and self._reserved_room.contains(x, y)):
+                continue          # Syrinx's arena: nothing ambient may land in it
             if avoid_start and max(abs(x - self.start[0]), abs(y - self.start[1])) < 7:
                 continue
             if any(m.x == x and m.y == y for m in self.monsters):
@@ -670,7 +682,8 @@ class Level:
         # the hoard: visibly richer, and guarded in proportion. never the room you
         # walk in on -- its guards would be standing on the welcome mat.
         hoard_rooms = [r for r in self.rooms
-                       if r is not self.gate_room and not r.contains(*self.stairs)]
+                       if r is not self.gate_room and r is not self._reserved_room
+                       and not r.contains(*self.stairs)]
         if d >= 2 and hoard_rooms:
             # the dungeon puts its gold where its teeth are: a hall, if there is one
             halls = [r for r in hoard_rooms if r.hall]
@@ -708,8 +721,12 @@ class Level:
         # a pack needs elbow room -- a nook cannot hold five orcs, so pick a room big
         # enough that the whole pack lands (and never the gate).
         rooms = [r for r in self.rooms
-                 if r is not self.gate_room and r.area >= 18]
-        rooms = rooms or [r for r in self.rooms if r is not self.gate_room] or self.rooms
+                 if r is not self.gate_room and r is not self._reserved_room
+                 and r.area >= 18]
+        rooms = (rooms
+                 or [r for r in self.rooms
+                     if r is not self.gate_room and r is not self._reserved_room]
+                 or self.rooms)
         for _ in range(packs):
             room = rng.choice(rooms)
             placed = 0
@@ -764,6 +781,38 @@ class Level:
             if spot:
                 self.chests.append(Chest(spot[0], spot[1], roll_chest(rng, 8)))
         self.stairs = None      # there is no down from here. there is only the Warden.
+
+    def _syrinx_arena(self):
+        """The biggest room that is not the gate room -- same rule as the Warden's
+        arena. A pure function of the STONE (self.rooms/self.gate_room never change
+        after generation), so population, a resumed run and the AI's retreat target
+        all recompute the identical room without anything about it being saved."""
+        candidates = [r for r in self.rooms if r is not self.gate_room] or self.rooms
+        return max(candidates, key=lambda r: r.w * r.h)
+
+    def syrinx_pillars(self):
+        """Six tiles scattered through her arena -- her hiding spots, the surface
+        her emergence telegraph appears on, and the line-of-sight cover the player
+        can use against her blow. Never the stairs tile, so carving them can never
+        wall off the way down. A freak arena too small for the spread falls back to
+        just its centre, so she always has SOMEWHERE to hide."""
+        arena = self._syrinx_arena()
+        if arena.w < 7 or arena.h < 6:
+            return [] if (arena.cx, arena.cy) == self.stairs else [(arena.cx, arena.cy)]
+        xs = [arena.x + 2, arena.x + arena.w // 2, arena.x + arena.w - 3]
+        ys = [arena.y + 2, arena.y + arena.h - 3]
+        spots = [(x, y) for y in ys for x in xs]
+        return [(x, y) for x, y in spots if (x, y) != self.stairs]
+
+    def _populate_syrinx(self):
+        """Her arena, carved AFTER the floor's ordinary pass (see _generate) -- floor
+        8 is not the Warden's floor: it keeps its stairs and everything else."""
+        spots = self.syrinx_pillars()
+        if not spots:
+            return
+        for px, py in spots:
+            self.grid[py][px] = WALL
+        self.monsters.append(Monster("syrinx", *spots[0]))
 
     # --- queries --------------------------------------------------------
     def in_bounds(self, x, y):

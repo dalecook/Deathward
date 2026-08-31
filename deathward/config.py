@@ -172,6 +172,7 @@ FULGURITE_INCORP_MULT = 1.5       # Fulgurite's bonus vs wraith/poltergeist
 
 # --- Syrinx (floor 8 mini-boss) -------------------------------------------
 SYRINX_HIDDEN_MAX = 5      # turns she may stay hidden before a forced emergence
+SYRINX_DEPTH      = 8      # the floor her arena is on
 
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps

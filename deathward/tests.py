@@ -9894,6 +9894,76 @@ class TestSyrinxHiddenState(unittest.TestCase):
             "would wrongly produce identical frames here")
 
 
+class TestSyrinxArena(unittest.TestCase):
+    def test_floor_eight_places_exactly_one_hidden_syrinx(self):
+        for seed in range(20):
+            codex = FakeSave(); codex.world_seed = seed
+            w = World(codex, seed=1)
+            w.new_level(8)
+            found = [m for m in w.level.monsters if m.key == "syrinx"]
+            self.assertEqual(len(found), 1, "seed %d: floor 8 needs its Syrinx" % seed)
+            self.assertTrue(found[0].hidden)
+
+    def test_floor_eight_keeps_its_stairs(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        self.assertIsNotNone(w.level.stairs,
+                             "floor 8 continues -- it is not the Warden's floor")
+
+    def test_only_floor_eight_reserves_a_room(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(3)
+        self.assertIsNone(w.level._reserved_room)
+
+    def test_her_arena_has_no_ambient_monster_or_chest(self):
+        for seed in range(20):
+            codex = FakeSave(); codex.world_seed = seed
+            w = World(codex, seed=1)
+            w.new_level(8)
+            arena = w.level._syrinx_arena()
+            for m in w.level.monsters:
+                if m.key == "syrinx":
+                    continue
+                self.assertFalse(arena.contains(m.x, m.y),
+                                 "seed %d: an ambient monster shares her room" % seed)
+            for c in w.level.chests:
+                self.assertFalse(arena.contains(c.x, c.y),
+                                 "seed %d: a chest shares her room" % seed)
+
+    def test_pillars_are_wall_tiles_and_never_the_stairs(self):
+        from .dungeon import WALL
+        for seed in range(20):
+            codex = FakeSave(); codex.world_seed = seed
+            w = World(codex, seed=1)
+            w.new_level(8)
+            for (px, py) in w.level.syrinx_pillars():
+                self.assertEqual(w.level.grid[py][px], WALL)
+                self.assertNotEqual((px, py), w.level.stairs)
+
+    def test_stairs_stay_reachable_on_floor_eight(self):
+        from collections import deque
+        for seed in range(20):
+            codex = FakeSave(); codex.world_seed = seed
+            w = World(codex, seed=1)
+            w.new_level(8)
+            lvl = w.level
+            seen = {lvl.start}
+            q = deque([lvl.start])
+            while q:
+                x, y = q.popleft()
+                for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0),
+                               (1, 1), (1, -1), (-1, 1), (-1, -1)):
+                    n = (x + dx, y + dy)
+                    if n in seen or not lvl.walkable(*n):
+                        continue
+                    seen.add(n)
+                    q.append(n)
+            self.assertIn(lvl.stairs, seen,
+                         "seed %d: floor 8's stairs are walled off" % seed)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
