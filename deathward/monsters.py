@@ -88,6 +88,12 @@ TEMPLATES = {
     # the end.
     "poltergeist": Template("poltergeist", "Poltergeist", "p", (206, 214, 230), 16, 1, 3, 90),
     "warden":  Template("warden", "The Warden", "W", (250, 92, 110), 70, 7, 13, 95),
+    # floor 8's mini-boss: a reed-nymph who hides inside the arena's pillars and
+    # only ever fights at range -- a gust that is mostly knockback, with a little
+    # real chip damage. Brittle (roughly six solid hits from a strong weapon --
+    # 30 / ((4+7)/2 Vampiric Kris average) = 5.45, rounds up to 6) and
+    # fire-vulnerable; catching her mid-blow is the whole fight (see _ai_syrinx).
+    "syrinx":  Template("syrinx", "Syrinx", "y", (196, 214, 150), 30, 1, 3, 100),
 }
 
 # --- damage rules --------------------------------------------------------

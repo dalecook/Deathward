@@ -319,6 +319,23 @@ FACT_LIST = [
        "before you ever saw it. Every one of those lessons was bought upstairs, from "
        "something smaller."),
 
+    # --- SYRINX (floor 8 mini-boss) --------------------------------------
+    _f("syrinx.rule", "syrinx", "rule", "SYRINX -- WHAT SHE IS",
+       "A reed-nymph, not a spirit -- corporeal, and breakable. She lives inside "
+       "the pillars of her own arena and cannot be reached while she is in the "
+       "stone. She has no melee: her only attack is a gust of wind that knocks "
+       "you back and does a little real damage. Catching her costs you nothing."),
+    _f("syrinx.tell", "syrinx", "tell", "SYRINX -- THE TELL",
+       "She cannot hide forever -- a pillar glows the turn before she is forced "
+       "out, and that glow tells you exactly which one. When she is in the open "
+       "and lines herself up on you, she is a turn from firing -- move, or put a "
+       "pillar between you, before it lands."),
+    _f("syrinx.counter", "syrinx", "counter", "SYRINX -- THE COUNTER",
+       "The instant her gust lands, she is stunned and fully open -- the one "
+       "guaranteed window in the whole fight. She is fire-vulnerable and immune "
+       "to anything you would call cold, poison or fear -- burn her, hit her "
+       "hard in that window, and she folds in about six solid blows."),
+
     # --- TRAPS -----------------------------------------------------------
     _f("dart.rule", "dart", "rule", "DART TRAP -- WHAT IT IS",
        "A pressure plate wired to a wall. Step on it and it puts a dart through you "
@@ -626,7 +643,7 @@ CAUSE_NAME = {
     "brute": "a brute", "wraith": "a wraith", "mimic": "a mimic",
     "flicker": "a flicker", "orc": "an orc", "golem": "a stone golem",
     "beholder": "a beholder", "poltergeist": "a poltergeist",
-    "warden": "the Warden", "dart": "a dart trap", "spike": "a spike pit",
+    "warden": "the Warden", "syrinx": "Syrinx", "dart": "a dart trap", "spike": "a spike pit",
     "gas": "a gas vent", "alarm": "an alarm rune", "glyph": "a fire glyph",
     "poison": "poison", "starvation": "the dark",
 }

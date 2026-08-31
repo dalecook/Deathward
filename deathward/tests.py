@@ -9790,6 +9790,29 @@ class TestTheSuiteCannotReachARealSave(unittest.TestCase):
         self.assertEqual(c.deaths, 0, "...and the deaths")
 
 
+class TestSyrinxIdentity(unittest.TestCase):
+    def test_her_template_exists_with_the_right_shape(self):
+        from .monsters import TEMPLATES
+        t = TEMPLATES["syrinx"]
+        self.assertEqual((t.hp, t.lo, t.hi, t.speed), (30, 1, 3, 100))
+
+    def test_it_takes_roughly_six_solid_hits_from_a_strong_weapon(self):
+        _assert_solid_hits(self, "syrinx", lo=5, hi=7)
+
+    def test_she_never_appears_in_the_ordinary_spawn_tables(self):
+        from .monsters import SPAWN_TABLE, spawn_roster
+        for table in SPAWN_TABLE.values():
+            self.assertNotIn("syrinx", table)
+        for d in range(1, 30):
+            self.assertNotIn("syrinx", spawn_roster(d))
+
+    def test_she_has_a_codex_entry_and_a_cause_name(self):
+        from .codex import CAUSE_NAME, FACTS
+        for tier in ("rule", "tell", "counter"):
+            self.assertIn("syrinx.%s" % tier, FACTS)
+        self.assertEqual(CAUSE_NAME["syrinx"], "Syrinx")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
