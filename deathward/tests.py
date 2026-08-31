@@ -9877,8 +9877,21 @@ class TestSyrinxHiddenState(unittest.TestCase):
         w.level.visible[s.y][s.x] = True
         cam = render.Camera()
         cam.center_on(w.player.x, w.player.y)
-        surf = pygame.Surface((config.W, config.H))
-        render.draw_world(surf, w, w.codex, cam, 0.0)   # must not raise
+
+        hidden_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(hidden_surf, w, w.codex, cam, 0.0)   # must not raise
+        hidden_pixels = pygame.image.tostring(hidden_surf, "RGB")
+
+        s.hidden = False   # same tile, same everything -- just no longer hidden
+        visible_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(visible_surf, w, w.codex, cam, 0.0)
+        visible_pixels = pygame.image.tostring(visible_surf, "RGB")
+
+        self.assertNotEqual(
+            hidden_pixels, visible_pixels,
+            "hiding her must actually change what gets drawn -- a render pass "
+            "that ignores .hidden (or one that draws nothing at all either way) "
+            "would wrongly produce identical frames here")
 
 
 if __name__ == "__main__":
