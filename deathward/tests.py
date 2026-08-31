@@ -9992,6 +9992,70 @@ class TestSyrinxArena(unittest.TestCase):
                          "seed %d: floor 8's stairs are walled off" % seed)
 
 
+class TestSyrinxHuntAndBlow(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave()
+        w = World(codex, seed=7)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def _syrinx(self, w, dx, dy):
+        from .monsters import Monster
+        s = Monster("syrinx", w.player.x + dx, w.player.y + dy)
+        s.hidden = False
+        w.level.monsters.append(s)
+        return s
+
+    def test_she_moves_toward_the_player_when_not_aligned(self):
+        w = self._world()
+        s = self._syrinx(w, 4, 3)
+        sx, sy = s.x, s.y
+        s.take_turn(w)
+        self.assertLess(max(abs(s.x - w.player.x), abs(s.y - w.player.y)),
+                        max(abs(sx - w.player.x), abs(sy - w.player.y)),
+                        "hunting closes the distance rather than waiting")
+
+    def test_aligned_and_clear_commits_to_a_telegraphed_blow(self):
+        w = self._world()
+        s = self._syrinx(w, 4, 0)
+        s.take_turn(w)
+        self.assertEqual(s.intent, ("blow", 0, 0))
+        self.assertEqual(w.player.hp, w.player.max_hp, "the telegraph turn does no damage")
+
+    def test_the_blow_resolves_next_turn_for_real_chip_damage(self):
+        w = self._world()
+        s = self._syrinx(w, 4, 0)
+        s.take_turn(w)                       # telegraph
+        hp = w.player.hp
+        s.take_turn(w)                       # resolve
+        self.assertLess(w.player.hp, hp, "the blow lands for real chip damage")
+        self.assertIsNone(s.intent)
+
+    def test_a_pillar_between_them_fizzles_the_blow(self):
+        w = self._world()
+        s = self._syrinx(w, 4, 0)
+        s.take_turn(w)                       # telegraph while the line is clear
+        wx = (s.x + w.player.x) // 2
+        w.level.grid[w.player.y][wx] = 0     # a pillar drops into the eyeline (0 == WALL)
+        hp = w.player.hp
+        s.take_turn(w)                       # resolve: blocked
+        self.assertEqual(w.player.hp, hp, "a blocked blow does no damage")
+        self.assertIsNone(s.intent)
+
+    def test_she_never_melee_attacks_even_when_adjacent_but_unaligned(self):
+        w = self._world()
+        s = self._syrinx(w, 1, 1)            # adjacent, diagonal -- never aligned
+        hp = w.player.hp
+        for _ in range(4):
+            s.take_turn(w)
+        self.assertEqual(w.player.hp, hp, "no melee code path exists for her at all")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

@@ -694,14 +694,13 @@ class Monster:
 
     def _ai_syrinx(self, world, p):
         """Hide/telegraph/emerge/hunt/blow/stun/retreat -- her whole loop, from the
-        design spec. This first cut only covers hiding, the forced-emergence budget
-        and the one-turn emergence telegraph (reusing self.intent, exactly like the
-        Warden's smash/spit); hunt, the blow, and the stun/retreat/re-hide tail are
-        filled in by later tasks, which show this method again in full.
-
-        The telegraph is a REAL fact, not flavour: it marks the exact pillar she is
-        already standing in -- an unmet player and a veteran face identical odds.
+        design spec. This cut adds hunting and the ranged blow (a telegraph-then-
+        resolve pair on self.intent, the exact same shape as the Warden's spit --
+        see world.line_clear's docstring). The stun/knockback/retreat/re-hide tail
+        is added by the next task, which shows this method again in full.
         """
+        RANGE = 9
+
         if self.hidden:
             if self.intent and self.intent[0] == "emerge":
                 self.intent = None
@@ -714,7 +713,28 @@ class Monster:
                 self.intent = ("emerge", self.x, self.y)
                 world.add_fx("pulse", self.x, self.y, color=self.t.color, life=0.9)
             return
-        self._step_toward(world, p.x, p.y)
+
+        # the blow: telegraphed one turn, resolved the next -- the player can still
+        # break the line by moving or ducking behind a pillar in between.
+        if self.intent and self.intent[0] == "blow":
+            self.intent = None
+            if world.line_clear(self.x, self.y, p.x, p.y, RANGE):
+                world.add_fx("beam", p.x, p.y, color=self.t.color, life=0.4,
+                             tiles=[(self.x, self.y)])
+                self._hit(world, verb="buffets")
+            else:
+                world.log("Syrinx's gust dies against the stone.", config.DIM)
+            return
+
+        # hunt: actively seek an aligned, clear line -- never wait passively for one.
+        aligned = (self.x == p.x or self.y == p.y)
+        d = self.dist(p.x, p.y)
+        if (aligned and d <= RANGE
+                and world.line_clear(self.x, self.y, p.x, p.y, RANGE)):
+            self.intent = ("blow", 0, 0)
+            return
+        if d > 1.5:  # Only hunt for alignment if not already adjacent
+            self._step_toward(world, p.x, p.y)
 
 
 def spawn_count(depth, rng):
