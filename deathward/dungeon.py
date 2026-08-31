@@ -795,10 +795,22 @@ class Level:
         her emergence telegraph appears on, and the line-of-sight cover the player
         can use against her blow. Never the stairs tile, so carving them can never
         wall off the way down. A freak arena too small for the spread falls back to
-        just its centre, so she always has SOMEWHERE to hide."""
+        just its centre, so she always has SOMEWHERE to hide -- and if that centre
+        happens to BE the stairs tile (real: the stairs always sit on some room's
+        exact centre, and this fires whenever that room is also the small arena),
+        nudge one tile off it instead of leaving her with nowhere at all."""
         arena = self._syrinx_arena()
         if arena.w < 7 or arena.h < 6:
-            return [] if (arena.cx, arena.cy) == self.stairs else [(arena.cx, arena.cy)]
+            cx, cy = arena.cx, arena.cy
+            if (cx, cy) != self.stairs:
+                return [(cx, cy)]
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = cx + dx, cy + dy
+                if (arena.x <= nx < arena.x + arena.w
+                        and arena.y <= ny < arena.y + arena.h
+                        and (nx, ny) != self.stairs):
+                    return [(nx, ny)]
+            return []
         xs = [arena.x + 2, arena.x + arena.w // 2, arena.x + arena.w - 3]
         ys = [arena.y + 2, arena.y + arena.h - 3]
         spots = [(x, y) for y in ys for x in xs]

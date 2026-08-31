@@ -9942,6 +9942,34 @@ class TestSyrinxArena(unittest.TestCase):
                 self.assertEqual(w.level.grid[py][px], WALL)
                 self.assertNotEqual((px, py), w.level.stairs)
 
+    def test_small_arena_nudges_off_stairs_instead_of_vanishing(self):
+        """A freak layout where the small arena's centre tile IS the stairs tile
+        (real: _place_stairs always drops the stairs on some room's exact centre,
+        and this fires whenever the stairs room is also the small syrinx arena).
+        She must still get a hiding spot -- not an empty list, which makes
+        _populate_syrinx skip appending her monster entirely."""
+        from .dungeon import Room
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        lvl = w.level
+
+        small = Room(5, 5, 6, 5)                    # w=6 < 7 -> small-arena fallback
+        other = Room(40, 40, 6, 5)                  # stand-in gate room, excluded
+        lvl.rooms = [small, other]
+        lvl.gate_room = other
+        self.assertEqual(lvl._syrinx_arena(), small)  # sanity: small room IS the arena
+
+        lvl.stairs = (small.cx, small.cy)            # the collision
+
+        pillars = lvl.syrinx_pillars()
+        self.assertEqual(len(pillars), 1,
+                          "she needs SOMEWHERE to hide, not an empty list")
+        px, py = pillars[0]
+        self.assertNotEqual((px, py), lvl.stairs)
+        self.assertTrue(small.x <= px < small.x + small.w)
+        self.assertTrue(small.y <= py < small.y + small.h)
+
     def test_stairs_stay_reachable_on_floor_eight(self):
         from collections import deque
         for seed in range(20):
