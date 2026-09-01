@@ -3285,6 +3285,76 @@ class TestTheVendor(unittest.TestCase):
         self.assertEqual(w2.vendor_pct, 0,
                          "a fresh run starts on floor 1 with no chance at all")
 
+    # --- floor 8: her hall gets no vendor, ever --------------------------
+    def test_floor_eight_never_gets_a_vendor(self):
+        """_maybe_spawn_vendor bails out on is_arena_floor() before it so much as
+        rolls the die. Prove it the same way test_it_never_stands_in_the_wardens_room
+        proves the Warden's floor: force vendor_pct to 100 so an unguarded roll would
+        succeed every single time, then try a wide spread of seeds. If the guard is
+        ever weakened or deleted, this fails on the very first seed -- there is no
+        20%-chance-of-getting-unlucky here for the guard to hide behind."""
+        codex = FakeSave()
+        codex.world_seed = 4242
+        for seed in range(80):
+            w = World(codex, seed=seed)
+            w.vendor_pct = 100
+            w.new_level(config.SYRINX_DEPTH)
+            self.assertIsNone(w.level.vendor,
+                              "seed %d: a vendor turned up in Syrinx's sealed hall"
+                              % seed)
+
+    def test_floor_eight_does_not_burn_the_odds_ratchet(self):
+        """The guard returns BEFORE it touches vendor_pct or rolls -- so, from the
+        ratchet's point of view, floor 8 must look exactly like an ordinary deep
+        floor whose roll simply came up empty: the odds keep climbing on the way
+        down, and floor 9 is not left starved because floor 8 was sealed.
+
+        The naive way to check this walks 5->6->7->8->9 on one seed and reads off
+        vendor_pct at the far end. That is not actually testing the guard: an
+        HONEST roll on floor 5, 6 or 7 can plant a vendor of its own, and simply
+        walking past it (as this kind of test does, never trading) makes
+        _vendor_step reset the counter to VENDOR_BASE_PCT right there -- at which
+        point whatever the test reads off floor 9 has nothing to do with floor 8
+        at all, and the assertion is a coin flip wearing a lab coat. So every
+        floor from 5 up to (but NOT including) 8 has its vendor explicitly cleared
+        before the next descent, same as test_the_odds_climb_five_a_floor_going_down
+        does -- that isolates the ratchet from the ordinary spawn roll. Floor 8's
+        vendor is deliberately left untouched: with the guard doing its job it is
+        already None, so leaving it alone (instead of clearing it like the others)
+        still proves the point, and does not paper over a leak the way clearing it
+        would.
+        """
+        codex = FakeSave()
+        codex.world_seed = 4242
+        w = World(codex, seed=6)
+
+        for d in range(config.VENDOR_MIN_DEPTH, config.SYRINX_DEPTH):
+            w.new_level(d)
+            w.level.vendor = None      # isolate: an honest spawn must not reset us
+
+        w.new_level(config.SYRINX_DEPTH)
+        steps_to_8 = config.SYRINX_DEPTH - config.VENDOR_MIN_DEPTH
+        expected_at_8 = config.VENDOR_BASE_PCT + config.VENDOR_STEP_PCT * steps_to_8
+        self.assertEqual(w.vendor_pct, expected_at_8,
+                         "5:5, 6:10, 7:15, 8:20 -- the ladder must still hold "
+                         "arriving at her hall")
+        self.assertIsNone(w.level.vendor, "the arena guard must have blocked it here")
+
+        # Leave floor 8 WITHOUT touching level.vendor. If the guard did its job it
+        # is None already -- indistinguishable, to _vendor_step, from an honest
+        # roll that simply failed -- so this descent must CLIMB, not reset.
+        w.new_level(config.SYRINX_DEPTH + 1)
+        self.assertEqual(w.vendor_pct, expected_at_8 + config.VENDOR_STEP_PCT,
+                         "5:5 ... 8:20, 9:25 -- leaving her hall must climb the "
+                         "ladder, not burn it back down to base")
+
+        # And the guard is a floor-8-only guard, not a floor-8-onward one: force
+        # the roll and confirm floor 9 can still, in fact, get a vendor.
+        w.vendor_pct = 100
+        w._maybe_spawn_vendor(w.level, True)
+        self.assertIsNotNone(w.level.vendor,
+                             "floor 9 must still be able to get a vendor")
+
     # --- trading --------------------------------------------------------
     def _vendor_world(self):
         from .vendor import Vendor
@@ -10887,6 +10957,58 @@ class TestSyrinxShoveSpringsTraps(unittest.TestCase):
         w._syrinx_knockback(m)
         self.assertEqual((p.x, p.y), (22, 20),
                          "you fall into the pit; you do not skip over it")
+
+    def test_a_stale_stuck_flag_does_not_arrest_a_clear_slide(self):
+        """traps.py sets player.stuck = 1 with a plain assignment, and nothing in
+        the game ever counts it higher -- so a player who is ALREADY stuck (from
+        climbing out of a pit on some earlier turn, one nowhere near this lane)
+        must still be dragged the full push distance when the lane itself is
+        clear. The regression this pins: an old version of this method compared
+        stuck against a before-the-slide snapshot and only broke when it went UP,
+        which reads a leftover stuck=1 as "nothing happened" here too -- by
+        accident, the right answer for the WRONG reason. This test exists so a
+        fix that reintroduces the snapshot-and-compare approach, but gets the
+        comparison backwards, cannot sneak back in unnoticed alongside the one
+        below."""
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 30):
+            w.level.grid[20][x] = 1
+        w.level.traps = []
+        p.stuck = 1                    # stale: climbing out of some OTHER pit, days ago
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertEqual((p.x, p.y), (25, 20),
+                         "no pit in this lane -- a stale stuck flag must not stop you")
+
+    def test_a_spike_pit_in_path_still_catches_you_even_with_a_stale_stuck_flag(self):
+        """THE regression case. traps.py's `world.player.stuck = 1` is a plain
+        assignment -- it never counts past 1 -- so a player who enters the shove
+        already stuck at 1 (from a pit they fell into on their OWN previous turn)
+        must not have that stale 1 mistaken for "nothing new happened" when the
+        gust then drags them across a SEPARATE, live pit mid-lane. The old
+        before/after snapshot compared stuck_before(1) against stuck-after(1) and
+        saw no change -- 1 > 1 is False -- so the pit's damage landed and the
+        slide skated straight over it anyway. Reverting the fix must turn this
+        test red: with the snapshot-and-compare approach restored, the player
+        ends up at (25, 20) instead of (22, 20)."""
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 30):
+            w.level.grid[20][x] = 1
+        w.level.traps = [Trap("spike", 22, 20)]
+        p.stuck = 1                    # stale: climbing out of some OTHER pit, days ago
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertEqual((p.x, p.y), (22, 20),
+                         "a pit IN THE PATH must still catch you, stale flag or not")
 
 
 class TestArenaFloorGeometry(unittest.TestCase):

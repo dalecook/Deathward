@@ -808,27 +808,44 @@ class World:
         ENTER, so its trap fires: her own blow is 1-3 against 26 HP, and the floor
         of her hall is what actually kills you. Three things stop the slide early --
         stone, a body, and a spike pit IN THE PATH, which you fall into rather than
-        skate over (it sets player.stuck). A pit you fell into on your OWN last turn
-        does not count -- stuck survives until your next move consumes it, so a gust
-        arriving before you have climbed out must not read that stale flag as a pit
-        under your heels right now. We snapshot stuck before the slide and only
-        break when it goes UP during the slide, i.e. something in the path just
-        caught you. A player killed partway is not dragged any further.
+        skate over.
+
+        We used to tell "a pit just caught me" apart from "I was already stuck
+        from climbing out of one last turn" by snapshotting player.stuck before the
+        slide and breaking only when it went UP. That reads fine until you notice
+        traps.py sets player.stuck = 1 outright -- nothing in the game ever counts
+        higher -- so a player who enters the shove already stuck at 1 hits a pit
+        mid-slide, gets re-set to 1, and 1 > 1 is False: the gust reads a live pit
+        under their heels as nothing happening and drags them straight over it,
+        after it has already dealt its damage. Wrong both ways round: a stale stuck
+        flag with no pit anywhere near the path must not arrest the slide, and a
+        real pit IN THE PATH must arrest it regardless of what stuck was a moment
+        ago.
+
+        So we stop asking the flag and start asking the ground: look up whatever
+        trap sits on the tile we are about to enter BEFORE entering it, let
+        _enter_tile() spring it as normal, and only break if that tile itself held
+        a spike pit and the player is (now) stuck. A pit you fell into on some
+        EARLIER turn, one that is not on this tile, never enters into it -- there
+        is no trap here to check, so the stale flag is simply never consulted. A
+        player killed partway is not dragged any further.
         """
         p = self.player
         dx = (p.x > m.x) - (p.x < m.x)
         dy = (p.y > m.y) - (p.y < m.y)
         if dx == 0 and dy == 0:
             return
-        stuck_before = p.stuck
         for _ in range(config.SYRINX_PUSH_DIST):
             nx, ny = p.x + dx, p.y + dy
             if not self.walkable(nx, ny) or self.monster_at(nx, ny):
                 break
+            t = self.level.trap_at(nx, ny)
             p.x, p.y = nx, ny
             self._enter_tile()
-            if p.hp <= 0 or p.stuck > stuck_before:
+            if p.hp <= 0:
                 break
+            if t is not None and t.key == "spike" and p.stuck:
+                break     # a pit IN THE PATH caught you -- not a stale flag from last turn
         self.level.compute_fov(p.x, p.y)
 
     def _void_immune(self, m):
