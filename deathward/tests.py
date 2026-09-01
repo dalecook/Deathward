@@ -10567,13 +10567,26 @@ class TestSyrinxResistances(unittest.TestCase):
         an ordinary mundane monster (a brute, wide awake and given every chance to
         close in) IS stopped cold by the generic wander block. This is what proves
         the immunity above belongs to Syrinx specifically, and is not a sign that
-        invisibility has quietly stopped working at all."""
+        invisibility has quietly stopped working at all.
+
+        8 turns, not 6 -- and deliberately not tied to the sibling test's own
+        budget above (that 6 is about how fast SHE lands a blow; this number is
+        about how long a mundane hunter needs to prove it never does). Measured
+        directly: a brute starting at (26, 13) closing on a VISIBLE player at
+        (20, 13) only reaches adjacency on its 6th step and lands its first blow
+        on the 7th; against an invisible player it never lands one at all, at any
+        turn budget tried. 6 turns is short enough that a fully visible brute
+        would also still show zero damage, which made this assertion true no
+        matter what invisibility did -- proven by disabling the wander block
+        game-wide and watching this test keep passing. 8 has real margin on both
+        sides: past where a sighted brute would already have struck, and nowhere
+        near where a blind one ever does."""
         from .monsters import Monster
         w = self._arena_world()
         b = Monster("brute", 26, 13)
         b.awake = True
         w.level.monsters.append(b)
-        for _ in range(6):
+        for _ in range(8):
             b.take_turn(w)
         self.assertEqual(w.player.hp, config.BASE_HP,
                           "an ordinary hunter must lose the thread against an "
@@ -11622,6 +11635,17 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
             reach = self._reachable(restored, where)
             self.assertGreater(len(reach), 1,
                                "stage %d: the player can still move" % i)
+            if i == 1:
+                # An absolute anchor, same purpose as the "she is dead" one below
+                # for stairs_locked: a round-trip check alone can't catch a
+                # to_dict that always lies the same way on both sides (e.g. one
+                # that always wrote mouth_sealed=False -- the restore-vs-serialize
+                # equality above would still hold). Stage 1 is taken right after
+                # the player commits into the hall, where the mouth is known to
+                # have actually sealed, so pin the serialized value itself.
+                self.assertTrue(data["mouth_sealed"],
+                                "stage %d: committing into the hall must seal "
+                                "the mouth" % i)
             if i == len(stages) - 1:
                 # she is dead: the gate is down for real (not merely defaulted
                 # true by a dropped key), and the way out is not just flagged
