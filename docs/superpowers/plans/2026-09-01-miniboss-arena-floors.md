@@ -1322,21 +1322,83 @@ In `deathward/world.py`, `valid_teleport` (line 1768):
                 and (x, y) != (self.player.x, self.player.y))
 ```
 
-- [ ] **Step 6: Run the new tests**
+- [ ] **Step 6: Close the commit bypass — arriving in the hall by ANY means commits you**
+
+Added after Task 5's review found it. `_arena_commit()` hangs solely off `_enter_tile()`, and **three movement paths never call it**: `teleport_to` (ZEPH), the `"blink"` effect (UUL), and the descent scroll that drops the player onto `level.stairs`. So today you can arrive inside the hall with the mouth still open, walk back out, and — once Task 6 lands — never trigger her spawn. None of these skip the fight (`descend` still refuses while she lives), but they defeat the seal and let you skip the trapped crossing that is her actual damage.
+
+The rule: **standing in her hall is the commitment, however you got there.** Move the call so it fires on every player turn rather than only on tile entry.
+
+In `deathward/world.py`, find `_end_player_turn` and add the call as its first statement:
+
+```python
+    def _end_player_turn(self):
+        # Standing in her hall IS the commitment, however you arrived -- walked
+        # through the mouth, or dropped in by scroll. Hanging this on _enter_tile
+        # alone left three ways in (ZEPH, UUL, the descent scroll) that never fire
+        # it, and a gate that only shuts for players who use the door is not a gate.
+        self._arena_commit()
+```
+
+Then remove the now-redundant call from the top of `_enter_tile` (added in Task 5), leaving `_enter_tile` as it was before that task:
+
+```python
+    def _enter_tile(self):
+        p = self.player
+        t = self.level.trap_at(p.x, p.y)
+```
+
+`_arena_commit` already early-returns unless the player is standing in `arena_room` with `mouth_sealed` false, so calling it every turn is cheap and still fires exactly once per level.
+
+Add these tests to `TestArenaScrollContainment`:
+
+```python
+    def test_teleporting_into_the_hall_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        for y in range(a.y, a.y + a.h):
+            for x in range(a.x, a.x + a.w):
+                w.level.explored[y][x] = True
+        self.assertTrue(w.teleport_to(a.cx, a.cy))
+        self.assertTrue(w.level.mouth_sealed,
+                        "the gate shuts for scrolls too, not just for the door")
+
+    def test_blinking_into_the_hall_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.cx, a.cy
+        w._end_player_turn()
+        self.assertTrue(w.level.mouth_sealed)
+
+    def test_standing_in_the_antechamber_never_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        for _ in range(5):
+            w._end_player_turn()
+        self.assertFalse(w.level.mouth_sealed,
+                         "the prep room is yours for as long as you want it")
+```
+
+- [ ] **Step 7: Run the new tests**
 
 Run: `py -3.13 -m unittest deathward.tests.TestArenaScrollContainment -v`
-Expected: PASS, 5 tests.
+Expected: PASS, 8 tests.
 
-- [ ] **Step 7: Run the whole suite**
+- [ ] **Step 8: Run the whole suite**
 
 Run: `py -3.13 -m deathward.tests`
-Expected: OK.
 
-- [ ] **Step 8: Commit**
+Task 5's `TestArenaGates` must still pass — its `_commit` helper sets the player's position and calls `_enter_tile()`, which no longer commits. If those tests fail, update that helper to call `w._end_player_turn()` instead, and say so in your report. Do not weaken any assertion.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add deathward/dungeon.py deathward/world.py deathward/tests.py
-git commit -m "feat(arena): Escape and Teleport can reposition inside her hall but never leave it"
+git commit -m "feat(arena): scrolls reposition inside her hall, never leave it -- and arriving commits you"
 ```
 
 ---
