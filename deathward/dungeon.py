@@ -469,6 +469,11 @@ class Level:
         from .monsters import Monster
         from .vendor import Vendor
         self._cut_stone(codex)
+        if self.depth == config.SYRINX_DEPTH:
+            # her pillar WALL tiles are not part of the stone _cut_stone lays down --
+            # they must be re-carved here, exactly as _populate_syrinx does on the
+            # generate path, or a resumed floor 8 loses her arena's terrain.
+            self._carve_syrinx_pillars()
         self.monsters = [Monster.from_dict(m) for m in data["monsters"]]
         self.drops = [Drop.from_dict(d) for d in data["drops"]]
         self.chests = [Chest.from_dict(c) for c in data["chests"]]
@@ -816,14 +821,21 @@ class Level:
         spots = [(x, y) for y in ys for x in xs]
         return [(x, y) for x, y in spots if (x, y) != self.stairs]
 
+    def _carve_syrinx_pillars(self):
+        """Cut her pillar tiles into the grid. Called on both the GENERATE path (via
+        _populate_syrinx) and the RESTORE path -- her arena's WALL tiles are not part
+        of the stone _cut_stone lays down, so a resumed run must re-carve them itself
+        or she ends up hidden on open floor (see the suspend/resume bug this fixes)."""
+        for px, py in self.syrinx_pillars():
+            self.grid[py][px] = WALL
+
     def _populate_syrinx(self):
         """Her arena, carved AFTER the floor's ordinary pass (see _generate) -- floor
         8 is not the Warden's floor: it keeps its stairs and everything else."""
         spots = self.syrinx_pillars()
         if not spots:
             return
-        for px, py in spots:
-            self.grid[py][px] = WALL
+        self._carve_syrinx_pillars()
         self.monsters.append(Monster("syrinx", *spots[0]))
 
     # --- queries --------------------------------------------------------

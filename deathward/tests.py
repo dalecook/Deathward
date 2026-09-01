@@ -10395,7 +10395,7 @@ class TestSyrinxSerialization(unittest.TestCase):
 
     def test_a_hidden_syrinx_survives_suspend_and_resume(self):
         import json
-        from .dungeon import Level
+        from .dungeon import Level, WALL
         codex = FakeSave()
         w = World(codex, seed=4)
         w.new_level(8)
@@ -10413,6 +10413,9 @@ class TestSyrinxSerialization(unittest.TestCase):
         self.assertEqual(rs.hidden_turns, 2)
         self.assertEqual(rs.intent, ("emerge", s.x, s.y))
         self.assertEqual((rs.x, rs.y), (s.x, s.y))
+        for px, py in restored.syrinx_pillars():
+            self.assertEqual(restored.grid[py][px], WALL,
+                              f"pillar ({px},{py}) was not re-carved on restore")
 
     def test_run_save_version_was_bumped_for_her_new_state(self):
         self.assertGreaterEqual(config.RUN_SAVE_VERSION, 3)
