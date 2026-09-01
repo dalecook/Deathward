@@ -57,8 +57,9 @@ LAYOUT_VERSION = 4
 
 # Bumped when the run-save (suspend/resume) serialization shape changes. A save
 # whose run block carries a different version is discarded -- Continue falls back
-# to a fresh run -- exactly as LAYOUT_VERSION discards a stale map.
-RUN_SAVE_VERSION = 2
+# to a fresh run -- exactly as LAYOUT_VERSION discards a stale map. Bumped for
+# Syrinx's new Monster fields (hidden/hidden_turns/pillar_x/pillar_y/retreating).
+RUN_SAVE_VERSION = 3
 
 # --- palette -------------------------------------------------------------
 BG          = (10, 11, 16)

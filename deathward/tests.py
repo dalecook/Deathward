@@ -10273,6 +10273,94 @@ class TestSyrinxRewards(unittest.TestCase):
         self.assertEqual(slain.loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
 
 
+class TestSyrinxSerialization(unittest.TestCase):
+    def test_her_hidden_state_round_trips_with_all_dynamic_state(self):
+        import json
+        from .monsters import Monster
+        m = Monster("syrinx", 5, 6)
+        m.hidden = False
+        m.hidden_turns = 3
+        m.pillar_x, m.pillar_y = 5, 6
+        m.retreating = True
+        m.intent = ("blow", 0, 0)
+        m.stunned = 1
+
+        blob = m.to_dict()
+        json.dumps(blob)
+        n = Monster.from_dict(blob)
+
+        for k in ("hidden", "hidden_turns", "pillar_x", "pillar_y",
+                  "retreating", "stunned"):
+            self.assertEqual(getattr(n, k), getattr(m, k), k)
+        self.assertEqual(n.intent, ("blow", 0, 0))
+
+    def test_a_freshly_spawned_hidden_syrinx_round_trips_too(self):
+        from .monsters import Monster
+        m = Monster("syrinx", 8, 9)
+        n = Monster.from_dict(m.to_dict())
+        self.assertTrue(n.hidden)
+        self.assertEqual((n.pillar_x, n.pillar_y), (8, 9))
+        self.assertIsNone(n.intent)
+
+    def test_a_hidden_syrinx_survives_suspend_and_resume(self):
+        import json
+        from .dungeon import Level
+        codex = FakeSave()
+        w = World(codex, seed=4)
+        w.new_level(8)
+        lv = w.level
+        s = next(m for m in lv.monsters if m.key == "syrinx")
+        s.hidden_turns = 2
+        s.intent = ("emerge", s.x, s.y)
+
+        blob = lv.to_dict()
+        json.dumps(blob)
+        restored = Level(lv.depth, w.rng, codex, restore=blob)
+
+        rs = next(m for m in restored.monsters if m.key == "syrinx")
+        self.assertTrue(rs.hidden)
+        self.assertEqual(rs.hidden_turns, 2)
+        self.assertEqual(rs.intent, ("emerge", s.x, s.y))
+        self.assertEqual((rs.x, rs.y), (s.x, s.y))
+
+    def test_run_save_version_was_bumped_for_her_new_state(self):
+        self.assertGreaterEqual(config.RUN_SAVE_VERSION, 3)
+
+
+class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
+    """Her whole loop -- hidden, telegraph, emerge, hunt, blow, stun, retreat --
+    must play out identically whether the Kodex knows her or not. Only what is
+    DRAWN may differ (see the project's core invariant)."""
+
+    def _trace(self, codex):
+        w = World(codex, seed=11)
+        w.new_level(8)
+        s = next(m for m in w.level.monsters if m.key == "syrinx")
+        script = random.Random(99)
+        trace = []
+        for _ in range(60):
+            dx, dy = script.choice([(0, -1), (0, 1), (-1, 0), (1, 0)])
+            nx, ny = w.player.x + dx, w.player.y + dy
+            if w.walkable(nx, ny) and not w.monster_at(nx, ny):
+                w.player.x, w.player.y = nx, ny
+                w.level.compute_fov(w.player.x, w.player.y)
+            s.take_turn(w)
+            trace.append((s.x, s.y, s.hidden, s.hidden_turns, s.retreating,
+                         s.stunned, str(s.intent), s.hp, w.player.hp))
+            if not s.alive:
+                break
+        return trace
+
+    def test_blind_and_omniscient_syrinx_play_out_identically(self):
+        blind = FakeSave(); blind.world_seed = 11 * 7919
+        wise = FakeSave(); wise.world_seed = 11 * 7919
+        wise.known = list(FACTS)
+        t1 = self._trace(blind)
+        t2 = self._trace(wise)
+        self.assertEqual(t1, t2, "knowledge of Syrinx must never change her mechanics")
+        self.assertTrue(t1)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
