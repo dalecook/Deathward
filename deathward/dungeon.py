@@ -923,13 +923,11 @@ class Level:
             self.grid[py][px] = WALL
 
     def _populate_syrinx(self):
-        """Her arena, carved AFTER the floor's ordinary pass (see _generate) -- floor
-        8 is not the Warden's floor: it keeps its stairs and everything else."""
-        spots = self.syrinx_pillars()
-        if not spots:
-            return
+        """Nothing but her terrain. She is not in the hall until the player commits to
+        it -- World._arena_commit places her, so that a suspend in the antechamber
+        resumes to an empty room and a suspend mid-fight resumes to her exactly where
+        she stood."""
         self._carve_syrinx_pillars()
-        self.monsters.append(Monster("syrinx", *spots[0]))
 
     # --- queries --------------------------------------------------------
     def in_bounds(self, x, y):

@@ -724,6 +724,7 @@ class Monster:
     def _ai_syrinx(self, world, p):
         """Hide/telegraph/emerge/hunt/blow/stun/retreat -- her whole loop, from the
         design spec:
+          0. ARRIVE: one held turn on materialising, then straight to RETREAT.
           1. HIDDEN: off the grid, ticking toward a forced emergence.
           2. TELEGRAPH: one turn's warning on the pillar she is already standing in.
           3. EMERGE: targetable, moves at the player's own speed, never melees.
@@ -737,6 +738,15 @@ class Monster:
           8. RE-HIDE: reaching it, she goes off-grid again and the budget resets.
         """
         RANGE = 9
+
+        if self.intent and self.intent[0] == "arrive":
+            # the held beat: she has just come out of nothing at the far end of the
+            # hall. One turn standing, then she turns for a column. If the player is
+            # somehow close enough to witness it, they have been taught her whole
+            # mechanic for the price of one turn.
+            self.intent = None
+            self.retreating = True
+            return
 
         if self.hidden:
             if self.intent and self.intent[0] == "emerge":

@@ -2236,6 +2236,27 @@ class World:
                 lvl.explored[y][x] = True
         lvl.explored[my][mx] = True
 
+        self._spawn_arena_boss()
+
+    def _spawn_arena_boss(self):
+        """She materialises at the far end of the hall, visible -- and ~27 tiles away,
+        far outside FOV_RADIUS, so 'visible' is a fact about her state and not about
+        what you saw. She holds one turn (the "arrive" intent) and then goes to
+        ground. The first thing you ever actually learn about her is whatever she
+        chooses to show you.
+        """
+        lvl = self.level
+        if lvl.boss_spawned:
+            return
+        ax, ay = lvl.boss_arrival()
+        m = Monster("syrinx", ax, ay)
+        m.hidden = False                    # Monster.__init__ starts her hidden
+        m.intent = ("arrive", ax, ay)
+        m.pillar_x, m.pillar_y = ax, ay
+        lvl.monsters.append(m)
+        lvl.boss_spawned = True
+        self.add_fx("arrive", ax, ay, color=m.t.color, life=0.6)
+
     def _enter_tile(self):
         p = self.player
         self._arena_commit()      # stepping into her hall is the commitment

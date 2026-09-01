@@ -10001,14 +10001,19 @@ class TestSyrinxHiddenState(unittest.TestCase):
 
 
 class TestSyrinxArena(unittest.TestCase):
-    def test_floor_eight_places_exactly_one_hidden_syrinx(self):
+    def test_floor_eight_holds_no_syrinx_until_you_commit(self):
         for seed in range(20):
             codex = FakeSave(); codex.world_seed = seed
             w = World(codex, seed=1)
             w.new_level(8)
-            found = [m for m in w.level.monsters if m.key == "syrinx"]
-            self.assertEqual(len(found), 1, "seed %d: floor 8 needs its Syrinx" % seed)
-            self.assertTrue(found[0].hidden)
+            self.assertEqual([m for m in w.level.monsters if m.key == "syrinx"], [],
+                             "seed %d: she arrives when you cross the mouth" % seed)
+            a = w.level.arena_room
+            w.player.x, w.player.y = a.x, a.cy
+            w._enter_tile()
+            self.assertEqual(
+                len([m for m in w.level.monsters if m.key == "syrinx"]), 1,
+                "seed %d: and exactly one of her does" % seed)
 
     def test_floor_eight_keeps_its_stairs(self):
         codex = FakeSave(); codex.world_seed = 3
@@ -10073,6 +10078,10 @@ class TestSyrinxArena(unittest.TestCase):
             self.assertNotEqual(spot, lvl.stairs)
             self.assertNotEqual(spot, lvl.mouth)
 
+        # she is not placed until commit (Task 6) -- but a pillar to hide in means
+        # that, once she is, she has somewhere to retreat to.
+        w.player.x, w.player.y = lvl.arena_room.x, lvl.arena_room.cy
+        w._enter_tile()
         found = [m for m in lvl.monsters if m.key == "syrinx"]
         self.assertEqual(len(found), 1, "a pillar to hide in means she gets placed")
 
@@ -10185,11 +10194,15 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         # the floor, she would wander into corridors with no cover, bypassing the
         # entire pillar/telegraph design. The hunt movement must stay leashed to
         # her own arena: with the player outside it, she is a no-op, not a hunter.
+        from .monsters import Monster
         codex = FakeSave(); codex.world_seed = 5
         w = World(codex, seed=1)
         w.new_level(8)
         lvl = w.level
-        s = next(m for m in lvl.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *lvl.syrinx_pillars()[0])
+        lvl.monsters.append(s)
         s.hidden = False
         arena = lvl._syrinx_arena()
         w.player.x, w.player.y = lvl.entrance
@@ -10205,11 +10218,15 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         # Companion to the leash test above: the fix must not turn her into a
         # statue INSIDE her own room -- she still actively hunts an unaligned
         # player as long as they are both inside the arena.
+        from .monsters import Monster
         codex = FakeSave(); codex.world_seed = 5
         w = World(codex, seed=1)
         w.new_level(8)
         lvl = w.level
-        s = next(m for m in lvl.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *lvl.syrinx_pillars()[0])
+        lvl.monsters.append(s)
         s.hidden = False
         arena = lvl._syrinx_arena()
         w.player.x, w.player.y = arena.cx, arena.cy
@@ -10528,11 +10545,15 @@ class TestSyrinxRewards(unittest.TestCase):
 
     def test_her_corpse_never_gets_buried_in_a_pillar_wall(self):
         from .dungeon import WALL
+        from .monsters import Monster
         codex = FakeSave()
         w = World(codex, seed=3)
         w.new_level(8)
         lvl = w.level
-        s = next(m for m in lvl.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *lvl.syrinx_pillars()[0])
+        lvl.monsters.append(s)
         s.hidden = False
         s.hp = 1
         px, py = s.x, s.y
@@ -10586,11 +10607,15 @@ class TestSyrinxSerialization(unittest.TestCase):
     def test_a_hidden_syrinx_survives_suspend_and_resume(self):
         import json
         from .dungeon import Level, WALL
+        from .monsters import Monster
         codex = FakeSave()
         w = World(codex, seed=4)
         w.new_level(8)
         lv = w.level
-        s = next(m for m in lv.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *lv.syrinx_pillars()[0])
+        lv.monsters.append(s)
         s.hidden_turns = 2
         s.intent = ("emerge", s.x, s.y)
 
@@ -10665,9 +10690,13 @@ class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
         return cur if world.walkable(*cur) else None
 
     def _trace(self, codex):
+        from .monsters import Monster
         w = World(codex, seed=11)
         w.new_level(8)
-        s = next(m for m in w.level.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *w.level.syrinx_pillars()[0])
+        w.level.monsters.append(s)
         arena = w.level._syrinx_arena()
         # Start inside her arena (not the level's real, distant entrance) -- see the
         # class docstring for why that is what actually gets her engaged.
@@ -11053,6 +11082,87 @@ class TestArenaGates(unittest.TestCase):
         w.level.boss_spawned = False       # pretend Task 6 has not run
         self._commit(w)
         self.assertTrue(w.level.mouth_sealed)
+
+
+class TestArenaBossArrival(unittest.TestCase):
+    """She is not in the hall until you commit to it. She materialises at the far
+    end, holds one turn, and sinks into a column -- all of it ~27 tiles away, well
+    outside FOV_RADIUS, so you are never shown it happening."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def _commit(self, w):
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._enter_tile()
+
+    def test_the_hall_is_empty_until_you_step_into_it(self):
+        w = self._world()
+        self.assertEqual([m for m in w.level.monsters if m.key == "syrinx"], [])
+        self.assertFalse(w.level.boss_spawned)
+
+    def test_she_arrives_on_commit_at_the_far_end_and_not_hidden(self):
+        w = self._world()
+        self._commit(w)
+        found = [m for m in w.level.monsters if m.key == "syrinx"]
+        self.assertEqual(len(found), 1)
+        m = found[0]
+        self.assertEqual((m.x, m.y), w.level.boss_arrival())
+        self.assertFalse(m.hidden, "she materialises before she hides")
+        self.assertTrue(w.level.boss_spawned)
+
+    def test_she_arrives_out_of_sight(self):
+        w = self._world()
+        self._commit(w)
+        m = [m for m in w.level.monsters if m.key == "syrinx"][0]
+        self.assertFalse(w.level.visible[m.y][m.x],
+                         "the room shows you its shape, never her")
+
+    def test_she_holds_one_turn_then_goes_to_ground(self):
+        w = self._world()
+        self._commit(w)
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        self.assertEqual(m.intent[0], "arrive")
+        m._ai_syrinx(w, w.player)             # the held turn
+        self.assertIsNone(m.intent)
+        self.assertFalse(m.hidden, "still standing -- she has only just turned to go")
+        self.assertTrue(m.retreating, "and she is now heading for a column")
+        for _ in range(60):                   # let her walk to one
+            if m.hidden:
+                break
+            m._ai_syrinx(w, w.player)
+        self.assertTrue(m.hidden, "she reaches a column and goes off-grid")
+
+    def test_she_arrives_only_once(self):
+        w = self._world()
+        self._commit(w)
+        w.level.mouth_sealed = False
+        self._commit(w)
+        self.assertEqual(len([m for m in w.level.monsters if m.key == "syrinx"]), 1)
+
+    def test_a_resume_before_commit_leaves_the_hall_empty(self):
+        from .dungeon import Level
+        w = self._world()
+        restored = Level(8, w.rng, w.codex, restore=w.level.to_dict())
+        self.assertEqual([m for m in restored.monsters if m.key == "syrinx"], [])
+        self.assertFalse(restored.boss_spawned)
+
+    def test_a_resume_mid_fight_keeps_her_exactly_where_she_was(self):
+        from .dungeon import Level
+        w = self._world()
+        self._commit(w)
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        m.x, m.y = w.level.arena_room.cx, w.level.arena_room.cy
+        m.hp = 11
+        restored = Level(8, w.rng, w.codex, restore=w.level.to_dict())
+        found = [x for x in restored.monsters if x.key == "syrinx"]
+        self.assertEqual(len(found), 1)
+        self.assertEqual((found[0].x, found[0].y), (m.x, m.y))
+        self.assertEqual(found[0].hp, 11)
 
 
 if __name__ == "__main__":
