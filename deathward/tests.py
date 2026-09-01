@@ -11417,6 +11417,201 @@ class TestArenaGateRendering(unittest.TestCase):
         self.assertNotIn(w.level.stairs, render.barred_gates(w))
 
 
+class TestArenaIsAlwaysCompletable(unittest.TestCase):
+    """Floor 8 is the first floor in the game with two barred exits -- the mouth
+    behind you and the stairs ahead of you, both stone until she is dead. That is
+    exactly the shape that can strand a player, and this game formally guarantees
+    it never does. These tests are the proof: at every stage of her fight, from
+    the antechamber to the body on the floor, there must be no reachable state in
+    which the player has no legal move left.
+
+    None of this is expected to find anything. An earlier review already traced
+    every write to the player's position in the whole package -- ten sites, all in
+    world.py -- and concluded the set of ways to be stranded is closed. These tests
+    exist to confirm that closure mechanically, on the actual geometry, instead of
+    resting on the review alone.
+    """
+
+    def _committed(self, world_seed=3):
+        codex = FakeSave(); codex.world_seed = world_seed
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        # NOTE: _arena_commit() (which seals the mouth) now hangs off
+        # _end_player_turn(), not _enter_tile() -- Task 7 moved it there because
+        # scroll and teleport arrivals into the hall never call _enter_tile() at
+        # all. Committing via _enter_tile() alone would leave the mouth open and
+        # this whole test class would prove nothing.
+        w._end_player_turn()
+        return w
+
+    def _reachable(self, lvl, start):
+        seen, stack = {start}, [start]
+        while stack:
+            x, y = stack.pop()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (x + dx, y + dy)
+                if n in seen or not lvl.in_bounds(*n):
+                    continue
+                if lvl.grid[n[1]][n[0]] != 1:
+                    continue
+                seen.add(n)
+                stack.append(n)
+        return seen
+
+    def test_the_way_down_is_reachable_from_where_you_are_sealed_in(self):
+        for seed in range(10):
+            w = self._committed(world_seed=seed)
+            reach = self._reachable(w.level, (w.player.x, w.player.y))
+            self.assertIn(w.level.stairs, reach,
+                          "seed %d: she can be reached and so can the stairs" % seed)
+
+    def test_every_pillar_leaves_the_hall_connected(self):
+        for seed in range(10):
+            w = self._committed(world_seed=seed)
+            a = w.level.arena_room
+            floor = {(x, y) for (x, y) in a.tiles() if w.level.grid[y][x] == 1}
+            reach = self._reachable(w.level, (w.player.x, w.player.y))
+            self.assertTrue(floor <= reach,
+                            "seed %d: the columns must not wall anything off" % seed)
+
+    def test_the_antechamber_is_reachable_until_you_commit(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        reach = self._reachable(w.level, w.level.entrance)
+        self.assertIn(w.level.stairs, reach)
+        self.assertIn(w.level.mouth, reach)
+
+    def test_the_full_run_through_her_floor(self):
+        """Arrive, prepare, commit, kill her, take the stairs. End to end."""
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        # 1. you arrive in the antechamber and cannot go back
+        self.assertTrue(w.level.ante_room.contains(w.player.x, w.player.y))
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.ascend())
+        # 2. you commit
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        self.assertTrue(w.level.mouth_sealed)
+        # 3. the way down is shut
+        w.player.x, w.player.y = w.level.stairs
+        self.assertFalse(w.descend())
+        # 4. she dies
+        from .monsters import Monster
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        w.kill_monster(m)
+        # 5. and it opens
+        self.assertTrue(w.descend())
+        self.assertEqual(w.depth, 9)
+
+    def test_a_suspend_at_every_stage_resumes_legally(self):
+        from .dungeon import Level
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        stages = [(w.level.entrance, w.level.to_dict())]       # in the antechamber
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        stages.append(((a.x, a.cy), w.level.to_dict()))        # mid-fight
+        from .monsters import Monster
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        w.kill_monster(m)
+        stages.append(((a.x, a.cy), w.level.to_dict()))        # she is dead
+        for i, (where, data) in enumerate(stages):
+            restored = Level(8, w.rng, w.codex, restore=data)
+            reach = self._reachable(restored, where)
+            self.assertGreater(len(reach), 1,
+                               "stage %d: the player can still move" % i)
+            if not restored.stairs_locked:
+                self.assertIn(restored.stairs, reach,
+                              "stage %d: and can still reach the way down" % i)
+
+    def test_your_own_corpse_lands_in_the_hall_and_can_be_reached(self):
+        """The corpse system needs no change here: it puts your body on the exact tile
+        you fell on, and this floor's stone is fixed, so the tile is still there next
+        run. Die to her and your gold lies in her hall -- getting it back means
+        crossing the mouth and fighting her again."""
+        codex = FakeSave(); codex.world_seed = 3
+        probe = World(codex, seed=1)
+        probe.new_level(8)
+        a = probe.level.arena_room
+        grave = (a.cx, a.cy)
+        # the corpse store is a plain dict keyed by depth-as-string; tests write it
+        # directly (see tests.py:301 for the same idiom).
+        codex.corpses["8"] = {"x": grave[0], "y": grave[1], "gold": 40,
+                              "weapon": None}
+
+        w = World(codex, seed=2)
+        w.new_level(8)
+        self.assertIsNotNone(w.level.corpse, "your body is down there")
+        self.assertEqual((w.level.corpse.x, w.level.corpse.y), grave)
+        reach = self._reachable(w.level, (a.x, a.cy))
+        self.assertIn(grave, reach, "and you can walk back to it -- through her")
+
+    def test_shademail_lets_you_cross_the_sealed_mouth_and_back(self):
+        """The one deliberate exception to 'impossible'. Shademail lets you walk
+        into stone, and the mouth is only stone -- a single wall tile -- once it
+        has sealed. So a Shademail wearer CAN step back into the antechamber
+        through a gate the rest of the game treats as permanent, and can step back
+        out again once SHADE_REENTER_CD lets her submerge a second time.
+        Completability does not ask for the gate to hold against every
+        conceivable armour; it asks that no crossing strands you. This crossing is
+        reversible, so it is fine -- but the property this test proves is
+        REVERSIBILITY, not impossibility. Asserting the mouth can never be
+        crossed at all would be false, and this test would rightly fail the day
+        someone made it true.
+
+        Driven through the real player_move()/shade_cd machinery, one step at a
+        time, rather than teleporting the player -- so it is also an honest check
+        that the cooldown gate actually works, not just that the destination
+        rooms exist.
+        """
+        w = self._committed(world_seed=3)
+        w.player.armour = ALL_GEAR["shade"].copy()
+        a = w.level.arena_room
+        mx, my = w.level.mouth
+        self.assertEqual((w.player.x, w.player.y), (a.x, a.cy))
+        self.assertEqual(mx, a.x - 1, "the mouth is one step west of where you stand")
+        self.assertEqual(w.level.grid[my][mx], 0, "the mouth is sealed stone now")
+
+        # step INTO the sealed mouth -- only Shademail, off cooldown, may do this
+        self.assertEqual(w.player.shade_cd, 0)
+        self.assertTrue(w.player_move(-1, 0), "steps into the wall the gate became")
+        self.assertEqual((w.player.x, w.player.y), (mx, my))
+        self.assertTrue(w.player_submerged())
+
+        # one more step west lands on ordinary antechamber floor -- the mouth is
+        # only ONE tile thick, so a single submerged step is the whole crossing
+        self.assertTrue(w.player_move(-1, 0))
+        self.assertTrue(w.level.ante_room.contains(w.player.x, w.player.y),
+                        "she is back in the antechamber, through stone that is "
+                        "supposed to be permanent")
+        self.assertFalse(w.player_submerged(), "surfaced back onto floor")
+        self.assertGreater(w.player.shade_cd, 0,
+                           "surfacing starts the re-enter cooldown")
+
+        # while on cooldown, the same crossing is refused -- an ordinary wall bump
+        self.assertFalse(w.player_move(1, 0),
+                         "on cooldown, Shademail is just armour: the wall holds")
+        self.assertTrue(w.level.ante_room.contains(w.player.x, w.player.y))
+
+        # once the cooldown lapses, she can dive again and cross straight back
+        w.player.shade_cd = 0
+        self.assertTrue(w.player_move(1, 0), "the cooldown lifted: back into the wall")
+        self.assertEqual((w.player.x, w.player.y), (mx, my))
+        self.assertTrue(w.player_submerged())
+        self.assertTrue(w.player_move(1, 0))
+        self.assertTrue(a.contains(w.player.x, w.player.y),
+                        "and she is back in the hall -- the crossing is reversible, "
+                        "not a way to be stranded on either side")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
