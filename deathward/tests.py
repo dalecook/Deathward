@@ -7491,6 +7491,43 @@ class TestVoidScimitar(unittest.TestCase):
         self.assertLess(boss.hp, 999, "it takes ordinary damage instead")
 
 
+class TestBossVoidImmunity(unittest.TestCase):
+    def test_syrinx_is_a_boss_key(self):
+        from .world import BOSS_KEYS
+        self.assertIn("syrinx", BOSS_KEYS)
+
+    def test_syrinx_is_never_offered_by_the_banish_picker(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        s = Monster("syrinx", w.player.x + 2, w.player.y)
+        s.hidden = False
+        w.level.monsters = [s]
+        w.level.visible[s.y][s.x] = True
+        self.assertEqual(w.banishable_types(), [])
+
+    def test_banish_type_cannot_remove_a_void_immune_monster(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        s = Monster("syrinx", w.player.x + 2, w.player.y)
+        s.hidden = False
+        w.level.monsters = [s]
+        self.assertFalse(w.banish_type("syrinx"))
+        self.assertIn(s, w.level.monsters)
+
+    def test_the_warden_is_also_protected_now(self):
+        """A pre-existing gap the same fix closes: BOSS_KEYS already claimed the
+        Warden was void-immune, but banish_type never actually checked it."""
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        wd = Monster("warden", w.player.x + 2, w.player.y)
+        w.level.monsters = [wd]
+        self.assertFalse(w.banish_type("warden"))
+        self.assertIn(wd, w.level.monsters)
+
+
 class TestMagicBenchCheat(unittest.TestCase):
     """CTRL+21: a magic-only weapon bench -- like CTRL+12 but skips the ordinary weapons."""
 

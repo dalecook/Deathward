@@ -76,7 +76,7 @@ COATABLE_EFFECTS = {"poison", "weak", "confuse"}
 # before you spot them.
 ORC_SIGHT = 10
 
-BOSS_KEYS = {"warden"}      # void-immune; the mini-boss task adds its keys here
+BOSS_KEYS = {"warden", "syrinx"}      # void-immune; the mini-boss task adds its keys here
 STATUS_IMMUNE_KEYS = {"syrinx"}    # poison/freeze/fear never take hold on her
 from .player import Player
 from .vendor import Vendor, price_of, sell_price_of
@@ -1767,17 +1767,21 @@ class World:
     def banishable_types(self):
         """The distinct kinds among the monsters you can currently SEE -- the choices a
         Banishment offers. Returns [(key, count), ...], most numerous first. Empty if
-        nothing is in sight (which is when you back out)."""
+        nothing is in sight (which is when you back out). Void-immune bosses are never
+        offered -- the whole point of BOSS_KEYS is that the fight cannot be skipped."""
         seen = {}
         for m in self.level.monsters:
-            if not m.disguised and self.visible(m.x, m.y):
+            if (not m.disguised and not m.hidden and self.visible(m.x, m.y)
+                    and not self._void_immune(m)):
                 seen[m.key] = seen.get(m.key, 0) + 1
         return sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))
 
     def banish_type(self, key):
         """Confirm the picker: unmake EVERY monster of `key` on the whole floor (not
-        just the ones in sight). No corpses, no loot, no credit. Ends the turn."""
-        gone = [m for m in self.level.monsters if m.key == key]
+        just the ones in sight) -- except a void-immune boss, which the word simply
+        does not reach. No corpses, no loot, no credit. Ends the turn."""
+        gone = [m for m in self.level.monsters
+                if m.key == key and not self._void_immune(m)]
         if not gone:
             return False
         for m in gone:
