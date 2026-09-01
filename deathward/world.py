@@ -509,6 +509,27 @@ class World:
                     candidates.append((x, y))
         return self.rng.choice(candidates) if candidates else None
 
+    def _nearest_walkable(self, x, y):
+        """The closest walkable tile to (x, y): the immediate 8 neighbours first (the
+        same DIRS8 pattern Monster._step_toward uses), then ring by ring outward if
+        none of those are open. Used to relocate a Slain entry born on an unwalkable
+        tile (e.g. Syrinx dying on her own pillar) so the body -- and its loot --
+        stays reachable instead of buried in a wall forever."""
+        if self.walkable(x, y):
+            return (x, y)
+        for dx, dy in DIRS8:
+            nx, ny = x + dx, y + dy
+            if self.walkable(nx, ny):
+                return (nx, ny)
+        for r in range(2, max(self.level.w, self.level.h)):
+            ring = [(x + dx, y + dy)
+                     for dx in range(-r, r + 1) for dy in range(-r, r + 1)
+                     if max(abs(dx), abs(dy)) == r]
+            open_ring = [t for t in ring if self.walkable(*t)]
+            if open_ring:
+                return min(open_ring, key=lambda t: (t[0] - x) ** 2 + (t[1] - y) ** 2)
+        return (x, y)   # should not happen on a connected level; last resort
+
     def orc_prey(self, orc):
         """The nearest living thing an orc will go for: you, or any monster that is not
         an orc. Returns ('player', player) or ('monster', m), or None. Ties fall to
@@ -794,10 +815,19 @@ class World:
             return
         self.level.monsters.remove(m)
 
+        # a body's Slain entry has to land somewhere the player can actually stand,
+        # or its loot (loot_options only offers a body's contents on its exact tile)
+        # is buried forever. Most monsters die on floor, but some (Syrinx, chiefly)
+        # spend real time on unwalkable tiles -- her pillars -- including the exact
+        # stun window her own Kodex fact tells you to punish her in.
+        sx, sy = m.x, m.y
+        if not self.walkable(sx, sy):
+            sx, sy = self._nearest_walkable(sx, sy)
+
         # a body killed by ANOTHER MONSTER is not your kill: its killer took the loot,
         # and it teaches you nothing. thinning the floor is the whole reward.
         if source in MONSTER_SOURCES:
-            self.level.slain.append(Slain(m.x, m.y, m.key, m.t.color, []))
+            self.level.slain.append(Slain(sx, sy, m.key, m.t.color, []))
             if len(self.level.slain) > 120:
                 del self.level.slain[0]
             self.log("The %s is torn apart." % self._mname(m), config.DIM)
@@ -809,7 +839,7 @@ class World:
         # coins, so you can walk over and pick the body clean.
         if source in TRAP_SOURCES:
             loot = roll_monster_loot(self.rng, self.depth, m.key)
-            self.level.slain.append(Slain(m.x, m.y, m.key, m.t.color, loot))
+            self.level.slain.append(Slain(sx, sy, m.key, m.t.color, loot))
             if len(self.level.slain) > 120:
                 del self.level.slain[0]
             self.log("The %s dies." % self._mname(m), config.DIM)
@@ -818,7 +848,7 @@ class World:
         # leave the body where it fell, still holding what it was carrying. the body
         # is the container: no coins spraying across the floor, no free pickups.
         loot = roll_monster_loot(self.rng, self.depth, m.key)
-        self.level.slain.append(Slain(m.x, m.y, m.key, m.t.color, loot))
+        self.level.slain.append(Slain(sx, sy, m.key, m.t.color, loot))
         if len(self.level.slain) > 120:
             del self.level.slain[0]
         self.player.kills += 1

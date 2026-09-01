@@ -2961,10 +2961,16 @@ class TestTheOrcs(unittest.TestCase):
 
     # --- kills by an orc are still not yours ----------------------------
     def test_a_monster_killed_by_an_orc_gives_no_loot_and_no_credit(self):
+        # NOTE: (30, 20)/(31, 20), used elsewhere in this class for pure targeting-
+        # geometry checks that never touch kill_monster, happen to sit on a WALL tile
+        # for this seed's stone -- fine there, but this test crouches over the body
+        # afterwards, so it needs real floor under it. Placed inside the carved arena.
         from .monsters import Monster
         w = self._world()
-        self._orc(w, 30, 20)
-        brute = Monster("brute", 31, 20)
+        ox, oy = self.AX + 2, self.midy
+        bx, by = self.AX + 3, self.midy
+        self._orc(w, ox, oy)
+        brute = Monster("brute", bx, by)
         brute.hp = 1
         w.level.monsters.append(brute)
         kills_before = w.codex.stats["kills"]
@@ -2975,7 +2981,7 @@ class TestTheOrcs(unittest.TestCase):
         self.assertEqual(w.codex.stats["kills"], kills_before,
                          "an orc's kill is not YOUR kill")
         self.assertEqual(w.player.kills, 0)
-        body = [s for s in w.level.slain if (s.x, s.y) == (31, 20)]
+        body = [s for s in w.level.slain if (s.x, s.y) == (bx, by)]
         self.assertTrue(body, "the body still lies where it fell")
         self.assertFalse(body[0].has_loot, "but there is nothing on it to take")
 
@@ -10362,6 +10368,33 @@ class TestSyrinxRewards(unittest.TestCase):
         slain = w.level.slain[-1]
         self.assertEqual(slain.key, "syrinx")
         self.assertEqual(slain.loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
+
+    def test_her_corpse_never_gets_buried_in_a_pillar_wall(self):
+        from .dungeon import WALL
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        w.new_level(8)
+        lvl = w.level
+        s = next(m for m in lvl.monsters if m.key == "syrinx")
+        s.hidden = False
+        s.hp = 1
+        px, py = s.x, s.y
+        # sanity: she really is standing on one of her pillars, a WALL tile
+        self.assertEqual(lvl.grid[py][px], WALL)
+
+        w.kill_monster(s, source="player")
+
+        slain = w.level.slain[-1]
+        self.assertNotEqual((slain.x, slain.y), (px, py),
+                             "her corpse landed on the wall tile she died on")
+        self.assertTrue(w.walkable(slain.x, slain.y),
+                         "her corpse is not on a walkable tile -- unlootable forever")
+
+        w.player.x, w.player.y = slain.x, slain.y
+        opts = w.loot_options()
+        gear = [o["payload"] for o in opts if o["kind"] == "gear"]
+        self.assertIn("windfang", gear)
+        self.assertIn("shade", gear)
 
 
 class TestSyrinxSerialization(unittest.TestCase):
