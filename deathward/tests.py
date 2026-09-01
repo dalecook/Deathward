@@ -9890,6 +9890,26 @@ class TestSyrinxHiddenState(unittest.TestCase):
         self.assertEqual(s.hidden_turns, 0)
         self.assertFalse(s.retreating)
 
+    def test_a_hidden_syrinx_ignores_the_generic_invisible_player_wander(self):
+        """An invisible player makes every OTHER awake monster's intent clear and
+        (60% of the time) wander -- Monster.take_turn's generic block, ahead of the
+        per-monster AI dispatch. Syrinx has her own hidden-state logic (_ai_syrinx)
+        that should be the only thing moving her while self.hidden is True; the
+        generic block wandering her off her pillar would leave her untargetable on
+        open floor with a stale pillar_x/pillar_y."""
+        w = self._world()
+        s = self._syrinx(w, 3, 0)
+        ox, oy = s.x, s.y
+        w.player.invisible = 30
+        self.assertTrue(w.player_hidden())
+
+        # stay under config.SYRINX_HIDDEN_MAX (5) so we are testing the generic
+        # wander exemption, not colliding with her own forced-emergence timer
+        for _ in range(4):
+            s.take_turn(w)
+            self.assertEqual((s.x, s.y), (ox, oy), "she wandered off her pillar")
+            self.assertTrue(s.hidden, "she lost her hidden state")
+
     def test_forced_emergence_after_the_hidden_cap(self):
         from . import config
         w = self._world()
