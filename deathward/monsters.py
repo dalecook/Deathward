@@ -108,6 +108,8 @@ def damage_multiplier(monster_key, source):
             return 2.0       # stone cracks in fire
         if source in ("player", "thorns", "dart", "spike"):
             return 0.25      # steel, darts, spikes -- it barely notices
+    if monster_key == "syrinx" and source in FIRE_SOURCES:
+        return config.SYRINX_FIRE_MULT     # wind and stone; fire cracks her wide open
     return 1.0
 
 

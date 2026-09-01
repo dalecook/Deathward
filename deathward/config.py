@@ -175,6 +175,7 @@ SYRINX_HIDDEN_MAX = 5      # turns she may stay hidden before a forced emergence
 SYRINX_DEPTH      = 8      # the floor her arena is on
 SYRINX_STUN_TURNS = 1      # turns fully vulnerable after her blow lands
 SYRINX_PUSH_DIST  = 2      # tiles the gust shoves the player back
+SYRINX_FIRE_MULT  = 2.0    # matches the stone golem's existing fire weakness
 
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps

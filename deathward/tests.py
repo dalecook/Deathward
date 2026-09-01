@@ -10142,6 +10142,78 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         self.assertFalse(_syrinx_path_blocked(0, 0, 4, 0, 2, 5))  # player is far off it
 
 
+class TestSyrinxResistances(unittest.TestCase):
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=3)
+        w.level.monsters = []
+        return w
+
+    def test_fire_deals_double_damage(self):
+        from .monsters import damage_multiplier
+        self.assertEqual(damage_multiplier("syrinx", "burn"), config.SYRINX_FIRE_MULT)
+        self.assertEqual(damage_multiplier("syrinx", "glyph"), config.SYRINX_FIRE_MULT)
+        self.assertEqual(damage_multiplier("syrinx", "scroll"), config.SYRINX_FIRE_MULT)
+        self.assertEqual(damage_multiplier("syrinx", "player"), 1.0)
+
+    def test_freeze_fear_and_poison_never_take_hold(self):
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        w.level.monsters = [s]
+        w.player.weapon = WEAPONS["winters_edge"].copy()   # "freeze" trait
+        for _ in range(30):
+            w._weapon_status_on(s, 5)
+        self.assertEqual(s.stunned, 0)
+        w.player.weapon = WEAPONS["reapers_whisper"].copy()  # "fear" trait
+        for _ in range(30):
+            w._weapon_status_on(s, 5)
+        self.assertEqual(s.feared, 0)
+        w.player.weapon = WEAPONS["basilisk_maul"].copy()    # "poison" trait
+        w._weapon_status_on(s, 5)
+        self.assertEqual(s.poisoned, 0)
+
+    def test_reactive_armour_status_effects_do_not_take_hold(self):
+        from .items import ARMOURS
+        from .monsters import Monster
+        w = self._world()
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        s.hp = s.max_hp = 999
+        w.level.monsters = [s]
+        w.player.armour = ARMOURS["venom"].copy()
+        w.player.armour_cd = 0
+        w.monster_attacks_player(s, 3)
+        self.assertEqual(s.poisoned, 0)
+        w.player.armour = ARMOURS["glacial"].copy()
+        w.player.armour_cd = 0
+        w.monster_attacks_player(s, 3)
+        self.assertEqual(s.stunned, 0)
+
+    def test_fear_and_hold_scrolls_do_not_take_hold(self):
+        from .monsters import Monster
+        w = self._world()
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        w.level.monsters = [s]
+        w._apply_effect("fear")
+        self.assertEqual(s.feared, 0)
+        w._apply_effect("hold")
+        self.assertEqual(s.stunned, 0)
+
+    def test_a_spike_trap_does_not_stun_her(self):
+        from .monsters import Monster
+        from .traps import Trap
+        w = self._world()
+        s = Monster("syrinx", 5, 5)
+        s.hidden = False
+        t = Trap("spike", 5, 5)
+        t.trigger(w, s)
+        self.assertEqual(s.stunned, 0)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

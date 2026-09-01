@@ -137,7 +137,8 @@ class Trap:
             world.player.stuck = 1          # a turn spent climbing out
         else:
             world.hurt_monster(victim, dmg, source="spike")
-            victim.stunned = max(victim.stunned, 1)
+            if not world._status_immune(victim):
+                victim.stunned = max(victim.stunned, 1)
 
     def _gas(self, world, victim, is_player):
         self.sprung = True

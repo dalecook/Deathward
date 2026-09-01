@@ -77,6 +77,7 @@ COATABLE_EFFECTS = {"poison", "weak", "confuse"}
 ORC_SIGHT = 10
 
 BOSS_KEYS = {"warden"}      # void-immune; the mini-boss task adds its keys here
+STATUS_IMMUNE_KEYS = {"syrinx"}    # poison/freeze/fear never take hold on her
 from .player import Player
 from .vendor import Vendor, price_of, sell_price_of
 
@@ -573,16 +574,18 @@ class World:
             m.burning = max(m.burning, 3)
             self.log("The %s catches fire." % self._mname(m), (255, 150, 80))
             self.add_fx("burning", m.x, m.y, life=0.8, tiles=[(m.x, m.y)])
-        if "freeze" in traits and m.alive and self.rng.random() < config.FREEZE_CHANCE:
+        if ("freeze" in traits and m.alive and not self._status_immune(m)
+                and self.rng.random() < config.FREEZE_CHANCE):
             m.stunned = max(m.stunned, config.FREEZE_TURNS)
             self.log("The %s freezes solid for a beat." % self._mname(m),
                      (150, 210, 255))
             self.add_fx("freeze", m.x, m.y, color=(150, 210, 255), life=0.5)
-        if "fear" in traits and m.alive and self.rng.random() < config.FEAR_CHANCE:
+        if ("fear" in traits and m.alive and not self._status_immune(m)
+                and self.rng.random() < config.FEAR_CHANCE):
             m.feared = max(m.feared, config.FEAR_TURNS)
             m.awake = True
             self.log("The %s recoils in terror." % self._mname(m), (120, 100, 190))
-        if "poison" in traits and m.alive:
+        if "poison" in traits and m.alive and not self._status_immune(m):
             m.poisoned = max(m.poisoned, config.POISON_TURNS)
             self.log("The %s is envenomed." % self._mname(m), (150, 220, 130))
             self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9, life=0.4)
@@ -668,19 +671,22 @@ class World:
                      (150, 220, 130))
             self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9,
                         life=0.45)
-        elif coat == "weak":
+        elif coat == "weak" and not self._status_immune(m):
             m.weak = max(m.weak, 20)
             self.log("The draught soaks into the wound. The %s's blows will falter."
                      % self._mname(m), (200, 190, 120))
             self.add_fx("impact", m.x, m.y, color=(200, 190, 120), radius=0.9,
                         life=0.45)
-        elif coat == "confuse":
+        elif coat == "confuse" and not self._status_immune(m):
             m.confused = max(m.confused, 12)
             m.awake = True
             self.log("The draught muddies its head. The %s staggers, lost."
                      % self._mname(m), (176, 120, 132))
             self.add_fx("impact", m.x, m.y, color=(176, 120, 132), radius=0.9,
                         life=0.45)
+        elif coat in ("weak", "confuse"):
+            self.log("The draught finds nothing in the %s to take hold of."
+                     % self._mname(m), config.DIM)
         if "shock" in traits and is_incorporeal(m.key):
             dmg = int(round(dmg * config.FULGURITE_INCORP_MULT))
         self.hurt_monster(m, dmg, source="player")
@@ -751,6 +757,13 @@ class World:
     def _void_immune(self, m):
         """The void cannot swallow a boss (the Warden, or a mini-boss)."""
         return m.key in BOSS_KEYS
+
+    def _status_immune(self, m):
+        """Poison, freeze and fear never take hold on Syrinx -- wind and stone have
+        nothing in them to poison or frighten. Modeled directly on _void_immune.
+        Fire and physical damage are untouched by this; it only ever gates a STATUS
+        flag (poisoned/stunned-as-freeze/feared/weak/confused), never a hit."""
+        return m.key in STATUS_IMMUNE_KEYS
 
     def void_monster(self, m):
         """Unmake a monster: removed outright, no body, no loot -- the cost that
@@ -909,20 +922,30 @@ class World:
                 self.add_fx("burning", m.x, m.y, life=0.7, tiles=[(m.x, m.y)])
                 p.armour_cd = config.ARMOUR_RETAL_RECHARGE
             elif t == "venom":
-                m.poisoned = max(m.poisoned, config.VENOM_POISON_TURNS)
-                self.log("Your armour weeps venom -- the %s is envenomed."
-                         % self._mname(m), (150, 220, 130))
-                self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9, life=0.4)
                 p.armour_cd = config.ARMOUR_RETAL_RECHARGE
+                if self._status_immune(m):
+                    self.log("Your armour weeps venom -- and finds nothing in the "
+                             "%s to poison." % self._mname(m), config.DIM)
+                else:
+                    m.poisoned = max(m.poisoned, config.VENOM_POISON_TURNS)
+                    self.log("Your armour weeps venom -- the %s is envenomed."
+                             % self._mname(m), (150, 220, 130))
+                    self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9,
+                                life=0.4)
             elif t == "glacial":
-                m.stunned = max(m.stunned, config.FREEZE_TURNS)
-                self.log("Your armour rimes over -- the %s freezes solid."
-                         % self._mname(m), (150, 210, 255))
-                self.add_fx("freeze", m.x, m.y, color=(150, 210, 255), life=0.5)
                 p.armour_cd = config.ARMOUR_RETAL_RECHARGE
+                if self._status_immune(m):
+                    self.log("Your armour rimes over -- but the %s does not freeze."
+                             % self._mname(m), config.DIM)
+                else:
+                    m.stunned = max(m.stunned, config.FREEZE_TURNS)
+                    self.log("Your armour rimes over -- the %s freezes solid."
+                             % self._mname(m), (150, 210, 255))
+                    self.add_fx("freeze", m.x, m.y, color=(150, 210, 255), life=0.5)
             elif t == "blinding":
                 for mm in self.level.monsters:
-                    if mm.alive and mm.dist(p.x, p.y) <= config.BLINDING_RADIUS:
+                    if (mm.alive and mm.dist(p.x, p.y) <= config.BLINDING_RADIUS
+                            and not self._status_immune(mm)):
                         mm.stunned = max(mm.stunned, config.BLINDING_STUN_TURNS)
                         mm.intent = None
                 self.log("Your armour ERUPTS with light. Everything near you reels.",
@@ -2087,7 +2110,8 @@ class World:
             self.add_fx("pulse", p.x, p.y, color=(190, 200, 220), life=0.7)
         elif effect == "fear":
             hit = [m for m in self.level.monsters
-                   if m.dist(p.x, p.y) <= 6 and not m.disguised]
+                   if m.dist(p.x, p.y) <= 6 and not m.disguised
+                   and not m.hidden and not self._status_immune(m)]
             for m in hit:
                 m.feared = max(m.feared, 8)
                 m.awake = True
@@ -2097,7 +2121,8 @@ class World:
             self.add_fx("shout", p.x, p.y, radius=14, color=(120, 100, 190), life=0.9)
         elif effect == "hold":
             hit = [m for m in self.level.monsters
-                   if m.dist(p.x, p.y) <= 6 and not m.disguised]
+                   if m.dist(p.x, p.y) <= 6 and not m.disguised
+                   and not m.hidden and not self._status_immune(m)]
             for m in hit:
                 m.stunned = max(m.stunned, 10)
                 m.intent = None
