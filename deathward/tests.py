@@ -10962,6 +10962,99 @@ class TestArenaGateState(unittest.TestCase):
         self.assertGreaterEqual(config.RUN_SAVE_VERSION, 4)
 
 
+class TestArenaGates(unittest.TestCase):
+    """Three gates, one object, each opening one way only: the way up seals when you
+    arrive, the mouth seals when you commit, and the way down opens when she dies."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def _commit(self, w):
+        """Walk the player through the mouth into the hall."""
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._enter_tile()
+
+    def test_the_way_up_is_stone_the_moment_you_arrive(self):
+        w = self._world()
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.ascend(), "there is no way back from her floor")
+
+    def test_ordinary_floors_still_let_you_climb(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend())
+
+    def test_the_mouth_shuts_behind_you(self):
+        w = self._world()
+        mx, my = w.level.mouth
+        self.assertEqual(w.level.grid[my][mx], 1)
+        self._commit(w)
+        self.assertTrue(w.level.mouth_sealed)
+        self.assertEqual(w.level.grid[my][mx], 0, "the gate is stone now")
+
+    def test_committing_reveals_the_halls_stone_and_never_its_contents(self):
+        w = self._world()
+        self._commit(w)
+        a = w.level.arena_room
+        far_x, far_y = a.x + a.w - 2, a.y + 1
+        self.assertTrue(w.level.explored[far_y][far_x],
+                        "the hall shows you its shape")
+        self.assertFalse(w.level.seen[far_y][far_x],
+                         "nothing but your own eyes ever shows you contents")
+
+    def test_the_hazards_stay_hidden_through_the_reveal(self):
+        w = self._world()
+        self._commit(w)
+        far = [t for t in w.level.traps
+               if max(abs(t.x - w.player.x), abs(t.y - w.player.y)) > config.FOV_RADIUS]
+        self.assertTrue(far, "test needs a hazard out of sight")
+        for t in far:
+            self.assertFalse(w.codex.trap_found(8, t.x, t.y),
+                             "a reveal maps stone, not danger")
+
+    def test_the_way_down_is_barred_until_she_dies(self):
+        w = self._world()
+        self._commit(w)
+        w.player.x, w.player.y = w.level.stairs
+        self.assertFalse(w.descend(), "the hall holds the stairs shut")
+        self.assertEqual(w.depth, 8)
+
+    def test_killing_her_opens_the_way_down(self):
+        from .monsters import Monster
+        w = self._world()
+        self._commit(w)
+        m = Monster("syrinx", w.level.arena_room.cx, w.level.arena_room.cy)
+        w.level.monsters = [m]
+        w.kill_monster(m)
+        self.assertFalse(w.level.stairs_locked)
+        w.player.x, w.player.y = w.level.stairs
+        self.assertTrue(w.descend())
+        self.assertEqual(w.depth, 9)
+
+    def test_a_hazard_that_kills_her_opens_it_too(self):
+        from .monsters import Monster
+        w = self._world()
+        self._commit(w)
+        m = Monster("syrinx", w.level.arena_room.cx, w.level.arena_room.cy)
+        w.level.monsters = [m]
+        w.kill_monster(m, source="glyph")
+        self.assertFalse(w.level.stairs_locked,
+                         "the gate answers to her death, not to who dealt it")
+
+    def test_the_mouth_only_seals_once(self):
+        w = self._world()
+        self._commit(w)
+        w.level.boss_spawned = False       # pretend Task 6 has not run
+        self._commit(w)
+        self.assertTrue(w.level.mouth_sealed)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

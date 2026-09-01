@@ -262,6 +262,10 @@ class World:
         if (self.player.x, self.player.y) != self.level.stairs:
             self.log("You are not standing on the stairs.", config.DIM)
             return False
+        if self.level.stairs_locked:
+            self.log("The way down is barred. Something in this hall is holding it "
+                     "shut.", config.BLOOD)
+            return False
         self.remember_map()
         self.new_level(self.depth + 1, arrive="entrance")
         self.log("You descend to floor %d." % self.depth, config.STAIRS)
@@ -288,6 +292,12 @@ class World:
         """
         if (self.player.x, self.player.y) != self.level.entrance:
             self.log("You are not standing on the way up.", config.DIM)
+            return False
+        if self.level.is_arena_floor():
+            # the same rule as floor 1's front gate, one floor deeper: you came down
+            # into her hall, and the hall does not give anything back.
+            self.log("The gate you came down through is stone. There is no way back.",
+                     config.BLOOD)
             return False
         if self.depth <= 1:
             return "sealed"          # the gate you came in by. it is not a door now.
@@ -825,6 +835,13 @@ class World:
         if m not in self.level.monsters:
             return
         self.level.monsters.remove(m)
+
+        # the gate answers to her death, not to who dealt it -- a fire glyph counts.
+        if m.key == "syrinx" and self.level.stairs_locked:
+            self.level.stairs_locked = False
+            sx, sy = self.level.stairs
+            self.log("Somewhere behind you, the way down grinds open.", config.STAIRS)
+            self.add_fx("pulse", sx, sy, color=config.STAIRS, life=1.2)
 
         # a body's Slain entry has to land somewhere the player can actually stand,
         # or its loot (loot_options only offers a body's contents on its exact tile)
@@ -2188,8 +2205,40 @@ class World:
             self.log("The scroll leaves a door open in the air. Choose where it "
                      "leads.", config.MANA)
 
+    def _arena_commit(self):
+        """The first time you stand in her hall, the gate falls behind you and the
+        room shows you what it is.
+
+        The reveal touches `explored` and NEVER `seen`. That distinction is the whole
+        game: `explored` is the stone you have seen (a Scroll of Mapping fills it in),
+        `seen` is the contents you have laid eyes on, and nothing but your own line of
+        sight ever sets it. So you get the shape of the hall entire -- 31x23 of it,
+        the columns marching away -- and not one thing that is standing in it. The
+        hazards are stone but UNDISCOVERED, and an undiscovered trap draws as clean
+        floor, so this defuses nothing: it is a beautifully lit room you still cannot
+        cross.
+        """
+        lvl = self.level
+        if not lvl.is_arena_floor() or lvl.mouth_sealed:
+            return
+        if lvl.arena_room is None or not lvl.arena_room.contains(self.player.x,
+                                                                 self.player.y):
+            return
+        mx, my = lvl.mouth
+        lvl.grid[my][mx] = WALL
+        lvl.mouth_sealed = True
+        self.log("The gate falls behind you. Stone, and no seam.", config.BLOOD)
+        self.shake(8)
+
+        a = lvl.arena_room
+        for y in range(max(0, a.y - 1), min(lvl.h, a.y + a.h + 1)):
+            for x in range(max(0, a.x - 1), min(lvl.w, a.x + a.w + 1)):
+                lvl.explored[y][x] = True
+        lvl.explored[my][mx] = True
+
     def _enter_tile(self):
         p = self.player
+        self._arena_commit()      # stepping into her hall is the commitment
         t = self.level.trap_at(p.x, p.y)
         if t and not (t.sprung and t.key in ("gas", "alarm", "glyph", "dart")):
             if self.player_hidden():
