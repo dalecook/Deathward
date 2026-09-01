@@ -494,6 +494,32 @@ def _warden(s, S, body, dark):
     _circ(s, _shade(body, 1.05), cx + S * 0.40, S * 0.74, S * 0.10)
 
 
+def _syrinx(s, S, body, dark):
+    """A slender, unassuming figure -- nothing about her reads as a boss. Windswept
+    hair trailing sideways and a thin, almost hollow robe, matching her theme:
+    lightness (Windfang) and stone-hiding (Shademail)."""
+    cx = S * 0.5
+    # a slim robed body, narrower than any of the humanoid brutes
+    _poly(s, body, [(cx - S * 0.16, S * 0.34), (cx + S * 0.16, S * 0.34),
+                    (cx + S * 0.20, S * 0.86), (cx - S * 0.20, S * 0.86)])
+    _poly(s, _shade(body, 0.82), [(cx - S * 0.09, S * 0.34), (cx + S * 0.09, S * 0.34),
+                                  (cx + S * 0.11, S * 0.70), (cx - S * 0.11, S * 0.70)])
+    # a small, plain head -- deliberately unremarkable
+    _circ(s, _shade(body, 1.1), cx, S * 0.22, S * 0.12)
+    # hair blown sideways -- the only unusual thing about her silhouette
+    for dy in (-0.04, 0.02, 0.08):
+        _curve(s, _shade(body, 0.85),
+               [(cx - S * 0.02, S * (0.14 + dy)),
+                (cx - S * 0.30, S * (0.10 + dy)),
+                (cx - S * 0.46, S * (0.16 + dy))], S * 0.02)
+    # thin arms, close to the body
+    _line(s, _shade(body, 0.9), (cx - S * 0.16, S * 0.42), (cx - S * 0.24, S * 0.62), S * 0.045)
+    _line(s, _shade(body, 0.9), (cx + S * 0.16, S * 0.42), (cx + S * 0.24, S * 0.62), S * 0.045)
+    # two quiet eyes -- nothing predatory
+    _circ(s, (30, 34, 26), cx - S * 0.045, S * 0.21, S * 0.018)
+    _circ(s, (30, 34, 26), cx + S * 0.045, S * 0.21, S * 0.018)
+
+
 _MONSTER_DRAW = {
     "angry_rat": lambda s, S, c, d: _rat(s, S, c, d, (240, 90, 70), plague=False),
     "rat":       lambda s, S, c, d: _rat(s, S, c, d, (230, 230, 140), plague=True),
@@ -508,6 +534,7 @@ _MONSTER_DRAW = {
     "golem":     _golem,
     "poltergeist": _poltergeist,
     "warden":    _warden,
+    "syrinx":    _syrinx,
 }
 
 

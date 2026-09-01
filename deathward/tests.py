@@ -9790,6 +9790,13 @@ class TestTheSuiteCannotReachARealSave(unittest.TestCase):
         self.assertEqual(c.deaths, 0, "...and the deaths")
 
 
+class TestSyrinxSprite(unittest.TestCase):
+    def test_it_has_a_sprite_registered(self):
+        from . import sprites
+        self.assertIn("syrinx", sprites._MONSTER_DRAW)
+        self.assertIsNotNone(sprites.monster("syrinx", (196, 214, 150)))
+
+
 class TestSyrinxIdentity(unittest.TestCase):
     def test_her_template_exists_with_the_right_shape(self):
         from .monsters import TEMPLATES
