@@ -775,7 +775,10 @@ class Monster:
                 self.hidden_turns = 0
                 world.add_fx("vanish", self.x, self.y, color=self.t.color, life=0.5)
                 return
-            self._step_toward(world, *target)
+            # the pillar itself is a WALL tile -- same reason wraith/poltergeist
+            # phase to reach the player, she has to phase to reach IT, or her
+            # last step never lands and she oscillates one tile short forever.
+            self._step_toward(world, *target, phase=True)
             return
 
         aligned = (self.x == p.x or self.y == p.y)

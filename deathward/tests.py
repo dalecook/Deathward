@@ -10178,6 +10178,42 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         self.assertTrue(_syrinx_path_blocked(0, 0, 4, 0, 2, 0))   # player sits on the line
         self.assertFalse(_syrinx_path_blocked(0, 0, 4, 0, 2, 5))  # player is far off it
 
+    def test_she_can_actually_step_onto_the_pillar_tile_to_re_hide(self):
+        # the pillar itself is carved as a WALL tile (see dungeon._populate_syrinx).
+        # her LAST retreat step has to walk onto that wall tile, same as wraith/
+        # poltergeist phasing through walls to reach the player -- if that step
+        # isn't allowed to phase, she gets stuck oscillating one tile short of the
+        # pillar forever, and can never re-hide.
+        w = self._world()
+        pillars = w.level.syrinx_pillars()
+        target = pillars[1]
+        start = None
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = target[0] + dx, target[1] + dy
+            if w.level.walkable(nx, ny):
+                start = (nx, ny)
+                break
+        self.assertIsNotNone(start, "expected a walkable tile next to the pillar")
+
+        w.player.x, w.player.y = w.level.entrance   # well clear of the retreat path
+        s = self._syrinx(w, *start)
+        s.pillar_x, s.pillar_y = pillars[0]          # the pillar she just left
+        s.retreating = True
+
+        # sanity: the real geometry picks the adjacent pillar as her target
+        self.assertEqual(s._syrinx_retreat_target(w, w.player), target)
+
+        for _ in range(15):
+            s.take_turn(w)
+            if s.hidden:
+                break
+
+        self.assertTrue(
+            s.hidden,
+            f"never re-hid; stuck at ({s.x}, {s.y}) instead of reaching {target}")
+        self.assertEqual((s.pillar_x, s.pillar_y), target)
+
 
 class TestSyrinxResistances(unittest.TestCase):
     def _world(self):
