@@ -9963,6 +9963,38 @@ class TestSyrinxHiddenState(unittest.TestCase):
             "that ignores .hidden (or one that draws nothing at all either way) "
             "would wrongly produce identical frames here")
 
+    def test_drawing_her_emerge_telegraph_while_still_hidden_actually_draws_something(self):
+        """The 'emerge' intent fires a full turn before she leaves hidden state --
+        while m.hidden is still True. The main monster-drawing loop `continue`s past
+        any hidden monster entirely (it has no sprite to draw), so the ordinary
+        intent-marker chain never runs for her. draw_world needs a second, narrower
+        pass just for this case: a persistent glow on her still-hidden pillar tile,
+        gated on codex.knows_tier('syrinx', 'tell') like every other intent marker."""
+        from . import render
+        w = self._world()
+        s = self._syrinx(w, 3, 0)
+        w.level.visible[s.y][s.x] = True
+        w.codex.known.append("syrinx.rule")   # tiers are sequential: "tell" needs "rule" first
+        w.codex.known.append("syrinx.tell")
+        cam = render.Camera()
+        cam.center_on(w.player.x, w.player.y)
+
+        s.intent = None
+        no_intent_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(no_intent_surf, w, w.codex, cam, 0.0)
+        no_intent_pixels = pygame.image.tostring(no_intent_surf, "RGB")
+
+        s.intent = ("emerge", s.x, s.y)
+        emerge_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(emerge_surf, w, w.codex, cam, 0.0)   # must not raise
+        emerge_pixels = pygame.image.tostring(emerge_surf, "RGB")
+
+        self.assertTrue(s.hidden, "sanity: she must still be hidden for this case")
+        self.assertNotEqual(
+            no_intent_pixels, emerge_pixels,
+            "the emerge telegraph must be visible on her pillar tile even though "
+            "she has no sprite to draw while hidden")
+
 
 class TestSyrinxArena(unittest.TestCase):
     def test_floor_eight_places_exactly_one_hidden_syrinx(self):
@@ -10186,6 +10218,36 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         self.assertTrue(moved or telegraphed,
                          "inside her arena she must still hunt (move) or, if "
                          "already aligned and clear, telegraph a blow")
+
+    def test_drawing_her_blow_telegraph_actually_draws_something(self):
+        """The 'blow' intent used to be signalled only by an ephemeral, real-time FX
+        pulse (world.add_fx, life=0.9s) -- invisible to a player who pauses to think
+        even though the telegraph is still mechanically live. render.draw_world now
+        carries a persistent marker for it in the main intent-marker chain, gated
+        (like every sibling case) on codex.knows_tier(m.key, 'tell')."""
+        from . import render
+        w = self._world()
+        s = self._syrinx(w, 4, 0)
+        w.level.visible[s.y][s.x] = True
+        w.codex.known.append("syrinx.rule")   # tiers are sequential: "tell" needs "rule" first
+        w.codex.known.append("syrinx.tell")
+        cam = render.Camera()
+        cam.center_on(w.player.x, w.player.y)
+
+        s.intent = None
+        no_intent_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(no_intent_surf, w, w.codex, cam, 0.0)
+        no_intent_pixels = pygame.image.tostring(no_intent_surf, "RGB")
+
+        s.intent = ("blow", 0, 0)
+        blow_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(blow_surf, w, w.codex, cam, 0.0)   # must not raise
+        blow_pixels = pygame.image.tostring(blow_surf, "RGB")
+
+        self.assertNotEqual(
+            no_intent_pixels, blow_pixels,
+            "the blow telegraph must draw a persistent marker, not rely solely "
+            "on the decaying real-time FX pulse")
 
 
 class TestSyrinxStunAndRetreat(unittest.TestCase):

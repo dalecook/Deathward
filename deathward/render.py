@@ -324,6 +324,46 @@ def draw_world(surf, world, codex, cam, t):
                     pygame.draw.circle(surf, (200, 230, 255),
                                        (cx, cy), int(T * (0.28 + 0.06 * pulse)), 2)
                     glyph(surf, "!", cx, cy - T // 2 - 6, (150, 210, 255), 18)
+                elif kind == "blow":
+                    # her ranged gust -- same shape as the spitter's "spit": a
+                    # line of effect toward the player that a pillar can block.
+                    # pulsing (unlike spit's static fill) so it reads as active
+                    # danger, not ambient scenery.
+                    p = world.player
+                    dx = (p.x > m.x) - (p.x < m.x)
+                    dy = (p.y > m.y) - (p.y < m.y)
+                    lx, ly = m.x, m.y
+                    pulse = 0.5 + 0.5 * math.sin(t * 8)
+                    for _ in range(9):
+                        lx += dx
+                        ly += dy
+                        if not world.walkable(lx, ly) or not cam.on_screen(lx, ly):
+                            break
+                        layer = pygame.Surface((T, T), pygame.SRCALPHA)
+                        layer.fill((*m.t.color, int(60 + 70 * pulse)))
+                        surf.blit(layer, topleft(lx, ly))
+                    glyph(surf, "!", cx, cy - T // 2 - 6, m.t.color, 18)
+
+    # --- Syrinx's still-hidden telegraph ----------------------------------
+    # her "emerge" intent fires a full turn before she leaves hidden state,
+    # but the monster loop above `continue`s past her entirely while
+    # m.hidden is True -- she has no sprite to draw yet. This is a second,
+    # narrower pass just for that case: a persistent glow on the pillar tile
+    # itself (same pulsing-highlight style as "smash"'s target-tile flash),
+    # so the warning is legible for her whole telegraph turn even though
+    # nothing is drawn ON her -- there is no her to draw on.
+    for m in lvl.monsters:
+        if not (m.hidden and m.intent and m.intent[0] == "emerge"):
+            continue
+        if not lvl.visible[m.y][m.x] or not cam.on_screen(m.x, m.y):
+            continue
+        if not codex.knows_tier(m.key, "tell"):
+            continue
+        pulse = 0.5 + 0.5 * math.sin(t * 9)
+        layer = pygame.Surface((T, T), pygame.SRCALPHA)
+        layer.fill((*m.t.color, int(55 + 70 * pulse)))
+        surf.blit(layer, topleft(m.x, m.y))
+        pygame.draw.rect(surf, m.t.color, (*topleft(m.x, m.y), T, T), 2)
 
     # --- the player -------------------------------------------------------
     p = world.player
