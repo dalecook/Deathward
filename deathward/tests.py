@@ -10909,6 +10909,59 @@ class TestArenaHazards(unittest.TestCase):
                             sorted((t.key, t.x, t.y) for t in other.traps))
 
 
+class TestArenaGateState(unittest.TestCase):
+    """Three booleans carry the whole floor: has the mouth shut, is the way down
+    barred, has she arrived. Suspend in the antechamber and she must not exist on
+    resume; suspend mid-fight and she must, exactly where she was."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def test_a_fresh_hall_starts_open_barred_and_empty(self):
+        lvl = self._world().level
+        self.assertFalse(lvl.mouth_sealed)
+        self.assertTrue(lvl.stairs_locked, "the way down is shut until she is dead")
+        self.assertFalse(lvl.boss_spawned)
+
+    def test_ordinary_floors_are_never_barred(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        self.assertFalse(w.level.stairs_locked)
+        self.assertFalse(w.level.mouth_sealed)
+
+    def test_the_three_flags_survive_a_round_trip(self):
+        from .dungeon import Level
+        w = self._world()
+        w.level.mouth_sealed = True
+        w.level.stairs_locked = False
+        w.level.boss_spawned = True
+        data = w.level.to_dict()
+
+        restored = Level(8, w.rng, w.codex, restore=data)
+        self.assertTrue(restored.mouth_sealed)
+        self.assertFalse(restored.stairs_locked)
+        self.assertTrue(restored.boss_spawned)
+
+    def test_a_sealed_mouth_is_still_stone_after_a_resume(self):
+        from .dungeon import Level
+        w = self._world()
+        mx, my = w.level.mouth
+        w.level.grid[my][mx] = 0
+        w.level.mouth_sealed = True
+        data = w.level.to_dict()
+
+        restored = Level(8, w.rng, w.codex, restore=data)
+        self.assertEqual(restored.grid[my][mx], 0,
+                         "a resumed hall must not re-open the gate you shut")
+
+    def test_the_save_version_moved(self):
+        self.assertGreaterEqual(config.RUN_SAVE_VERSION, 4)
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

@@ -225,6 +225,10 @@ class Level:
         self.ante_room = None      # the prep room you arrive in
         self.arena_room = None     # her hall
         self.mouth = None          # the one tile joining them
+        # the three gates, as state. All false/open elsewhere in the dungeon.
+        self.mouth_sealed = False  # has the gate fallen behind you
+        self.stairs_locked = False # is the way down barred (until she dies)
+        self.boss_spawned = False  # has she arrived
         self.visible = [[False] * self.w for _ in range(self.h)]
         # THE STONE you have seen, in any previous run of this game. A death does not
         # un-draw your map, and a Scroll of Mapping fills this in for the whole floor.
@@ -480,11 +484,18 @@ class Level:
         from .monsters import Monster
         from .vendor import Vendor
         self._cut_stone(codex)
-        if self.depth == config.SYRINX_DEPTH:
+        if self.is_arena_floor():
             # her pillar WALL tiles are not part of the stone _cut_stone lays down --
-            # they must be re-carved here, exactly as _populate_syrinx does on the
-            # generate path, or a resumed floor 8 loses her arena's terrain.
+            # they must be re-carved here, exactly as the generate path does, or a
+            # resumed floor 8 loses her arena's terrain.
             self._carve_syrinx_pillars()
+            self.mouth_sealed = data.get("mouth_sealed", False)
+            self.stairs_locked = data.get("stairs_locked", True)
+            self.boss_spawned = data.get("boss_spawned", False)
+            if self.mouth_sealed:
+                # a gate you shut stays shut through a suspend
+                mx, my = self.mouth
+                self.grid[my][mx] = WALL
         self.monsters = [Monster.from_dict(m) for m in data["monsters"]]
         self.drops = [Drop.from_dict(d) for d in data["drops"]]
         self.chests = [Chest.from_dict(c) for c in data["chests"]]
@@ -518,6 +529,9 @@ class Level:
             "traps": [t.to_dict() for t in self.traps],
             "hoard": [self.hoard.cx, self.hoard.cy] if self.hoard else None,
             "seen": [row[:] for row in self.seen],
+            "mouth_sealed": self.mouth_sealed,
+            "stairs_locked": self.stairs_locked,
+            "boss_spawned": self.boss_spawned,
         }
 
     def _replay_magicals(self, persisted):
@@ -830,6 +844,7 @@ class Level:
         self.start = self.entrance
         # the way down sits at the far end of the hall, opposite the mouth
         self.stairs = (arena.x + arena.w - 2, arena.cy)
+        self.stairs_locked = True      # it opens when she does not get up
 
         self._carve_syrinx_pillars()
         self._install_arena_traps()
