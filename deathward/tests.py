@@ -11444,6 +11444,16 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
         # all. Committing via _enter_tile() alone would leave the mouth open and
         # this whole test class would prove nothing.
         w._end_player_turn()
+        # Stubbing World._arena_commit to a no-op (a real mutation a review tried)
+        # is invisible to every test below that only checks "such-and-such is
+        # still reachable" -- sealing the mouth only ever SHRINKS the reachable
+        # set, it never grows it, so a commit that silently never happened would
+        # still leave those assertions green. Nail down that the commit actually
+        # fired, once, here, so a stubbed-out commit fails loudly instead of
+        # passing by accident.
+        self.assertTrue(w.level.mouth_sealed, "the helper must actually commit")
+        self.assertTrue(any(m.key == "syrinx" for m in w.level.monsters),
+                        "and she must actually have arrived")
         return w
 
     def _reachable(self, lvl, start):
@@ -11461,20 +11471,31 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
         return seen
 
     def test_the_way_down_is_reachable_from_where_you_are_sealed_in(self):
-        for seed in range(10):
-            w = self._committed(world_seed=seed)
-            reach = self._reachable(w.level, (w.player.x, w.player.y))
-            self.assertIn(w.level.stairs, reach,
-                          "seed %d: she can be reached and so can the stairs" % seed)
+        # This used to loop world_seed over range(10), as though ten seeds meant
+        # ten geometries. They don't: _cut_arena_floor() (dungeon.py) cuts her
+        # hall from fixed arithmetic on purpose, precisely so it is the same
+        # every game (see the docstring there). Only _install_arena_traps() reads
+        # from the seeded lrng, and traps never write to `grid` -- so all ten
+        # iterations flood-filled the exact same walkable set, ten times over.
+        # One seed sees everything this test can see.
+        w = self._committed()
+        reach = self._reachable(w.level, (w.player.x, w.player.y))
+        self.assertIn(w.level.stairs, reach, "she can be reached and so can the stairs")
+        # and the seal has to be load-bearing here, not incidental: if the mouth
+        # never actually sealed, the antechamber would still be part of `reach`
+        # too, and "the stairs are reachable" would be true for the boring reason
+        # that everything is reachable.
+        self.assertNotIn(w.level.entrance, reach,
+                         "the antechamber is sealed off, not just still standing there")
 
     def test_every_pillar_leaves_the_hall_connected(self):
-        for seed in range(10):
-            w = self._committed(world_seed=seed)
-            a = w.level.arena_room
-            floor = {(x, y) for (x, y) in a.tiles() if w.level.grid[y][x] == 1}
-            reach = self._reachable(w.level, (w.player.x, w.player.y))
-            self.assertTrue(floor <= reach,
-                            "seed %d: the columns must not wall anything off" % seed)
+        # Same non-variance as above -- see the comment in
+        # test_the_way_down_is_reachable_from_where_you_are_sealed_in. One seed.
+        w = self._committed()
+        a = w.level.arena_room
+        floor = {(x, y) for (x, y) in a.tiles() if w.level.grid[y][x] == 1}
+        reach = self._reachable(w.level, (w.player.x, w.player.y))
+        self.assertTrue(floor <= reach, "the columns must not wall anything off")
 
     def test_the_antechamber_is_reachable_until_you_commit(self):
         codex = FakeSave(); codex.world_seed = 3
@@ -11525,10 +11546,30 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
         stages.append(((a.x, a.cy), w.level.to_dict()))        # she is dead
         for i, (where, data) in enumerate(stages):
             restored = Level(8, w.rng, w.codex, restore=data)
+            # Both gates default AWAY from what a lost key would need to be caught:
+            # to_dict() dropping "stairs_locked" comes back True (barred, the safe
+            # default for a floor with a boss still alive) and dropping
+            # "mouth_sealed" comes back False (open, the safe default for every
+            # OTHER floor, which has no mouth to seal at all). A resume that lost
+            # either key would silently re-open a gate it should have kept shut --
+            # a real, permanent softlock if it is stairs_locked coming back True
+            # AFTER she is already dead, with the mouth sealed behind you and
+            # nowhere else to go. So assert the round-trip itself, unconditionally,
+            # at every stage: not "if the flag says open, is it open" (which never
+            # fires when the flag is silently wrong), but "does the restored flag
+            # match what was actually saved."
+            self.assertEqual(restored.mouth_sealed, data["mouth_sealed"],
+                             "stage %d: the mouth's seal must round-trip" % i)
+            self.assertEqual(restored.stairs_locked, data["stairs_locked"],
+                             "stage %d: the stair gate must round-trip" % i)
             reach = self._reachable(restored, where)
             self.assertGreater(len(reach), 1,
                                "stage %d: the player can still move" % i)
-            if not restored.stairs_locked:
+            if i == len(stages) - 1:
+                # she is dead: the gate is down for real (not merely defaulted
+                # true by a dropped key), and the way out is not just flagged
+                # open but actually walkable from where the save resumed.
+                self.assertFalse(restored.stairs_locked, "stage %d: she is dead" % i)
                 self.assertIn(restored.stairs, reach,
                               "stage %d: and can still reach the way down" % i)
 
@@ -11601,8 +11642,17 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
                          "on cooldown, Shademail is just armour: the wall holds")
         self.assertTrue(w.level.ante_room.contains(w.player.x, w.player.y))
 
-        # once the cooldown lapses, she can dive again and cross straight back
-        w.player.shade_cd = 0
+        # once the cooldown lapses -- for REAL, waited out through the actual
+        # _shade_tick() decrement, not zeroed by hand -- she can dive again and
+        # cross straight back. Setting shade_cd = 0 directly would keep this test
+        # green even if the `p.shade_cd -= 1` in _shade_tick() (world.py) were
+        # deleted outright, which would leave any Shademail wearer who steps into
+        # the sealed mouth stranded on the antechamber side forever. Waiting
+        # SHADE_REENTER_CD turns is enough regardless of exactly where the
+        # counter stood going in, since it can only ever be at or below that.
+        for _ in range(config.SHADE_REENTER_CD):
+            w.player_wait()
+        self.assertEqual(w.player.shade_cd, 0, "the cooldown really has lapsed")
         self.assertTrue(w.player_move(1, 0), "the cooldown lifted: back into the wall")
         self.assertEqual((w.player.x, w.player.y), (mx, my))
         self.assertTrue(w.player_submerged())
@@ -11610,6 +11660,31 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
         self.assertTrue(a.contains(w.player.x, w.player.y),
                         "and she is back in the hall -- the crossing is reversible, "
                         "not a way to be stranded on either side")
+
+    def test_walking_the_ordinary_route_through_the_mouth(self):
+        """Every other test in this class puts the player on a tile by hand --
+        deliberately: _arena_commit() is arrival-agnostic on purpose, because
+        Task 7 found scroll and teleport arrivals that reach the hall without
+        ever calling _enter_tile(). But none of them walk the PLAIN case: down
+        the antechamber, through the mouth, into the hall, one ordinary step at a
+        time. This one does, through the real player_move()/turn-engine path
+        rather than a teleport, so there is at least one honest crossing of the
+        route most players will actually use."""
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.level.mouth_sealed, "not committed yet -- she hasn't seen you")
+        a = w.level.arena_room
+        steps = 0
+        while not a.contains(w.player.x, w.player.y):
+            self.assertTrue(w.player_move(1, 0),
+                            "a clear walk east along the shared centre line")
+            steps += 1
+            self.assertLess(steps, 100, "should long since have crossed the hall")
+        self.assertTrue(w.level.mouth_sealed, "the gate fell behind her, on foot")
+        self.assertTrue(any(m.key == "syrinx" for m in w.level.monsters),
+                        "and she arrived")
 
 
 if __name__ == "__main__":
