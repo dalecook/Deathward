@@ -10329,6 +10329,23 @@ class TestSyrinxResistances(unittest.TestCase):
         w._weapon_status_on(s, 5)
         self.assertEqual(s.poisoned, 0)
 
+    def test_enrage_never_takes_hold(self):
+        """Betrayer's Edge (the "enrage" trait) sends the struck thing berserk, and
+        Monster.take_turn's enraged branch has it lash out in melee (_rampage ->
+        _hit) -- straight through the design invariant that Syrinx never initiates
+        a melee attack. _weapon_status_on's other status branches (freeze/fear/
+        poison, above) are all gated by _status_immune; enrage was missed."""
+        from .items import WEAPONS
+        from .monsters import Monster
+        w = self._world()
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        w.level.monsters = [s]
+        w.player.weapon = WEAPONS["betrayers_edge"].copy()   # "enrage" trait
+        for _ in range(30):
+            w._weapon_status_on(s, 5)
+        self.assertEqual(s.enraged, 0)
+
     def test_reactive_armour_status_effects_do_not_take_hold(self):
         from .items import ARMOURS
         from .monsters import Monster

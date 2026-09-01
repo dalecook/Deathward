@@ -610,7 +610,8 @@ class World:
             m.poisoned = max(m.poisoned, config.POISON_TURNS)
             self.log("The %s is envenomed." % self._mname(m), (150, 220, 130))
             self.add_fx("impact", m.x, m.y, color=(150, 220, 130), radius=0.9, life=0.4)
-        if "enrage" in traits and m.alive and self.rng.random() < config.ENRAGE_CHANCE:
+        if ("enrage" in traits and m.alive and not self._status_immune(m)
+                and self.rng.random() < config.ENRAGE_CHANCE):
             m.enraged = max(m.enraged, config.ENRAGE_TURNS)
             m.awake = True
             self.log("The %s flies into a mindless rage." % self._mname(m),
