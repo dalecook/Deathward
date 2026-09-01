@@ -216,6 +216,11 @@ class Level:
         # Syrinx's arena, if this is floor 8 -- reserved BEFORE the ordinary
         # population pass runs, so nothing ambient lands in it. None everywhere else.
         self._reserved_room = None
+        # Floor 8 only: her hall. All None elsewhere, and `is_arena_floor()` is the
+        # single check every arena rule keys off.
+        self.ante_room = None      # the prep room you arrive in
+        self.arena_room = None     # her hall
+        self.mouth = None          # the one tile joining them
         self.visible = [[False] * self.w for _ in range(self.h)]
         # THE STONE you have seen, in any previous run of this game. A death does not
         # un-draw your map, and a Scroll of Mapping fills this in for the whole floor.
@@ -348,6 +353,10 @@ class Level:
         return (r.cx, r.cy)
 
     def _cut_stone(self, codex):
+        if self.is_arena_floor():
+            self._cut_arena_floor(codex)
+            return
+
         # --- the stone: cut once per GAME, identical on every respawn ----
         rng = self.lrng
 
@@ -449,11 +458,9 @@ class Level:
         persisted_armours = dict(codex.armour_ground)
         if self.depth >= config.DEPTH_MAX:
             self._populate_boss()
-        elif self.depth == config.SYRINX_DEPTH:
-            # her arena is reserved BEFORE the ordinary pass runs, so _free_tile
-            # (and the hoard/orc-pack room picks) never put ambient content in it.
-            self._reserved_room = self._syrinx_arena()
-            self._populate(codex)
+        elif self.is_arena_floor():
+            # no ordinary population at all: her hall has no ambient monsters, no
+            # chests, no gold. The floor's whole content is her, and its hazards.
             self._populate_syrinx()
         else:
             self._populate(codex)
@@ -787,39 +794,75 @@ class Level:
                 self.chests.append(Chest(spot[0], spot[1], roll_chest(rng, 8)))
         self.stairs = None      # there is no down from here. there is only the Warden.
 
+    def is_arena_floor(self):
+        """The one check every gate, seal and reveal keys off."""
+        return self.depth == config.SYRINX_DEPTH
+
+    def _cut_arena_floor(self, codex):
+        """Floor 8 is not a dungeon floor. There is no room generator here, no
+        corridors, no loops -- just her hall and the room you steady yourself in
+        before you walk into it.
+
+        Cut from LRNG-free arithmetic on purpose: unlike every other floor, this
+        geometry does not vary between games. What varies is the hazards, which
+        _install_arena_traps deals from lrng exactly as ordinary traps are dealt.
+        """
+        arena = Room(2 + config.ANTE_W + 1, 2, config.ARENA_W, config.ARENA_H)
+        # the two rooms share a centre line, so the mouth is a straight step through
+        ante = Room(2, arena.cy - config.ANTE_H // 2, config.ANTE_W, config.ANTE_H)
+
+        self._carve_room(ante)
+        self._carve_room(arena)
+        self.rooms = [ante, arena]
+        self.ante_room, self.arena_room = ante, arena
+        # kept in step with the old reserved-room contract: nothing ambient in her hall
+        self._reserved_room = arena
+
+        self.mouth = (arena.x - 1, arena.cy)
+        self.grid[self.mouth[1]][self.mouth[0]] = FLOOR
+
+        self.gate_room = ante
+        self.entrance = (ante.cx, ante.cy)
+        self.start = self.entrance
+        # the way down sits at the far end of the hall, opposite the mouth
+        self.stairs = (arena.x + arena.w - 2, arena.cy)
+
+        self._carve_syrinx_pillars()
+        # Task 3 adds the hazard pass here.
+
+    def boss_arrival(self):
+        """Where she materialises when you commit: the far end of the hall, ~27 tiles
+        from the mouth and far outside FOV_RADIUS. The room shows you its shape when
+        the gate falls; it never shows you her."""
+        a = self.arena_room
+        return (a.x + a.w - 4, a.cy)
+
     def _syrinx_arena(self):
-        """The biggest room that is not the gate room -- same rule as the Warden's
-        arena. A pure function of the STONE (self.rooms/self.gate_room never change
-        after generation), so population, a resumed run and the AI's retreat target
-        all recompute the identical room without anything about it being saved."""
-        candidates = [r for r in self.rooms if r is not self.gate_room] or self.rooms
-        return max(candidates, key=lambda r: r.w * r.h)
+        """Her hall. Name kept because monsters.py leashes her hunt to it
+        (`world.level._syrinx_arena().contains(...)`)."""
+        return self.arena_room
 
     def syrinx_pillars(self):
-        """Six tiles scattered through her arena -- her hiding spots, the surface
-        her emergence telegraph appears on, and the line-of-sight cover the player
-        can use against her blow. Never the stairs tile, so carving them can never
-        wall off the way down. A freak arena too small for the spread falls back to
-        just its centre, so she always has SOMEWHERE to hide -- and if that centre
-        happens to BE the stairs tile (real: the stairs always sit on some room's
-        exact centre, and this fires whenever that room is also the small arena),
-        nudge one tile off it instead of leaving her with nowhere at all."""
-        arena = self._syrinx_arena()
-        if arena.w < 7 or arena.h < 6:
-            cx, cy = arena.cx, arena.cy
-            if (cx, cy) != self.stairs:
-                return [(cx, cy)]
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                nx, ny = cx + dx, cy + dy
-                if (arena.x <= nx < arena.x + arena.w
-                        and arena.y <= ny < arena.y + arena.h
-                        and (nx, ny) != self.stairs):
-                    return [(nx, ny)]
+        """The twenty columns: her hiding spots, the surface her emergence telegraph
+        paints on, and the only line-of-sight cover you have against her blow.
+
+        A 5x4 lattice on a 6-tile pitch. Sparse on purpose -- twenty columns in a room
+        this size is a cathedral, not a thicket. Pillars are WALL tiles and the shove
+        stops at the first one, so a tighter pitch would cut every push short and the
+        trapped floor she throws you across would never get crossed. It also means she
+        has to COMMIT to reach a hiding place, and is exposed while she travels.
+
+        Never the stairs, the mouth, or her own arrival tile.
+        """
+        a = self.arena_room
+        if a is None:
             return []
-        xs = [arena.x + 2, arena.x + arena.w // 2, arena.x + arena.w - 3]
-        ys = [arena.y + 2, arena.y + arena.h - 3]
-        spots = [(x, y) for y in ys for x in xs]
-        return [(x, y) for x, y in spots if (x, y) != self.stairs]
+        xs = [a.x + config.ARENA_MARGIN_X + i * config.ARENA_PILLAR_PITCH
+              for i in range(config.ARENA_PILLAR_COLS)]
+        ys = [a.y + config.ARENA_MARGIN_Y + j * config.ARENA_PILLAR_PITCH
+              for j in range(config.ARENA_PILLAR_ROWS)]
+        blocked = {self.stairs, self.mouth, self.boss_arrival()}
+        return [(x, y) for y in ys for x in xs if (x, y) not in blocked]
 
     def _carve_syrinx_pillars(self):
         """Cut her pillar tiles into the grid. Called on both the GENERATE path (via

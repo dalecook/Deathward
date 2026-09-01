@@ -6434,7 +6434,11 @@ class TestHeadlessSmoke(unittest.TestCase):
                 if w.dead or w.won:
                     break
                 w.player_wait()
-            self.assertGreaterEqual(len(w.level.rooms), 4)
+            if w.level.is_arena_floor():
+                # her hall is not a dungeon floor: exactly two rooms, by design.
+                self.assertEqual(len(w.level.rooms), 2)
+            else:
+                self.assertGreaterEqual(len(w.level.rooms), 4)
 
 
 class TestActiveEffectPips(unittest.TestCase):
@@ -10044,33 +10048,33 @@ class TestSyrinxArena(unittest.TestCase):
                 self.assertEqual(w.level.grid[py][px], WALL)
                 self.assertNotEqual((px, py), w.level.stairs)
 
-    def test_small_arena_nudges_off_stairs_instead_of_vanishing(self):
-        """A freak layout where the small arena's centre tile IS the stairs tile
-        (real: _place_stairs always drops the stairs on some room's exact centre,
-        and this fires whenever the stairs room is also the small syrinx arena).
-        She must still get a hiding spot -- not an empty list, which makes
-        _populate_syrinx skip appending her monster entirely."""
-        from .dungeon import Room
+    def test_she_always_has_somewhere_to_hide(self):
+        """Replaces test_small_arena_nudges_off_stairs_instead_of_vanishing.
+
+        That test guarded a fallback that no longer exists: her arena used to be
+        "the biggest room the generator happened to deal", so it could come out too
+        small to spread six pillars through, and could even put its only hiding spot
+        on the stairs tile -- which left syrinx_pillars() empty and made
+        _populate_syrinx skip appending her monster entirely. Floor 8 is cut to a
+        fixed 31x23 now, so a too-small arena cannot happen. What still MATTERS is
+        the consequence the old test was really protecting: pillars exist, they are
+        distinct, none of them is a tile she must never stand on, and she therefore
+        gets placed."""
         codex = FakeSave(); codex.world_seed = 3
         w = World(codex, seed=1)
         w.new_level(8)
         lvl = w.level
 
-        small = Room(5, 5, 6, 5)                    # w=6 < 7 -> small-arena fallback
-        other = Room(40, 40, 6, 5)                  # stand-in gate room, excluded
-        lvl.rooms = [small, other]
-        lvl.gate_room = other
-        self.assertEqual(lvl._syrinx_arena(), small)  # sanity: small room IS the arena
-
-        lvl.stairs = (small.cx, small.cy)            # the collision
-
         pillars = lvl.syrinx_pillars()
-        self.assertEqual(len(pillars), 1,
-                          "she needs SOMEWHERE to hide, not an empty list")
-        px, py = pillars[0]
-        self.assertNotEqual((px, py), lvl.stairs)
-        self.assertTrue(small.x <= px < small.x + small.w)
-        self.assertTrue(small.y <= py < small.y + small.h)
+        self.assertTrue(pillars, "she needs SOMEWHERE to hide, not an empty list")
+        self.assertEqual(len(pillars), len(set(pillars)), "no pillar cut twice")
+        for spot in pillars:
+            self.assertTrue(lvl.arena_room.contains(*spot))
+            self.assertNotEqual(spot, lvl.stairs)
+            self.assertNotEqual(spot, lvl.mouth)
+
+        found = [m for m in lvl.monsters if m.key == "syrinx"]
+        self.assertEqual(len(found), 1, "a pillar to hide in means she gets placed")
 
     def test_stairs_stay_reachable_on_floor_eight(self):
         from collections import deque
@@ -10096,13 +10100,18 @@ class TestSyrinxArena(unittest.TestCase):
 
 class TestSyrinxHuntAndBlow(unittest.TestCase):
     def _world(self):
-        codex = FakeSave()
+        # Her hall, not "whichever room on floor 1 happened to be big enough". Floor
+        # 8 is purpose-built for this fight now, and her arena is a fixed 31x23 room
+        # rather than the largest thing the generator dealt -- so `_syrinx_arena()`
+        # is her arena_room or nothing at all, and her hunt leash reads it every
+        # turn. Every assertion in this class is about her AI, so it has to run in
+        # the one place she can exist. Fixing the floor also fixes the geometry:
+        # these tests used to ride a random world_seed and flake accordingly.
+        codex = FakeSave(); codex.world_seed = 5
         w = World(codex, seed=7)
+        w.new_level(8)
         w.level.monsters = []
-        for r in w.level.rooms:
-            if r.w >= 9 and r.h >= 7:
-                w.player.x, w.player.y = r.cx, r.cy
-                break
+        w.player.x, w.player.y = w.level.arena_room.cx, w.level.arena_room.cy
         w.level.compute_fov(w.player.x, w.player.y)
         return w
 
@@ -10357,39 +10366,36 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         # tile from her target, she could cut diagonally through ORDINARY wall
         # tiles if that happened to be the locally-shortest route. She is
         # corporeal, not incorporeal like wraith/poltergeist: only her OWN
-        # pillar should part like stone for her. This walks her across several
-        # turns from well outside melee range of any pillar and checks every
-        # tile she occupies along the way -- only a pillar tile (her final
-        # destination) may ever be a WALL tile.
+        # pillar should part like stone for her.
+        #
+        # This used to sweep the whole map for a start tile more than three tiles
+        # from any pillar, and walk her in from there past whatever rock the
+        # generator happened to leave lying about. Her hall makes that impossible
+        # twice over: the columns sit on a six-tile pitch, so EVERY tile in the
+        # room is within three of one, and the room's interior is unbroken floor,
+        # so a wandering walk would never meet an ordinary wall to phase through
+        # in the first place. The old setup could no longer even be built, let
+        # alone catch the bug.
+        #
+        # So state the intent directly instead of hoping the layout supplies it:
+        # drop a short ordinary wall straight across the line she would otherwise
+        # walk, and watch her go AROUND it. Phasing would take her through.
         from .dungeon import WALL
         w = self._world()
         pillars = w.level.syrinx_pillars()
-        left_pillar = pillars[0]
-        w.player.x, w.player.y = w.level.entrance
+        w.player.x, w.player.y = w.level.entrance   # well clear of the retreat path
 
-        start = None
-        for x in range(w.level.w):
-            for y in range(w.level.h):
-                if not w.level.walkable(x, y):
-                    continue
-                if max(abs(x - left_pillar[0]), abs(y - left_pillar[1])) < 4:
-                    continue
-                probe = self._syrinx(w, x, y)
-                probe.pillar_x, probe.pillar_y = left_pillar
-                target = probe._syrinx_retreat_target(w, w.player)
-                w.level.monsters.remove(probe)
-                if target is None:
-                    continue
-                if max(abs(x - target[0]), abs(y - target[1])) > 3:
-                    start = (x, y)
-                    break
-            if start:
-                break
-        self.assertIsNotNone(start, "expected a start tile well clear of any pillar")
-
-        s = self._syrinx(w, *start)
-        s.pillar_x, s.pillar_y = left_pillar
+        s = self._syrinx(w, 17, 6)
+        s.pillar_x, s.pillar_y = (15, 4)            # the pillar she just left
         s.retreating = True
+        target = s._syrinx_retreat_target(w, w.player)
+        self.assertEqual(target, (21, 4), "sanity: the geometry picks this pillar")
+
+        # a wall she has no business crossing, laid across the direct line
+        barrier = [(18, 5), (19, 5), (19, 4), (19, 3), (19, 2)]
+        for bx, by in barrier:
+            self.assertNotIn((bx, by), pillars, "the barrier must be ORDINARY stone")
+            w.level.grid[by][bx] = WALL
 
         visited = []
         for _ in range(20):
@@ -10399,7 +10405,10 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
             s.take_turn(w)
 
         self.assertTrue(s.hidden, f"never re-hid; stuck at ({s.x}, {s.y})")
+        self.assertGreater(len(visited), 2, "a one-step hop proves nothing")
 
+        for tile in barrier:
+            self.assertNotIn(tile, visited, "she walked THROUGH ordinary stone")
         bad = [(x, y) for (x, y) in visited
                if (x, y) not in pillars and w.level.grid[y][x] == WALL]
         self.assertEqual(
@@ -10764,6 +10773,85 @@ class TestSyrinxShoveSpringsTraps(unittest.TestCase):
         w._syrinx_knockback(m)
         self.assertEqual((p.x, p.y), (22, 20),
                          "you fall into the pit; you do not skip over it")
+
+
+class TestArenaFloorGeometry(unittest.TestCase):
+    """Floor 8 is not a dungeon floor any more. It is her hall: an antechamber, a
+    one-tile mouth, and a 31x23 room with twenty columns in it. The geometry is
+    FIXED -- identical in every game -- and only the hazards are re-dealt."""
+
+    def _level(self, world_seed=3, run_seed=1):
+        codex = FakeSave(); codex.world_seed = world_seed
+        w = World(codex, seed=run_seed)
+        w.new_level(8)
+        return w.level
+
+    def test_floor_eight_is_exactly_two_rooms(self):
+        lvl = self._level()
+        self.assertEqual(len(lvl.rooms), 2)
+        self.assertIsNotNone(lvl.ante_room)
+        self.assertIsNotNone(lvl.arena_room)
+
+    def test_the_arena_is_the_size_the_design_asks_for(self):
+        lvl = self._level()
+        self.assertEqual((lvl.arena_room.w, lvl.arena_room.h),
+                         (config.ARENA_W, config.ARENA_H))
+
+    def test_geometry_is_identical_across_games(self):
+        a, b = self._level(world_seed=3), self._level(world_seed=99)
+        self.assertEqual((a.arena_room.x, a.arena_room.y), (b.arena_room.x, b.arena_room.y))
+        self.assertEqual(a.mouth, b.mouth)
+        self.assertEqual(a.stairs, b.stairs)
+        self.assertEqual(sorted(a.syrinx_pillars()), sorted(b.syrinx_pillars()))
+
+    def test_twenty_pillars_on_a_six_tile_pitch(self):
+        lvl = self._level()
+        pillars = lvl.syrinx_pillars()
+        self.assertEqual(len(pillars), 20)
+        xs = sorted({x for x, _ in pillars})
+        ys = sorted({y for _, y in pillars})
+        self.assertEqual(len(xs), config.ARENA_PILLAR_COLS)
+        self.assertEqual(len(ys), config.ARENA_PILLAR_ROWS)
+        for a, b in zip(xs, xs[1:]):
+            self.assertEqual(b - a, config.ARENA_PILLAR_PITCH)
+        for a, b in zip(ys, ys[1:]):
+            self.assertEqual(b - a, config.ARENA_PILLAR_PITCH)
+
+    def test_pillars_are_wall_and_never_block_anything_that_matters(self):
+        lvl = self._level()
+        for px, py in lvl.syrinx_pillars():
+            self.assertEqual(lvl.grid[py][px], 0, "a pillar is a WALL tile")
+            self.assertNotEqual((px, py), lvl.stairs)
+            self.assertNotEqual((px, py), lvl.mouth)
+            self.assertNotEqual((px, py), lvl.boss_arrival())
+
+    def test_the_mouth_joins_the_two_rooms_and_starts_open(self):
+        lvl = self._level()
+        mx, my = lvl.mouth
+        self.assertEqual(lvl.grid[my][mx], 1, "the mouth is open until you commit")
+        self.assertTrue(lvl.arena_room.contains(mx + 1, my))
+        self.assertTrue(lvl.ante_room.contains(mx - 1, my))
+
+    def test_you_arrive_in_the_antechamber_and_the_way_down_is_in_the_arena(self):
+        lvl = self._level()
+        self.assertTrue(lvl.ante_room.contains(*lvl.entrance))
+        self.assertTrue(lvl.arena_room.contains(*lvl.stairs))
+        self.assertTrue(lvl.arena_room.contains(*lvl.boss_arrival()))
+
+    def test_she_arrives_at_the_far_end_well_beyond_your_sight(self):
+        lvl = self._level()
+        bx, by = lvl.boss_arrival()
+        mx, my = lvl.mouth
+        self.assertGreater(max(abs(bx - mx), abs(by - my)), config.FOV_RADIUS,
+                           "her arrival must be unwitnessed")
+
+    def test_other_floors_are_untouched(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        self.assertIsNone(w.level.arena_room)
+        self.assertFalse(w.level.is_arena_floor())
+        self.assertGreater(len(w.level.rooms), 2)
 
 
 if __name__ == "__main__":

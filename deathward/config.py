@@ -180,6 +180,20 @@ SYRINX_PUSH_DIST  = 5      # tiles the gust shoves the player back. long enough 
                            # trapped, which is where her damage actually comes from.
 SYRINX_FIRE_MULT  = 2.0    # matches the stone golem's existing fire weakness
 
+# --- floor 8: her hall ----------------------------------------------------
+# The geometry is FIXED -- cut identically in every game -- and only the hazards are
+# re-dealt per game. 31x23 is ~2.7x the largest room the generator can make (a 20x13
+# hall), because every part of this fight needs open floor: pillars are walls, and the
+# shove stops at the first one, so a dense lattice would cut every push short and the
+# trapped floor would never get crossed.
+ARENA_W, ARENA_H          = 31, 23
+ARENA_PILLAR_PITCH        = 6      # one column every 6th tile, both axes
+ARENA_PILLAR_COLS         = 5
+ARENA_PILLAR_ROWS         = 4      # 5 x 4 = twenty single-tile columns
+ARENA_MARGIN_X            = 3      # floor between the outer columns and the walls
+ARENA_MARGIN_Y            = 2
+ANTE_W, ANTE_H            = 9, 7   # the prep room. a vendor stands here one day.
+
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole
