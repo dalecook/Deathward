@@ -60,13 +60,17 @@ class TestSyrinxShoveSpringsTraps(unittest.TestCase):
     slid you over live traps without springing one -- the shove cost nothing."""
 
     def _world(self):
+        # An ORDINARY floor on purpose. _syrinx_knockback does not care about depth,
+        # and from Task 5 onward floor 8 seals its mouth the moment the player stands
+        # in the arena -- which would fire inside these tests and spawn her.
         codex = FakeSave(); codex.world_seed = 3
         w = World(codex, seed=1)
-        w.new_level(8)
+        w.new_level(5)
         return w
 
     def test_shove_springs_every_trap_it_drags_you_over(self):
         from .traps import Trap
+        from .monsters import Monster
         w = self._world()
         p = w.player
         # a clear east-west lane: her at x, player two east, traps at the next two
@@ -84,6 +88,7 @@ class TestSyrinxShoveSpringsTraps(unittest.TestCase):
 
     def test_the_slide_stops_when_the_shove_kills_you(self):
         from .traps import Trap
+        from .monsters import Monster
         w = self._world()
         p = w.player
         p.x, p.y = 20, 20
@@ -100,6 +105,7 @@ class TestSyrinxShoveSpringsTraps(unittest.TestCase):
 
     def test_a_spike_pit_arrests_the_slide(self):
         from .traps import Trap
+        from .monsters import Monster
         w = self._world()
         p = w.player
         p.x, p.y = 20, 20
@@ -361,7 +367,7 @@ In `deathward/dungeon.py`, add these methods to `Level`, immediately before `_sy
         self.stairs = (arena.x + arena.w - 2, arena.cy)
 
         self._carve_syrinx_pillars()
-        self._install_arena_traps()
+        # Task 3 adds the hazard pass here.
 
     def boss_arrival(self):
         """Where she materialises when you commit: the far end of the hall, ~27 tiles
@@ -406,17 +412,7 @@ In `deathward/dungeon.py`, replace `_syrinx_arena` (line 790) and `syrinx_pillar
 
 Leave `_carve_syrinx_pillars` (line 824) exactly as it is — it iterates `syrinx_pillars()` and so picks up the lattice for free, on both the generate and the restore path.
 
-- [ ] **Step 7: Add a placeholder trap pass**
-
-Task 3 fills this in. For now, in `deathward/dungeon.py`, immediately after `boss_arrival`, add:
-
-```python
-    def _install_arena_traps(self):
-        """Task 3 deals her hall's hazards here."""
-        return
-```
-
-- [ ] **Step 8: Route floor 8 to the new cutter**
+- [ ] **Step 7: Route floor 8 to the new cutter**
 
 In `deathward/dungeon.py`, at the very top of `_cut_stone` (line 350), insert before `rng = self.lrng`:
 
@@ -435,12 +431,12 @@ And in `_generate` (line 441), replace the `elif self.depth == config.SYRINX_DEP
             self._populate_syrinx()
 ```
 
-- [ ] **Step 9: Run the new tests**
+- [ ] **Step 8: Run the new tests**
 
 Run: `py -3.13 -m unittest deathward.tests.TestArenaFloorGeometry -v`
 Expected: PASS, 9 tests.
 
-- [ ] **Step 10: Run the whole suite and fix the existing arena tests**
+- [ ] **Step 9: Run the whole suite and fix the existing arena tests**
 
 Run: `py -3.13 -m deathward.tests`
 
@@ -453,7 +449,7 @@ Expect failures in `TestSyrinxArena` (tests.py:9999) and possibly `TestKnowledge
 
 Do not weaken an assertion to make it pass — if a test's *intent* no longer applies to this floor, rewrite it to state the new intent, and say so in the commit message.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add deathward/config.py deathward/dungeon.py deathward/tests.py
@@ -560,7 +556,13 @@ In `deathward/dungeon.py`, near the top with the other module constants (beside 
 ARENA_TRAP_POOL = ("dart", "spike", "gas", "glyph")
 ```
 
-Then replace the `_install_arena_traps` stub with:
+Then, in `_cut_arena_floor`, replace the `# Task 3 adds the hazard pass here.` comment with the call:
+
+```python
+        self._install_arena_traps()
+```
+
+And add the method itself, immediately after `boss_arrival`:
 
 ```python
     def _install_arena_traps(self):
@@ -846,6 +848,7 @@ class TestArenaGates(unittest.TestCase):
         self.assertEqual(w.depth, 8)
 
     def test_killing_her_opens_the_way_down(self):
+        from .monsters import Monster
         w = self._world()
         self._commit(w)
         m = Monster("syrinx", w.level.arena_room.cx, w.level.arena_room.cy)
@@ -857,6 +860,7 @@ class TestArenaGates(unittest.TestCase):
         self.assertEqual(w.depth, 9)
 
     def test_a_hazard_that_kills_her_opens_it_too(self):
+        from .monsters import Monster
         w = self._world()
         self._commit(w)
         m = Monster("syrinx", w.level.arena_room.cx, w.level.arena_room.cy)
@@ -1358,6 +1362,8 @@ class TestArenaGateRendering(unittest.TestCase):
     """A gate the player cannot see is a bug report. All three draw as the portcullis
     that floor 1's front gate already uses."""
 
+    # `render` is not imported at tests.py module level; these tests import it.
+
     def _world(self):
         codex = FakeSave(); codex.world_seed = 3
         w = World(codex, seed=1)
@@ -1399,7 +1405,12 @@ class TestArenaGateRendering(unittest.TestCase):
         self.assertNotIn(w.level.stairs, render.barred_gates(w))
 ```
 
-Add `from . import render` to the test module's imports if it is not already there.
+`render` is **not** imported at tests.py module level (only `config`, `codex`, `items`, `world` are). Add it to the module imports beside them:
+
+```python
+from . import config  # noqa: E402
+from . import render  # noqa: E402
+```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
