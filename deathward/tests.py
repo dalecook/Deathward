@@ -11136,7 +11136,7 @@ class TestArenaBossArrival(unittest.TestCase):
         w = self._world()
         self._commit(w)
         m = [m for m in w.level.monsters if m.key == "syrinx"][0]
-        # _commit moves the player and calls _enter_tile, but nothing along that
+        # _commit moves the player and calls _arena_commit, but nothing along that
         # path recomputes FOV -- w.level.visible is still the grid from wherever
         # the player last stood (the level entrance, far away). Without this the
         # assertion below would hold even if she landed on top of the player: it
@@ -11159,6 +11159,24 @@ class TestArenaBossArrival(unittest.TestCase):
                 break
             m._ai_syrinx(w, w.player)
         self.assertTrue(m.hidden, "she reaches a column and goes off-grid")
+
+    def test_a_real_commit_turn_leaves_her_heading_for_a_column(self):
+        """Every other assertion about her held 'arrive' beat in this class goes
+        through _arena_commit, the primitive that freezes her mid-turn before
+        advance() gets a chance to run. That is deliberate -- it is the only way to
+        catch her standing there un-hidden, intent still set -- but it also means
+        nothing in here exercises the real path: _end_player_turn() commits her AND
+        calls advance() in the same beat, so her held turn could get eaten right
+        there and no test would notice. Drive the real path once, end to end, and
+        check she comes out the other side already turned to go, exactly as the
+        primitive-driven tests above assume she does."""
+        w = self._world()
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()                  # the real path, not the primitive
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        self.assertIsNone(m.intent)
+        self.assertTrue(m.retreating)
 
     def test_an_invisible_player_does_not_break_her_arrival(self):
         """Regression for the generic invisible-player wander block in
@@ -11242,6 +11260,30 @@ class TestArenaScrollContainment(unittest.TestCase):
             self.assertFalse(ante.contains(w.player.x, w.player.y),
                              "UUL must never roll the sealed room")
 
+    def test_blink_tile_near_never_lands_in_the_sealed_antechamber(self):
+        """blink_tile_near is the fourth repositioner -- the Flicker, the Slipstep
+        boots wrench, and the Shademail surface-spit all go through it -- and unlike
+        Escape/Teleport above it deliberately ignores walls: "the tile just has to be
+        open floor" is the whole point of a blink. But the sealed mouth is one tile
+        thick, well inside a chebyshev-2 leap, and from the threshold tile (12,
+        arena.cy) -- where you walk in, and where her knockback drives you, since she
+        starts at the east end and shoves west -- roughly a third of the ring lands
+        inside the antechamber. Landing there with the mouth sealed is a softlock
+        with no source-level distinction from the Escape/Teleport case above; the
+        only reason it needs its own test is that it is reached through a different
+        function with its own candidate filter."""
+        w = self._committed()
+        ante = w.level.ante_room
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy      # the threshold tile, one step off the mouth
+        for _ in range(300):
+            spot = w.blink_tile_near(w.player.x, w.player.y,
+                                     config.SLIPSTEP_BLINK_DIST,
+                                     config.SLIPSTEP_BLINK_DIST)
+            self.assertIsNotNone(spot, "the threshold tile has open floor at distance 2")
+            self.assertFalse(ante.contains(*spot),
+                             "a wall-ignoring blink must still respect the sealed gate")
+
     def test_teleport_refuses_the_sealed_antechamber(self):
         w = self._committed()
         ante = w.level.ante_room
@@ -11287,13 +11329,28 @@ class TestArenaScrollContainment(unittest.TestCase):
                         "the gate shuts for scrolls too, not just for the door")
 
     def test_blinking_into_the_hall_commits_you(self):
+        """Drives the real UUL path -- _apply_effect("blink") -- rather than just
+        teleporting the player there by hand and calling _end_player_turn(), which
+        would be indistinguishable from the plain standing-in-the-hall case below
+        and would never actually exercise the scroll's own random-room roll. UUL
+        picks uniformly between her two rooms (see _apply_effect's "blink" case), so
+        landing in the hall is a coin flip per read; re-read the scroll until it
+        lands there rather than pinning the RNG to one outcome."""
         codex = FakeSave(); codex.world_seed = 3
         w = World(codex, seed=1)
         w.new_level(8)
         a = w.level.arena_room
-        w.player.x, w.player.y = a.cx, a.cy
+        for _ in range(200):
+            w._apply_effect("blink")
+            if a.contains(w.player.x, w.player.y):
+                break
+        else:
+            self.fail("UUL never rolled the hall in 200 reads")
+        self.assertFalse(w.level.mouth_sealed,
+                         "reading the scroll alone doesn't commit you -- only ending the turn does")
         w._end_player_turn()
-        self.assertTrue(w.level.mouth_sealed)
+        self.assertTrue(w.level.mouth_sealed,
+                        "the scroll's own blink has to trip the same gate walking through the door does")
 
     def test_standing_in_the_antechamber_never_commits_you(self):
         codex = FakeSave(); codex.world_seed = 3

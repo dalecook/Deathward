@@ -505,6 +505,13 @@ class World:
         [lo, hi]. Used by the Flicker: the blink teleports, so there is NO line-of-
         sight or path check -- it ignores walls and your body, the tile just has to be
         open floor. Returns None only if the player is genuinely boxed in.
+
+        The one wall it does still respect is Floor 8's sealed mouth. Everything
+        else about this function is deliberately blind to walls -- that is the whole
+        point of a blink -- but the mouth is one tile thick, well within blink range,
+        and once it has shut the antechamber beyond it has no legal way out. A blink
+        that ignores THAT wall does not save you a few steps, it strands you for
+        good, so tile_is_sealed_off gets a veto no other wall gets.
         """
         candidates = []
         for dy in range(-hi, hi + 1):
@@ -515,7 +522,8 @@ class World:
                 x, y = cx + dx, cy + dy
                 if (x, y) == (self.player.x, self.player.y):
                     continue
-                if self.walkable(x, y) and not self.monster_at(x, y):
+                if (self.walkable(x, y) and not self.monster_at(x, y)
+                        and not self.level.tile_is_sealed_off(x, y)):
                     candidates.append((x, y))
         return self.rng.choice(candidates) if candidates else None
 
