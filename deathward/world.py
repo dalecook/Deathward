@@ -763,7 +763,14 @@ class World:
     def _syrinx_knockback(self, m):
         """The gust: shove the player straight back along the line from her to you,
         tile by tile, stopping at the first wall or body. Reposition is the point --
-        it can push you out of the cover you were using, or off her line entirely."""
+        it can push you out of the cover you were using, or off her line entirely.
+
+        And the slide is not free. Each tile you are dragged over is a tile you
+        ENTER, so its trap fires: her own blow is 1-3 against 26 HP, and the floor
+        of her hall is what actually kills you. Three things stop the slide early --
+        stone, a body, and the spike pit, which you fall into rather than skate over
+        (it sets player.stuck). A player killed partway is not dragged any further.
+        """
         p = self.player
         dx = (p.x > m.x) - (p.x < m.x)
         dy = (p.y > m.y) - (p.y < m.y)
@@ -774,6 +781,9 @@ class World:
             if not self.walkable(nx, ny) or self.monster_at(nx, ny):
                 break
             p.x, p.y = nx, ny
+            self._enter_tile()
+            if p.hp <= 0 or p.stuck:
+                break
         self.level.compute_fov(p.x, p.y)
 
     def _void_immune(self, m):

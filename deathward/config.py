@@ -175,7 +175,9 @@ FULGURITE_INCORP_MULT = 1.5       # Fulgurite's bonus vs wraith/poltergeist
 SYRINX_HIDDEN_MAX = 5      # turns she may stay hidden before a forced emergence
 SYRINX_DEPTH      = 8      # the floor her arena is on
 SYRINX_STUN_TURNS = 1      # turns fully vulnerable after her blow lands
-SYRINX_PUSH_DIST  = 2      # tiles the gust shoves the player back
+SYRINX_PUSH_DIST  = 5      # tiles the gust shoves the player back. long enough that
+                           # the slide crosses real floor -- and her arena's floor is
+                           # trapped, which is where her damage actually comes from.
 SYRINX_FIRE_MULT  = 2.0    # matches the stone golem's existing fire weakness
 
 # --- held-key movement ---------------------------------------------------

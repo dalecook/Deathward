@@ -10701,6 +10701,71 @@ class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
                         "scenario never actually landed a blow on the player")
 
 
+class TestSyrinxShoveSpringsTraps(unittest.TestCase):
+    """The gust drags you ACROSS the floor, and the floor is trapped. Before this,
+    _syrinx_knockback moved the player without ever calling _enter_tile(), so it
+    slid you over live traps without springing one -- the shove cost nothing."""
+
+    def _world(self):
+        # An ORDINARY floor on purpose. _syrinx_knockback does not care about depth,
+        # and from Task 5 onward floor 8 seals its mouth the moment the player stands
+        # in the arena -- which would fire inside these tests and spawn her.
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)
+        return w
+
+    def test_shove_springs_every_trap_it_drags_you_over(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        # a clear east-west lane: her at x, player two east, traps at the next two
+        p.x, p.y = 20, 20
+        for x in range(17, 27):
+            w.level.grid[20][x] = 1                     # FLOOR
+        w.level.traps = [Trap("dart", 22, 20), Trap("dart", 23, 20)]
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        before = p.hp
+        w._syrinx_knockback(m)
+        self.assertTrue(all(t.sprung for t in w.level.traps),
+                        "both darts should have fired as she blew you past them")
+        self.assertLess(p.hp, before, "and both should have hurt")
+
+    def test_the_slide_stops_when_the_shove_kills_you(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 27):
+            w.level.grid[20][x] = 1
+        w.level.traps = [Trap("dart", 22, 20), Trap("dart", 25, 20)]
+        p.hp = 1
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertLessEqual(p.hp, 0)
+        self.assertFalse(w.level.traps[1].sprung,
+                         "a dead player is not dragged over any more traps")
+
+    def test_a_spike_pit_arrests_the_slide(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 30):
+            w.level.grid[20][x] = 1
+        w.level.traps = [Trap("spike", 22, 20)]
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertEqual((p.x, p.y), (22, 20),
+                         "you fall into the pit; you do not skip over it")
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
