@@ -519,23 +519,36 @@ class World:
                     candidates.append((x, y))
         return self.rng.choice(candidates) if candidates else None
 
-    def _nearest_walkable(self, x, y):
+    def _nearest_walkable(self, x, y, unoccupied=False):
         """The closest walkable tile to (x, y): the immediate 8 neighbours first (the
         same DIRS8 pattern Monster._step_toward uses), then ring by ring outward if
         none of those are open. Used to relocate a Slain entry born on an unwalkable
         tile (e.g. Syrinx dying on her own pillar) so the body -- and its loot --
-        stays reachable instead of buried in a wall forever."""
-        if self.walkable(x, y):
+        stays reachable instead of buried in a wall forever.
+
+        unoccupied=True additionally rejects any tile the player or a monster is
+        already standing on -- for placing something living (Syrinx's arrival),
+        not a corpse, which is happy to share a tile."""
+        def open_tile(tx, ty):
+            if not self.walkable(tx, ty):
+                return False
+            if not unoccupied:
+                return True
+            if (tx, ty) == (self.player.x, self.player.y):
+                return False
+            return not any(mo.x == tx and mo.y == ty for mo in self.level.monsters)
+
+        if open_tile(x, y):
             return (x, y)
         for dx, dy in DIRS8:
             nx, ny = x + dx, y + dy
-            if self.walkable(nx, ny):
+            if open_tile(nx, ny):
                 return (nx, ny)
         for r in range(2, max(self.level.w, self.level.h)):
             ring = [(x + dx, y + dy)
                      for dx in range(-r, r + 1) for dy in range(-r, r + 1)
                      if max(abs(dx), abs(dy)) == r]
-            open_ring = [t for t in ring if self.walkable(*t)]
+            open_ring = [t for t in ring if open_tile(*t)]
             if open_ring:
                 return min(open_ring, key=lambda t: (t[0] - x) ** 2 + (t[1] - y) ** 2)
         return (x, y)   # should not happen on a connected level; last resort
@@ -2249,9 +2262,29 @@ class World:
         if lvl.boss_spawned:
             return
         ax, ay = lvl.boss_arrival()
+        # boss_arrival() is a fixed tile, and Task 7 turns teleport into another
+        # commit path -- so a player could in principle be standing on (39,13)
+        # itself the instant the gate falls (Escape, Zeph's Teleport, a resume
+        # that lands them there...). She does not spawn on top of you, or on top
+        # of some other monster that wandered in: if the tile is taken, she takes
+        # the nearest open ground next to it instead.
+        if ((ax, ay) == (self.player.x, self.player.y)
+                or any(mo.x == ax and mo.y == ay for mo in lvl.monsters)):
+            ax, ay = self._nearest_walkable(ax, ay, unoccupied=True)
         m = Monster("syrinx", ax, ay)
         m.hidden = False                    # Monster.__init__ starts her hidden
         m.intent = ("arrive", ax, ay)
+        # pillar_x/pillar_y is meant to read "the pillar she is in or heading for",
+        # and (ax, ay) here is deliberately NOT one -- boss_arrival() sits in the
+        # open floor, arena pillar ys are {4,10,16,22} (see syrinx_pillars()), this
+        # is not among them. That is fine and not an oversight: _syrinx_retreat_
+        # target only excludes "the one she just left" by comparing (pillar_x,
+        # pillar_y) for equality against world.level.syrinx_pillars(), a list this
+        # value was never drawn from and can never coincidentally equal (arrival's
+        # y is 13; no pillar y is), so it can never accidentally get excluded there.
+        # It only has to hold a real (x, y) pair until her first ARRIVE turn hands
+        # off to `retreating`, at which point retreat picks a genuine pillar and
+        # overwrites it for good.
         m.pillar_x, m.pillar_y = ax, ay
         lvl.monsters.append(m)
         lvl.boss_spawned = True

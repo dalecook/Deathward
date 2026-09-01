@@ -10698,6 +10698,18 @@ class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
         s = Monster("syrinx", *w.level.syrinx_pillars()[0])
         w.level.monsters.append(s)
         arena = w.level._syrinx_arena()
+        # Flag her as already spawned/committed, exactly as a real commit through
+        # the mouth would leave the gate state -- this script drops the player
+        # straight into her arena WITHOUT ever walking through the mouth, so
+        # without this the world still thinks she has not arrived yet. If she then
+        # lands a blow, _syrinx_knockback -> _enter_tile -> _arena_commit fires
+        # mid-trace and spawns a SECOND Syrinx at boss_arrival(), slamming the gate
+        # behind a fight that was never supposed to have one. The trace still comes
+        # out deterministic either way (both runs hit the same bug identically),
+        # so this was easy to miss, but it is not the one-boss fight the test claims
+        # to be scripting.
+        w.level.boss_spawned = True
+        w.level.mouth_sealed = True
         # Start inside her arena (not the level's real, distant entrance) -- see the
         # class docstring for why that is what actually gets her engaged.
         w.player.x, w.player.y = arena.cx, arena.cy
@@ -11119,6 +11131,12 @@ class TestArenaBossArrival(unittest.TestCase):
         w = self._world()
         self._commit(w)
         m = [m for m in w.level.monsters if m.key == "syrinx"][0]
+        # _commit moves the player and calls _enter_tile, but nothing along that
+        # path recomputes FOV -- w.level.visible is still the grid from wherever
+        # the player last stood (the level entrance, far away). Without this the
+        # assertion below would hold even if she landed on top of the player: it
+        # is testing a stale snapshot, not the claim "you never see her arrive".
+        w.level.compute_fov(w.player.x, w.player.y)
         self.assertFalse(w.level.visible[m.y][m.x],
                          "the room shows you its shape, never her")
 
@@ -11136,6 +11154,35 @@ class TestArenaBossArrival(unittest.TestCase):
                 break
             m._ai_syrinx(w, w.player)
         self.assertTrue(m.hidden, "she reaches a column and goes off-grid")
+
+    def test_an_invisible_player_does_not_break_her_arrival(self):
+        """Regression for the generic invisible-player wander block in
+        Monster.take_turn (deathward/monsters.py ~298): it used to be gated on
+        "and not self.hidden", which protected her only while HIDDEN -- but her
+        ARRIVE beat puts her on the grid un-hidden. Committing while invisible used
+        to have her first take_turn hit that branch instead of _ai_syrinx, drop the
+        ("arrive", ...) intent, never set retreating, and leave her wandering the
+        open floor un-hidden forever. Goes through take_turn (not _ai_syrinx
+        directly) because that generic block sits AHEAD of the per-monster AI
+        dispatch -- calling _ai_syrinx directly skips it and would miss this bug
+        entirely, which is exactly how the original test missed it."""
+        w = self._world()
+        w.player.invisible = 30
+        self.assertTrue(w.player_hidden())
+        self._commit(w)
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        self.assertEqual(m.intent[0], "arrive")
+
+        m.take_turn(w)                        # the held arrival turn
+        self.assertIsNone(m.intent)
+        self.assertFalse(m.hidden, "still standing -- she has only just turned to go")
+        self.assertTrue(m.retreating, "and she is now heading for a column, not wandering")
+
+        for _ in range(60):                   # let her walk to one, still invisible
+            if m.hidden:
+                break
+            m.take_turn(w)
+        self.assertTrue(m.hidden, "she reaches a column and goes off-grid regardless")
 
     def test_she_arrives_only_once(self):
         w = self._world()

@@ -295,7 +295,18 @@ class Monster:
         # loses the thread. it cannot approach, cannot strike -- it just casts about.
         # ethereal monsters are exempt: invisibility puts you in THEIR realm, so a
         # wraith or poltergeist sees you plainly and keeps hunting.
-        if world.player_hidden() and not is_incorporeal(self.key) and not self.hidden:
+        # Syrinx is exempt outright, by key, not by a self.hidden check -- she runs
+        # her own complete state machine in _ai_syrinx (arrive/hidden/telegraph/
+        # emerge/hunt/blow/stun/retreat) and this generic wander has nothing to
+        # offer her in ANY of those states. It used to be gated on "and not
+        # self.hidden" instead, which covered her while hidden but reopened the
+        # instant a later change (her un-hidden ARRIVE beat) put her on the grid
+        # un-hidden -- an invisible player standing near the mouth would eat her
+        # held arrival turn and send her wandering the floor forever, arrive-intent
+        # dropped, retreating never set. Second time this exact branch has caught
+        # her out; exclude her for good instead of chasing the next state.
+        if (world.player_hidden() and not is_incorporeal(self.key)
+                and not self.hidden and self.key != "syrinx"):
             self.intent = None
             if world.rng.random() < 0.6:
                 self._wander(world)
