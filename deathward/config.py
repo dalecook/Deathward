@@ -194,6 +194,12 @@ ARENA_MARGIN_X            = 3      # floor between the outer columns and the wal
 ARENA_MARGIN_Y            = 2
 ANTE_W, ANTE_H            = 9, 7   # the prep room. a vendor stands here one day.
 
+# ~50 hazards across ~690 floor tiles (~7%), so a five-tile shove crosses one about a
+# third of the time and occasionally two. The minefield DEPLETES as the fight runs on:
+# dart, gas and glyph are one-shot once sprung. The spike pit is not -- it re-fires
+# forever and costs you a turn climbing out, which is a turn she is winding up in.
+ARENA_TRAPS = 50
+
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps
 # walking. The delay has to be long enough that careful single steps (the whole

@@ -57,6 +57,10 @@ FILLER_CLASSES = [LARGE] * 20 + [MEDIUM] * 40 + [SMALL] * 30 + [NOOK] * 10
 # how many halls a floor gets: 0 (40%), 1 (40%), 2 (20%).
 HALL_WEIGHTS = [0] * 40 + [1] * 40 + [2] * 20
 
+# Her hall's hazards. No alarm rune: wake_all() in a sealed one-monster room wakes a
+# boss who is already hunting you, so it is the one trap that means nothing here.
+ARENA_TRAP_POOL = ("dart", "spike", "gas", "glyph")
+
 # the map is cut into sectors, and two halls never share one (nor touch). that is
 # what stops them both landing in the middle.
 SECTOR_COLS, SECTOR_ROWS = 3, 2
@@ -828,7 +832,7 @@ class Level:
         self.stairs = (arena.x + arena.w - 2, arena.cy)
 
         self._carve_syrinx_pillars()
-        # Task 3 adds the hazard pass here.
+        self._install_arena_traps()
 
     def boss_arrival(self):
         """Where she materialises when you commit: the far end of the hall, ~27 tiles
@@ -836,6 +840,37 @@ class Level:
         the gate falls; it never shows you her."""
         a = self.arena_room
         return (a.x + a.w - 4, a.cy)
+
+    def _install_arena_traps(self):
+        """Deal her hall's hazards. LRNG, like every other trap in the game: cut into
+        the stone once per GAME, so they sit in the same tiles on every re-entry and
+        move only when a new dungeon is cut.
+
+        Nothing lands on a pillar, the stairs, the mouth, her arrival tile, or within
+        one tile of the threshold -- stepping through the gate straight onto a fire
+        glyph is not a fight, it is a coin toss.
+        """
+        rng = self.lrng
+        a = self.arena_room
+        forbidden = set(self.syrinx_pillars())
+        forbidden |= {self.stairs, self.mouth, self.boss_arrival()}
+        tx, ty = a.x, a.cy                       # the tile you step in on
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                forbidden.add((tx + dx, ty + dy))
+
+        taken = set()
+        for _ in range(4000):
+            if len(taken) >= config.ARENA_TRAPS:
+                break
+            x = rng.randint(a.x, a.x + a.w - 1)
+            y = rng.randint(a.y, a.y + a.h - 1)
+            if self.grid[y][x] != FLOOR:
+                continue
+            if (x, y) in forbidden or (x, y) in taken:
+                continue
+            taken.add((x, y))
+            self.traps.append(Trap(rng.choice(ARENA_TRAP_POOL), x, y))
 
     def _syrinx_arena(self):
         """Her hall. Name kept because monsters.py leashes her hunt to it

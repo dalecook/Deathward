@@ -10854,6 +10854,61 @@ class TestArenaFloorGeometry(unittest.TestCase):
         self.assertGreater(len(w.level.rooms), 2)
 
 
+class TestArenaHazards(unittest.TestCase):
+    """Her blow is 1-3 against 26 HP and there is no levelling. She is not the
+    damage -- the room is. The hazards are stone, dealt from lrng, so they are the
+    same on every re-entry within a game and re-dealt in a new one: dying on floor 8
+    buys you knowledge of THIS dungeon's hall."""
+
+    def _level(self, world_seed=3):
+        codex = FakeSave(); codex.world_seed = world_seed
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w.level
+
+    def test_the_hall_is_properly_trapped(self):
+        lvl = self._level()
+        self.assertEqual(len(lvl.traps), config.ARENA_TRAPS)
+
+    def test_no_alarm_rune_in_a_one_monster_room(self):
+        lvl = self._level()
+        keys = {t.key for t in lvl.traps}
+        self.assertNotIn("alarm", keys,
+                         "wake_all() would wake a boss who is already hunting you")
+        self.assertTrue(keys <= {"dart", "spike", "gas", "glyph"})
+
+    def test_every_hazard_is_on_arena_floor_and_nowhere_forbidden(self):
+        lvl = self._level()
+        pillars = set(lvl.syrinx_pillars())
+        for t in lvl.traps:
+            self.assertTrue(lvl.arena_room.contains(t.x, t.y))
+            self.assertEqual(lvl.grid[t.y][t.x], 1)
+            self.assertNotIn((t.x, t.y), pillars)
+            self.assertNotEqual((t.x, t.y), lvl.stairs)
+            self.assertNotEqual((t.x, t.y), lvl.mouth)
+            self.assertNotEqual((t.x, t.y), lvl.boss_arrival())
+
+    def test_no_hazard_ambushes_you_on_the_threshold(self):
+        lvl = self._level()
+        ax, ay = lvl.arena_room.x, lvl.arena_room.cy
+        for t in lvl.traps:
+            self.assertGreater(max(abs(t.x - ax), abs(t.y - ay)), 1,
+                               "stepping through the gate onto a glyph is not a fight")
+
+    def test_one_hazard_per_tile(self):
+        lvl = self._level()
+        spots = [(t.x, t.y) for t in lvl.traps]
+        self.assertEqual(len(spots), len(set(spots)))
+
+    def test_hazards_are_stone__same_all_game__redealt_in_a_new_one(self):
+        same_a, same_b = self._level(world_seed=7), self._level(world_seed=7)
+        self.assertEqual(sorted((t.key, t.x, t.y) for t in same_a.traps),
+                         sorted((t.key, t.x, t.y) for t in same_b.traps))
+        other = self._level(world_seed=8)
+        self.assertNotEqual(sorted((t.key, t.x, t.y) for t in same_a.traps),
+                            sorted((t.key, t.x, t.y) for t in other.traps))
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)
