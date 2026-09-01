@@ -10214,6 +10214,61 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
             f"never re-hid; stuck at ({s.x}, {s.y}) instead of reaching {target}")
         self.assertEqual((s.pillar_x, s.pillar_y), target)
 
+    def test_retreat_does_not_phase_through_ordinary_walls_en_route(self):
+        # phase=True used to apply to the WHOLE retreat step, not just the final
+        # tile onto the pillar -- so on every turn she was still more than one
+        # tile from her target, she could cut diagonally through ORDINARY wall
+        # tiles if that happened to be the locally-shortest route. She is
+        # corporeal, not incorporeal like wraith/poltergeist: only her OWN
+        # pillar should part like stone for her. This walks her across several
+        # turns from well outside melee range of any pillar and checks every
+        # tile she occupies along the way -- only a pillar tile (her final
+        # destination) may ever be a WALL tile.
+        from .dungeon import WALL
+        w = self._world()
+        pillars = w.level.syrinx_pillars()
+        left_pillar = pillars[0]
+        w.player.x, w.player.y = w.level.entrance
+
+        start = None
+        for x in range(w.level.w):
+            for y in range(w.level.h):
+                if not w.level.walkable(x, y):
+                    continue
+                if max(abs(x - left_pillar[0]), abs(y - left_pillar[1])) < 4:
+                    continue
+                probe = self._syrinx(w, x, y)
+                probe.pillar_x, probe.pillar_y = left_pillar
+                target = probe._syrinx_retreat_target(w, w.player)
+                w.level.monsters.remove(probe)
+                if target is None:
+                    continue
+                if max(abs(x - target[0]), abs(y - target[1])) > 3:
+                    start = (x, y)
+                    break
+            if start:
+                break
+        self.assertIsNotNone(start, "expected a start tile well clear of any pillar")
+
+        s = self._syrinx(w, *start)
+        s.pillar_x, s.pillar_y = left_pillar
+        s.retreating = True
+
+        visited = []
+        for _ in range(20):
+            visited.append((s.x, s.y))
+            if s.hidden:
+                break
+            s.take_turn(w)
+
+        self.assertTrue(s.hidden, f"never re-hid; stuck at ({s.x}, {s.y})")
+
+        bad = [(x, y) for (x, y) in visited
+               if (x, y) not in pillars and w.level.grid[y][x] == WALL]
+        self.assertEqual(
+            bad, [],
+            "stepped onto ordinary (non-pillar) wall tile(s) during approach")
+
 
 class TestSyrinxResistances(unittest.TestCase):
     def _world(self):

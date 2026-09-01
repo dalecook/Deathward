@@ -778,7 +778,18 @@ class Monster:
             # the pillar itself is a WALL tile -- same reason wraith/poltergeist
             # phase to reach the player, she has to phase to reach IT, or her
             # last step never lands and she oscillates one tile short forever.
-            self._step_toward(world, *target, phase=True)
+            # but she is corporeal, not incorporeal like them: only HER OWN
+            # pillar parts like stone for her (the Shademail flavour this is
+            # modeled on), so phase ONLY the final step onto it -- every
+            # approach step before that stays on real floor, same as her hunt
+            # movement, or phase=True (which loosens EVERY neighbor this turn,
+            # not just the destination) lets her cut through ordinary walls
+            # en route whenever that is locally shortest.
+            if self.dist(*target) <= 1:
+                self.x, self.y = target
+                world.on_monster_moved(self)
+            else:
+                self._step_toward(world, *target)
             return
 
         aligned = (self.x == p.x or self.y == p.y)
