@@ -10330,23 +10330,78 @@ class TestSyrinxSerialization(unittest.TestCase):
 class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
     """Her whole loop -- hidden, telegraph, emerge, hunt, blow, stun, retreat --
     must play out identically whether the Kodex knows her or not. Only what is
-    DRAWN may differ (see the project's core invariant)."""
+    DRAWN may differ (see the project's core invariant).
+
+    A 60-turn RANDOM cardinal walk from the level's real entrance (the original
+    version of this test) never gets anywhere near her arena on seed 11 -- it
+    stays within a handful of tiles of the entrance the whole time, so she emerges
+    once, hunts forever, and the trace never touches blow/stun/retreat at all (a
+    review proved this with fault injection: a deliberately-broken blow-resolution
+    or retreating branch went completely undetected). So instead of hoping a random
+    walk stumbles into her, the script below drops the player straight into her
+    arena and then deterministically walks it toward her every turn -- via the same
+    kind of greedy step-toward-target logic the game's own monsters use, just with
+    real BFS pathfinding so it does not get stuck on a corridor corner along the
+    way -- which reliably drives her through hidden -> telegraph -> emerge -> hunt
+    -> blow (telegraph) -> blow (resolve) -> stunned -> retreating."""
+
+    @staticmethod
+    def _bfs_step_toward(world, start, target):
+        """One deterministic step for the SCRIPTED player toward `target` -- not the
+        game's real input handling, just enough pathfinding that the walk cannot
+        dead-end on a wall corner (a naive greedy step can). Treats `target` itself
+        as passable for routing purposes (Syrinx's own tile is a carved-wall pillar
+        while she is hidden) but only ever actually MOVES onto a tile that really is
+        floor, exactly like the player's real movement is gated elsewhere."""
+        if start == target:
+            return None
+        visited = {start: None}
+        q = deque([start])
+        while q:
+            cx, cy = q.popleft()
+            if (cx, cy) == target:
+                break
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = cx + dx, cy + dy
+                if (nx, ny) in visited:
+                    continue
+                if not (world.walkable(nx, ny) or (nx, ny) == target):
+                    continue
+                if world.monster_at(nx, ny) and (nx, ny) != target:
+                    continue
+                visited[(nx, ny)] = (cx, cy)
+                q.append((nx, ny))
+        if target not in visited:
+            return None
+        cur = target
+        prev = visited[cur]
+        while prev != start:
+            cur = prev
+            prev = visited[cur]
+        return cur if world.walkable(*cur) else None
 
     def _trace(self, codex):
         w = World(codex, seed=11)
         w.new_level(8)
         s = next(m for m in w.level.monsters if m.key == "syrinx")
-        script = random.Random(99)
+        arena = w.level._syrinx_arena()
+        # Start inside her arena (not the level's real, distant entrance) -- see the
+        # class docstring for why that is what actually gets her engaged.
+        w.player.x, w.player.y = arena.cx, arena.cy
+        w.level.compute_fov(w.player.x, w.player.y)
         trace = []
-        for _ in range(60):
-            dx, dy = script.choice([(0, -1), (0, 1), (-1, 0), (1, 0)])
-            nx, ny = w.player.x + dx, w.player.y + dy
-            if w.walkable(nx, ny) and not w.monster_at(nx, ny):
-                w.player.x, w.player.y = nx, ny
-                w.level.compute_fov(w.player.x, w.player.y)
+        for _ in range(90):
+            step = self._bfs_step_toward(w, (w.player.x, w.player.y), (s.x, s.y))
+            if step and w.walkable(*step) and not w.monster_at(*step):
+                w.player.x, w.player.y = step
+            w.level.compute_fov(w.player.x, w.player.y)
             s.take_turn(w)
             trace.append((s.x, s.y, s.hidden, s.hidden_turns, s.retreating,
                          s.stunned, str(s.intent), s.hp, w.player.hp))
+            # a stun/retreat cycle only advances across a PLAYER-turn boundary (see
+            # World._tick_stuns) -- take_turn alone never clears it, so without this
+            # she would freeze solid the instant she lands her first blow.
+            w._tick_stuns()
             if not s.alive:
                 break
         return trace
@@ -10359,6 +10414,16 @@ class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
         t2 = self._trace(wise)
         self.assertEqual(t1, t2, "knowledge of Syrinx must never change her mechanics")
         self.assertTrue(t1)
+        # Prove the scenario actually reached the mechanically risky states -- not
+        # just hidden/telegraph/emerge/hunt (see the class docstring / review).
+        self.assertTrue(any("blow" in row[6] for row in t1),
+                        "scenario never telegraphed a blow")
+        self.assertTrue(any(row[5] for row in t1),
+                        "scenario never exercised her stun")
+        self.assertTrue(any(row[4] for row in t1),
+                        "scenario never exercised her retreat")
+        self.assertLess(min(row[8] for row in t1), t1[0][8],
+                        "scenario never actually landed a blow on the player")
 
 
 if __name__ == "__main__":
