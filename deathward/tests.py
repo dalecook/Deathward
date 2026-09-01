@@ -10522,6 +10522,63 @@ class TestSyrinxResistances(unittest.TestCase):
         t.trigger(w, s)
         self.assertEqual(s.stunned, 0)
 
+    def _arena_world(self):
+        """A real floor 8, her real arena, with the ambient roster and hazard traps
+        stripped out. Arena geometry is LRNG-free arithmetic (see
+        Level._cut_arena_floor) -- Room(12, 2, 31, 23) on every seed -- so (20, 13)
+        and (26, 13), both on row y=13, are always open floor: that row falls
+        between pillar rows (ARENA_MARGIN_Y=2, PITCH=6 -> 4, 10, 16, 22) and neither
+        x lands on a pillar column (15, 21, 27, 33, 39) either."""
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=7)
+        w.new_level(8)
+        w.level.monsters = []
+        w.level.traps = []          # her own hazards are not what this test is about
+        w.player.x, w.player.y = 20, 13
+        w.player.invisible = 30
+        self.assertTrue(w.player_hidden(), "sanity: the player really is invisible")
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def test_invisibility_does_nothing_against_her(self):
+        """Ratified design call (2026-08-31): wind and stone do not hunt by sight, so
+        vanishing from mundane eyes buys the player nothing against her -- she hunts,
+        telegraphs and lands her blow on an invisible player exactly as she would on
+        a visible one. This pins the generic player-hidden wander block in
+        Monster.take_turn (see the "and self.key != 'syrinx'" clause and its comment,
+        monsters.py ~298) to that ruling: the block exists to make invisibility work
+        against everyone else, and her key-based exemption from it is what makes it
+        NOT work against her. Goes through take_turn, not _ai_syrinx directly --
+        calling the AI method skips the very guard under test, which is exactly how
+        the arrival version of this bug went unnoticed the first two times."""
+        from .monsters import Monster
+        w = self._arena_world()
+        s = Monster("syrinx", 26, 13)
+        s.hidden = False
+        s.awake = True
+        w.level.monsters.append(s)
+        for _ in range(6):
+            s.take_turn(w)
+        self.assertLess(w.player.hp, config.BASE_HP,
+                         "she must hunt, telegraph and land a blow through invisibility")
+
+    def test_the_same_setup_leaves_an_ordinary_hunter_harmless(self):
+        """Contrast case for the test above, same arena and same invisible player:
+        an ordinary mundane monster (a brute, wide awake and given every chance to
+        close in) IS stopped cold by the generic wander block. This is what proves
+        the immunity above belongs to Syrinx specifically, and is not a sign that
+        invisibility has quietly stopped working at all."""
+        from .monsters import Monster
+        w = self._arena_world()
+        b = Monster("brute", 26, 13)
+        b.awake = True
+        w.level.monsters.append(b)
+        for _ in range(6):
+            b.take_turn(w)
+        self.assertEqual(w.player.hp, config.BASE_HP,
+                          "an ordinary hunter must lose the thread against an "
+                          "invisible player")
+
 
 class TestSyrinxRewards(unittest.TestCase):
     def test_she_always_drops_windfang_and_shademail(self):

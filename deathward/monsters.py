@@ -304,7 +304,22 @@ class Monster:
         # un-hidden -- an invisible player standing near the mouth would eat her
         # held arrival turn and send her wandering the floor forever, arrive-intent
         # dropped, retreating never set. Second time this exact branch has caught
-        # her out; exclude her for good instead of chasing the next state.
+        # her out; exclude her for good instead of chasing the next state -- any
+        # future addition to her state machine would only be a third state shape
+        # for a by-state guard to miss, so the exclusion is pinned to the one thing
+        # about her that never changes: her key.
+        #
+        # The side effect is deliberate, not incidental: invisibility does NOTHING
+        # against her, full stop, whether she is emerged and hunting or mid-telegraph.
+        # She is already immune to poison, freeze and fear (see TestSyrinxResistances
+        # in tests.py) on the same fiction -- wind and stone do not hunt by sight, so
+        # a cloak that blinds a mundane hunter's eyes gives her nothing to lose. This
+        # was a ratified design call (2026-08-31), pinned by
+        # TestSyrinxResistances.test_invisibility_does_nothing_against_her (and its
+        # brute contrast case, proving the immunity is hers specifically and not a
+        # broken invisibility system) -- both drive her through take_turn, not
+        # _ai_syrinx directly, for the same reason this comment exists: calling the
+        # AI method directly skips this exact guard.
         if (world.player_hidden() and not is_incorporeal(self.key)
                 and not self.hidden and self.key != "syrinx"):
             self.intent = None
