@@ -10010,7 +10010,7 @@ class TestSyrinxArena(unittest.TestCase):
                              "seed %d: she arrives when you cross the mouth" % seed)
             a = w.level.arena_room
             w.player.x, w.player.y = a.x, a.cy
-            w._enter_tile()
+            w._end_player_turn()      # Task 7: commit fires here now
             self.assertEqual(
                 len([m for m in w.level.monsters if m.key == "syrinx"]), 1,
                 "seed %d: and exactly one of her does" % seed)
@@ -10081,7 +10081,7 @@ class TestSyrinxArena(unittest.TestCase):
         # she is not placed until commit (Task 6) -- but a pillar to hide in means
         # that, once she is, she has somewhere to retreat to.
         w.player.x, w.player.y = lvl.arena_room.x, lvl.arena_room.cy
-        w._enter_tile()
+        w._end_player_turn()      # Task 7: commit fires here now
         found = [m for m in lvl.monsters if m.key == "syrinx"]
         self.assertEqual(len(found), 1, "a pillar to hide in means she gets placed")
 
@@ -11017,7 +11017,7 @@ class TestArenaGates(unittest.TestCase):
         """Walk the player through the mouth into the hall."""
         a = w.level.arena_room
         w.player.x, w.player.y = a.x, a.cy
-        w._enter_tile()
+        w._end_player_turn()      # Task 7: commit now fires here, not on tile entry
 
     def test_the_way_up_is_stone_the_moment_you_arrive(self):
         w = self._world()
@@ -11110,7 +11110,12 @@ class TestArenaBossArrival(unittest.TestCase):
     def _commit(self, w):
         a = w.level.arena_room
         w.player.x, w.player.y = a.x, a.cy
-        w._enter_tile()
+        # Task 7 moved the commit call to _end_player_turn(), which also runs
+        # advance() -- and advance() would resolve her held "arrive" turn in the
+        # same call, before these tests get a chance to look at it. Call the
+        # commit primitive directly instead, so she is caught in the freeze-frame
+        # this whole test class is about: materialised, not yet moved.
+        w._arena_commit()
 
     def test_the_hall_is_empty_until_you_step_into_it(self):
         w = self._world()
@@ -11210,6 +11215,94 @@ class TestArenaBossArrival(unittest.TestCase):
         self.assertEqual(len(found), 1)
         self.assertEqual((found[0].x, found[0].y), (m.x, m.y))
         self.assertEqual(found[0].hp, 11)
+
+
+class TestArenaScrollContainment(unittest.TestCase):
+    """Escape and Teleport work perfectly well inside her hall -- she shoves you away
+    and is vulnerable for exactly one turn after her blow, so an aimed jump is the
+    gap-closer that turns her stun into damage. What they are not is an exit. The
+    antechamber leaves the destination pool the moment the mouth shuts, because the
+    floor has no other way out and stranding the player there is a softlock."""
+
+    def _committed(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()      # commitment now fires here, not on tile entry
+        return w
+
+    def test_escape_never_drops_you_in_the_sealed_antechamber(self):
+        w = self._committed()
+        ante = w.level.ante_room
+        for _ in range(150):
+            w.player.x, w.player.y = w.level.arena_room.cx, w.level.arena_room.cy
+            w._apply_effect("blink")
+            self.assertFalse(ante.contains(w.player.x, w.player.y),
+                             "UUL must never roll the sealed room")
+
+    def test_teleport_refuses_the_sealed_antechamber(self):
+        w = self._committed()
+        ante = w.level.ante_room
+        for y in range(ante.y, ante.y + ante.h):
+            for x in range(ante.x, ante.x + ante.w):
+                w.level.explored[y][x] = True
+                self.assertFalse(w.valid_teleport(x, y),
+                                 "the gate does not answer")
+
+    def test_teleport_still_works_inside_the_hall(self):
+        w = self._committed()
+        a = w.level.arena_room
+        tx, ty = a.cx, a.cy
+        w.level.explored[ty][tx] = True
+        self.assertTrue(w.valid_teleport(tx, ty))
+
+    def test_the_antechamber_is_fine_before_you_commit(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        ante = w.level.ante_room
+        w.level.explored[ante.cy][ante.cx + 1] = True
+        w.player.x, w.player.y = ante.x, ante.y
+        self.assertTrue(w.valid_teleport(ante.cx + 1, ante.cy))
+
+    def test_ordinary_floors_are_unaffected(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)
+        self.assertFalse(w.level.tile_is_sealed_off(w.level.stairs[0],
+                                                    w.level.stairs[1]))
+
+    def test_teleporting_into_the_hall_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        for y in range(a.y, a.y + a.h):
+            for x in range(a.x, a.x + a.w):
+                w.level.explored[y][x] = True
+        self.assertTrue(w.teleport_to(a.cx, a.cy))
+        self.assertTrue(w.level.mouth_sealed,
+                        "the gate shuts for scrolls too, not just for the door")
+
+    def test_blinking_into_the_hall_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.cx, a.cy
+        w._end_player_turn()
+        self.assertTrue(w.level.mouth_sealed)
+
+    def test_standing_in_the_antechamber_never_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        for _ in range(5):
+            w._end_player_turn()
+        self.assertFalse(w.level.mouth_sealed,
+                         "the prep room is yours for as long as you want it")
 
 
 if __name__ == "__main__":

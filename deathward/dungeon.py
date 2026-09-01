@@ -816,6 +816,15 @@ class Level:
         """The one check every gate, seal and reveal keys off."""
         return self.depth == config.SYRINX_DEPTH
 
+    def tile_is_sealed_off(self, x, y):
+        """Somewhere the player must never be put once the mouth has shut. Floor 8's
+        only exits are the way up (stone on arrival) and the way down (barred, and
+        inside the hall) -- so a scroll that dropped you back in the antechamber would
+        leave no legal move at all. That is a softlock, and this game guarantees the
+        dungeon is always completable."""
+        return (self.mouth_sealed and self.ante_room is not None
+                and self.ante_room.contains(x, y))
+
     def _cut_arena_floor(self, codex):
         """Floor 8 is not a dungeon floor. There is no room generator here, no
         corridors, no loops -- just her hall and the room you steady yourself in

@@ -1806,11 +1806,13 @@ class World:
 
     # --- targeted teleport (ZEPH) ---------------------------------------
     def valid_teleport(self, x, y):
-        """A spot you may jump to: somewhere you have SEEN, that is open floor, and
-        that has nothing standing on it."""
+        """A spot you may jump to: somewhere you have SEEN, that is open floor, that
+        has nothing standing on it -- and that is not on the far side of a gate that
+        has already shut behind you."""
         return (self.in_bounds(x, y) and self.level.explored[y][x]
                 and self.walkable(x, y) and not self.monster_at(x, y)
                 and not self.vendor_at(x, y)
+                and not self.level.tile_is_sealed_off(x, y)
                 and (x, y) != (self.player.x, self.player.y))
 
     def teleport_to(self, x, y):
@@ -1941,6 +1943,8 @@ class World:
                 r = self.rng.choice(self.level.rooms)
                 x = self.rng.randint(r.x, r.x + r.w - 1)
                 y = self.rng.randint(r.y, r.y + r.h - 1)
+                if self.level.tile_is_sealed_off(x, y):
+                    continue          # never back through a gate that has shut
                 if self.walkable(x, y) and not self.monster_at(x, y):
                     self.add_fx("vanish", p.x, p.y, color=config.MANA, life=0.5)
                     p.x, p.y = x, y
@@ -2292,7 +2296,6 @@ class World:
 
     def _enter_tile(self):
         p = self.player
-        self._arena_commit()      # stepping into her hall is the commitment
         t = self.level.trap_at(p.x, p.y)
         if t and not (t.sprung and t.key in ("gas", "alarm", "glyph", "dart")):
             if self.player_hidden():
@@ -2348,6 +2351,11 @@ class World:
 
     # --- the turn engine ------------------------------------------------
     def _end_player_turn(self):
+        # Standing in her hall IS the commitment, however you arrived -- walked
+        # through the mouth, or dropped in by scroll. Hanging this on _enter_tile
+        # alone left three ways in (ZEPH, UUL, the descent scroll) that never fire
+        # it, and a gate that only shuts for players who use the door is not a gate.
+        self._arena_commit()
         p = self.player
         p.energy -= config.ACT_COST
         p.tick_effects(self)
