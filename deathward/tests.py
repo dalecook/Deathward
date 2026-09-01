@@ -10770,15 +10770,17 @@ class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
         w.level.monsters.append(s)
         arena = w.level._syrinx_arena()
         # Flag her as already spawned/committed, exactly as a real commit through
-        # the mouth would leave the gate state -- this script drops the player
+        # the mouth would leave the gate state. This script drops the player
         # straight into her arena WITHOUT ever walking through the mouth, so
-        # without this the world still thinks she has not arrived yet. If she then
-        # lands a blow, _syrinx_knockback -> _enter_tile -> _arena_commit fires
-        # mid-trace and spawns a SECOND Syrinx at boss_arrival(), slamming the gate
-        # behind a fight that was never supposed to have one. The trace still comes
-        # out deterministic either way (both runs hit the same bug identically),
-        # so this was easy to miss, but it is not the one-boss fight the test claims
-        # to be scripting.
+        # without this the world would still think she has not arrived yet --
+        # a fight against a boss the game itself believes is not there. It is
+        # not defending against a duplicate spawn: _enter_tile is pure
+        # trap-springing again, _arena_commit's one call site is
+        # _end_player_turn(), and _trace never ends a turn, so nothing here
+        # can re-fire the commit path. These two lines exist to pin the traced
+        # fight to the state it claims to be -- one boss, in a hall whose gate
+        # has already fallen -- so the trace is honestly the sealed, one-boss
+        # encounter it is scripted to be, not an artifact of skipping the mouth.
         w.level.boss_spawned = True
         w.level.mouth_sealed = True
         # Start inside her arena (not the level's real, distant entrance) -- see the
@@ -10972,9 +10974,9 @@ class TestArenaHazards(unittest.TestCase):
     same on every re-entry within a game and re-dealt in a new one: dying on floor 8
     buys you knowledge of THIS dungeon's hall."""
 
-    def _level(self, world_seed=3):
+    def _level(self, world_seed=3, run_seed=1):
         codex = FakeSave(); codex.world_seed = world_seed
-        w = World(codex, seed=1)
+        w = World(codex, seed=run_seed)
         w.new_level(8)
         return w.level
 
@@ -11013,12 +11015,23 @@ class TestArenaHazards(unittest.TestCase):
         self.assertEqual(len(spots), len(set(spots)))
 
     def test_hazards_are_stone__same_all_game__redealt_in_a_new_one(self):
-        same_a, same_b = self._level(world_seed=7), self._level(world_seed=7)
-        self.assertEqual(sorted((t.key, t.x, t.y) for t in same_a.traps),
-                         sorted((t.key, t.x, t.y) for t in same_b.traps))
-        other = self._level(world_seed=8)
-        self.assertNotEqual(sorted((t.key, t.x, t.y) for t in same_a.traps),
-                            sorted((t.key, t.x, t.y) for t in other.traps))
+        # Same world_seed, DIFFERENT run_seed each time -- that is the only way to
+        # tell the stone clock (lrng, per game) apart from the living clock (rng,
+        # per run). Holding run_seed fixed too would make this pass even if the
+        # hazards were dealt from rng: it would just be re-running the same draw.
+        first = None
+        for run_seed in (1, 2, 3):
+            lvl = self._level(world_seed=7, run_seed=run_seed)
+            sig = sorted((t.key, t.x, t.y) for t in lvl.traps)
+            if first is None:
+                first = sig
+            self.assertEqual(sig, first,
+                             "hazards must be part of the permanent stonework -- "
+                             "they cannot move between runs of the same dungeon")
+
+        other = self._level(world_seed=8, run_seed=1)
+        self.assertNotEqual(first, sorted((t.key, t.x, t.y) for t in other.traps),
+                            "a new dungeon must re-deal the hazards")
 
 
 class TestArenaGateState(unittest.TestCase):
@@ -11248,6 +11261,31 @@ class TestArenaBossArrival(unittest.TestCase):
         m = [x for x in w.level.monsters if x.key == "syrinx"][0]
         self.assertIsNone(m.intent)
         self.assertTrue(m.retreating)
+
+    def test_she_lands_on_the_nearest_free_tile_if_her_spot_is_taken(self):
+        """boss_arrival() is a fixed tile, and the docstring on _spawn_arena_boss
+        says a player caught standing on it (Escape, Zeph's Teleport, a resume that
+        lands them there) does not get materialised on top of -- she takes the
+        nearest open ground instead, via _nearest_walkable(..., unoccupied=True).
+        That fallback had no direct test: the only caller is this one, and every
+        existing arrival test leaves (39,13) empty, so the occupancy branch could be
+        gutted and all 783 tests would still pass. Pin it down directly."""
+        w = self._world()
+        ax, ay = w.level.boss_arrival()
+        w.player.x, w.player.y = ax, ay      # standing right on her spot
+        w._arena_commit()
+        found = [m for m in w.level.monsters if m.key == "syrinx"]
+        self.assertEqual(len(found), 1)
+        m = found[0]
+        self.assertNotEqual((m.x, m.y), (ax, ay),
+                            "she must not land on the player")
+        self.assertTrue(w.level.walkable(m.x, m.y))
+        self.assertNotIn((m.x, m.y), w.level.syrinx_pillars(),
+                         "the fallback tile must not be a column")
+        self.assertNotEqual((m.x, m.y), w.level.stairs,
+                            "the fallback tile must not be the way down")
+        self.assertTrue(w.level.arena_room.contains(m.x, m.y),
+                        "the fallback must still be inside her hall")
 
     def test_an_invisible_player_does_not_break_her_arrival(self):
         """Regression for the generic invisible-player wander block in

@@ -211,6 +211,14 @@ class World:
             return
         if self.depth >= config.DEPTH_MAX:
             return          # not in the Warden's room. it trades; it does not gawp.
+        if level.is_arena_floor():
+            # Her hall (and its antechamber) is sealed, ambient-free ground -- no
+            # vendor, ever, not tucked in the antechamber and certainly not standing
+            # in the middle of the hazards. We return before touching vendor_pct or
+            # rolling the die, so this floor does not burn the roll: the odds that
+            # would have been spent here simply carry over and get spent on floor 9
+            # instead, at the same rate they always would have.
+            return
         if self.vendor_pct <= 0:
             return
         if self.rng.randint(1, 100) > self.vendor_pct:
@@ -799,21 +807,27 @@ class World:
         And the slide is not free. Each tile you are dragged over is a tile you
         ENTER, so its trap fires: her own blow is 1-3 against 26 HP, and the floor
         of her hall is what actually kills you. Three things stop the slide early --
-        stone, a body, and the spike pit, which you fall into rather than skate over
-        (it sets player.stuck). A player killed partway is not dragged any further.
+        stone, a body, and a spike pit IN THE PATH, which you fall into rather than
+        skate over (it sets player.stuck). A pit you fell into on your OWN last turn
+        does not count -- stuck survives until your next move consumes it, so a gust
+        arriving before you have climbed out must not read that stale flag as a pit
+        under your heels right now. We snapshot stuck before the slide and only
+        break when it goes UP during the slide, i.e. something in the path just
+        caught you. A player killed partway is not dragged any further.
         """
         p = self.player
         dx = (p.x > m.x) - (p.x < m.x)
         dy = (p.y > m.y) - (p.y < m.y)
         if dx == 0 and dy == 0:
             return
+        stuck_before = p.stuck
         for _ in range(config.SYRINX_PUSH_DIST):
             nx, ny = p.x + dx, p.y + dy
             if not self.walkable(nx, ny) or self.monster_at(nx, ny):
                 break
             p.x, p.y = nx, ny
             self._enter_tile()
-            if p.hp <= 0 or p.stuck:
+            if p.hp <= 0 or p.stuck > stuck_before:
                 break
         self.level.compute_fov(p.x, p.y)
 
