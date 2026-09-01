@@ -10251,6 +10251,28 @@ class TestSyrinxResistances(unittest.TestCase):
         self.assertEqual(s.stunned, 0)
 
 
+class TestSyrinxRewards(unittest.TestCase):
+    def test_she_always_drops_windfang_and_shademail(self):
+        import random
+        from .items import roll_monster_loot
+        for s in range(50):
+            loot = roll_monster_loot(random.Random(s), 8, "syrinx")
+            self.assertEqual(loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
+
+    def test_her_death_leaves_both_on_the_body(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        s.hp = 1
+        w.level.monsters = [s]
+        w.kill_monster(s, source="player")
+        slain = w.level.slain[-1]
+        self.assertEqual(slain.key, "syrinx")
+        self.assertEqual(slain.loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
+
+
 if __name__ == "__main__":
     pygame.init()
     unittest.main(exit=False, verbosity=2)

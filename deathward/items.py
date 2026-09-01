@@ -732,6 +732,11 @@ def roll_monster_loot(rng, depth, key):
     """What is left ON THE BODY. A corpse with treasure is a container -- you have to
     walk to it, stand on it, and spend the turn -- which means the fight is never
     quite over just because the thing stopped moving."""
+    if key == "syrinx":
+        # her whole reason for existing: Windfang and Shademail, guaranteed, every
+        # time -- the two boss-reserved rewards share her death rather than being
+        # split across two encounters (see the design spec's Identity & Theme).
+        return [("gear", "windfang", 0), ("gear", "shade", 0)]
     chance, n = MONSTER_LOOT.get(key, (0.25, 1))
     if rng.random() >= chance:
         return []
