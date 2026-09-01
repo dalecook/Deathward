@@ -36,6 +36,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame  # noqa: E402
 
 from . import config  # noqa: E402
+from . import render  # noqa: E402
 from .codex import FACTS, TOTAL_FACTS, Codex  # noqa: E402
 from .items import ALL_GEAR, BOOTS, CONSUMABLES, roll_floor_armour_magical  # noqa: E402
 from .world import World  # noqa: E402
@@ -11360,6 +11361,60 @@ class TestArenaScrollContainment(unittest.TestCase):
             w._end_player_turn()
         self.assertFalse(w.level.mouth_sealed,
                          "the prep room is yours for as long as you want it")
+
+
+class TestArenaGateRendering(unittest.TestCase):
+    """A gate the player cannot see is a bug report. All three draw as the portcullis
+    that floor 1's front gate already uses."""
+
+    # `render` is not imported at tests.py module level; these tests import it.
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def test_the_way_up_on_her_floor_draws_as_a_shut_gate(self):
+        w = self._world()
+        self.assertTrue(render.entrance_is_barred(w))
+
+    def test_an_ordinary_floors_way_up_is_stairs(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        self.assertFalse(render.entrance_is_barred(w))
+
+    def test_floor_one_is_still_barred(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(1)
+        self.assertTrue(render.entrance_is_barred(w))
+
+    def test_the_barred_gates_are_exactly_the_shut_ones(self):
+        w = self._world()
+        # A fresh hall starts with the way down already barred (stairs_locked
+        # defaults True at floor generation, per TestArenaGateState) but the mouth
+        # still open -- you haven't committed yet.
+        self.assertEqual(render.barred_gates(w), [w.level.stairs],
+                         "only the way down is shut before you commit")
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        # _arena_commit() fires from _end_player_turn(), not _enter_tile() (Task 7
+        # moved it so scroll/teleport arrivals commit too) -- so ending the turn,
+        # not entering the tile, is what seals the gate here.
+        w._end_player_turn()
+        gates = render.barred_gates(w)
+        self.assertIn(w.level.mouth, gates)
+        self.assertIn(w.level.stairs, gates)
+
+    def test_the_way_down_stops_being_barred_when_she_dies(self):
+        w = self._world()
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        w.level.stairs_locked = False
+        self.assertNotIn(w.level.stairs, render.barred_gates(w))
 
 
 if __name__ == "__main__":
