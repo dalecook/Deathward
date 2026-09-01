@@ -10138,6 +10138,55 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             prev_intent = s.intent
             prev_hp = hp
 
+    def test_she_does_not_chase_the_player_out_of_her_arena(self):
+        # Her whole design -- pillars to hide behind, a telegraphed blow to duck --
+        # is a boss-ROOM fight. If her hunt fallback chased the player anywhere on
+        # the floor, she would wander into corridors with no cover, bypassing the
+        # entire pillar/telegraph design. The hunt movement must stay leashed to
+        # her own arena: with the player outside it, she is a no-op, not a hunter.
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=1)
+        w.new_level(8)
+        lvl = w.level
+        s = next(m for m in lvl.monsters if m.key == "syrinx")
+        s.hidden = False
+        arena = lvl._syrinx_arena()
+        w.player.x, w.player.y = lvl.entrance
+        self.assertFalse(arena.contains(w.player.x, w.player.y),
+                          "sanity: the entrance sits outside her arena")
+        sx, sy = s.x, s.y
+        for _ in range(5):
+            s.take_turn(w)
+        self.assertEqual((s.x, s.y), (sx, sy),
+                          "she must not leave her arena chasing a player outside it")
+
+    def test_she_still_hunts_a_player_inside_her_arena(self):
+        # Companion to the leash test above: the fix must not turn her into a
+        # statue INSIDE her own room -- she still actively hunts an unaligned
+        # player as long as they are both inside the arena.
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=1)
+        w.new_level(8)
+        lvl = w.level
+        s = next(m for m in lvl.monsters if m.key == "syrinx")
+        s.hidden = False
+        arena = lvl._syrinx_arena()
+        w.player.x, w.player.y = arena.cx, arena.cy
+        self.assertTrue(arena.contains(w.player.x, w.player.y),
+                         "sanity: the arena centre is inside the arena")
+        self.assertTrue(arena.contains(s.x, s.y),
+                         "sanity: she starts inside her own arena")
+        sx, sy = s.x, s.y
+        for _ in range(5):
+            s.take_turn(w)
+            if (s.x, s.y) != (sx, sy) or s.intent is not None:
+                break
+        moved = (s.x, s.y) != (sx, sy)
+        telegraphed = s.intent == ("blow", 0, 0)
+        self.assertTrue(moved or telegraphed,
+                         "inside her arena she must still hunt (move) or, if "
+                         "already aligned and clear, telegraph a blow")
+
 
 class TestSyrinxStunAndRetreat(unittest.TestCase):
     def _world(self):

@@ -797,6 +797,15 @@ class Monster:
                 and world.line_clear(self.x, self.y, p.x, p.y, RANGE)):
             self.intent = ("blow", 0, 0)
             return
+        # She is a boss-ROOM fight, not a floor-wide hunter: her pillars and
+        # telegraphed blow only make sense inside her own arena, where the player
+        # has cover to duck behind. Chasing outside it would strand her in bare
+        # corridors with no pillars, bypassing that whole design -- so if the
+        # player has left her arena, she simply does not move. Her hidden_turns
+        # countdown (above) keeps ticking regardless; only this hunt movement
+        # is leashed.
+        if not world.level._syrinx_arena().contains(p.x, p.y):
+            return
         self._step_toward(world, p.x, p.y)
 
 
