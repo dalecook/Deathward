@@ -294,9 +294,16 @@ def draw_world(surf, world, codex, cam, t):
                 glyph(surf, "!", cx + T // 2 - 5, cy - T // 2 + 6, config.BLOOD, 14)
             continue
 
-        if known == 0:
+        if known == 0 and m.key != "syrinx":
             surf.blit(sprites.unknown(), topleft(m.x, m.y))
             continue
+
+        # Syrinx is drawn as herself from the very first game, even with a Kodex
+        # that knows nothing about her -- a mini-boss should never read as a
+        # featureless '?'. This is a RENDER exemption only: codex.tier() itself is
+        # untouched, so her Kodex entry is still earned the normal way, by killing
+        # her, and everything below this line (health bar, intent telegraphs) is
+        # still correctly gated on knows_tier() same as any other monster.
 
         col = m.t.color
         alpha = 255

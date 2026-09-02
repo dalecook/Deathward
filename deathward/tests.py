@@ -9938,6 +9938,68 @@ class TestSyrinxIdentity(unittest.TestCase):
         self.assertEqual(CAUSE_NAME["syrinx"], "Syrinx")
 
 
+class TestSyrinxAlwaysRendersAsHerself(unittest.TestCase):
+    """Every other un-codexed monster draws as sprites.unknown() -- a featureless
+    '?' -- until the Kodex has an entry for it. Syrinx is a deliberate exception:
+    she is drawn as herself from the very first game, so a player who has never
+    met her still sees "this is a real threat" instead of a blank silhouette.
+    This is a RENDER-layer call only: the Kodex itself is untouched, so her tier
+    stays 0 (no entry) until she is actually killed the normal way."""
+
+    def _world_with_visible_syrinx(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=7)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        s = Monster("syrinx", w.player.x + 3, w.player.y)
+        s.hidden = False                    # emerged: has a sprite to draw
+        w.level.monsters.append(s)
+        w.level.visible[s.y][s.x] = True
+        w.level.compute_fov(w.player.x, w.player.y)
+        w.level.visible[s.y][s.x] = True    # compute_fov may not reach 3 tiles away
+        cam = render.Camera()
+        cam.center_on(w.player.x, w.player.y)
+        return w, s, cam
+
+    def test_her_kodex_tier_is_still_zero_with_a_blank_codex(self):
+        w, s, cam = self._world_with_visible_syrinx()
+        self.assertEqual(w.codex.tier("syrinx"), 0,
+                         "the exemption must be render-only -- the Kodex still knows nothing")
+
+    def test_she_draws_as_herself_not_the_unknown_silhouette(self):
+        from . import sprites
+        w, s, cam = self._world_with_visible_syrinx()
+        self.assertEqual(w.codex.tier("syrinx"), 0, "sanity: a blank codex")
+
+        # sanity: the two candidate sprites must actually differ, or a control
+        # comparison below would prove nothing either way.
+        her_key_sprite = pygame.image.tostring(sprites.monster("syrinx", s.t.color, 255),
+                                               "RGBA")
+        unknown_sprite = pygame.image.tostring(sprites.unknown(), "RGBA")
+        self.assertNotEqual(her_key_sprite, unknown_sprite,
+                            "sanity: the two sprites must actually differ")
+
+        # swap her key for a mundane monster nobody knows either, and confirm
+        # THAT one draws as the unknown silhouette while she does not -- the
+        # controlled comparison that proves the exemption is real.
+        s.key = "kobold"
+        control_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(control_surf, w, w.codex, cam, 0.0)
+        s.key = "syrinx"
+        syrinx_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(syrinx_surf, w, w.codex, cam, 0.0)
+
+        self.assertNotEqual(
+            pygame.image.tostring(control_surf, "RGB"),
+            pygame.image.tostring(syrinx_surf, "RGB"),
+            "an equally un-codexed kobold and Syrinx must NOT render identically -- "
+            "she alone must be drawn as herself")
+
+
 class TestSyrinxHiddenState(unittest.TestCase):
     def _world(self):
         codex = FakeSave()
