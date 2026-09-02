@@ -10486,23 +10486,110 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             prev_intent = s.intent
             prev_hp = hp
 
-    def test_within_standoff_she_sidesteps_without_ever_closing(self):
-        # Rule 3, the real leash now that the old arena check means nothing (the
-        # arena IS the floor -- see the design spec). She is allowed to walk
+    def test_within_standoff_unaligned_she_sidesteps_without_ever_closing(self):
+        # Rule 3's sidestep branch, unaligned case. She is allowed to walk
         # herself onto the player's row or column, but never at the cost of
         # distance: each sidestep must hold her chebyshev distance to the player
-        # exactly steady until she reaches alignment, at which point (still out
-        # of blow range here) she holds rather than close in further.
+        # exactly steady, right up until she reaches alignment.
+        #
+        # Renamed from "...without_ever_closing": the old version of this test
+        # kept looping past the point she reached alignment and asserted she was
+        # STILL holding there -- that was Rule 3's old "if already aligned, hold"
+        # text, and it is exactly the exploit this change closes (see
+        # test_regression_aligned_dead_zone_is_no_longer_a_free_kill below). Once
+        # she IS aligned with a clear line, Rule 3's other branch takes over and
+        # she starts closing down the lane instead, so this test now stops
+        # checking the instant alignment is reached rather than asserting past it.
         w = self._world()
         s = self._syrinx(w, 5, 5)            # distance 5, inside SYRINX_STANDOFF (6)
         d0 = s.dist(w.player.x, w.player.y)
         self.assertLessEqual(d0, config.SYRINX_STANDOFF, "sanity: starts inside the band")
         for _ in range(6):
+            if s.x == w.player.x or s.y == w.player.y:
+                break
             s.take_turn(w)
             self.assertEqual(s.dist(w.player.x, w.player.y), d0,
                               "sidestepping toward alignment must never close the gap")
         self.assertTrue(s.x == w.player.x or s.y == w.player.y,
                          "a few turns of sidestepping should reach alignment")
+
+    def test_aligned_clear_lane_inside_standoff_closes_instead_of_holding(self):
+        # Rule 3's other branch: aligned, line clear, beyond blow range, still
+        # inside the standoff band. She has the shot lined up already -- closing
+        # IS taking it, so she walks the lane toward the player instead of
+        # holding her lineup. Row 13 of her arena (Room(12,2,31,23), pillars on
+        # xs {15,21,27,33,39} x ys {4,10,16,22}) carries no pillar, so the whole
+        # row is guaranteed clear -- the default player spawn (arena_room.cx,
+        # arena_room.cy) sits on it.
+        w = self._world()
+        s = self._syrinx(w, 5, 0)            # same row, distance 5: > BLOW_RANGE(3), <= STANDOFF(6)
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y, "sanity: starts aligned")
+        self.assertTrue(w.line_clear(s.x, s.y, w.player.x, w.player.y, config.SYRINX_STANDOFF),
+                         "sanity: row 13 carries no pillar, the lane must be clear")
+        d_prev = s.dist(w.player.x, w.player.y)
+        got_closer = False
+        for _ in range(5):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                break
+            d = s.dist(w.player.x, w.player.y)
+            self.assertLessEqual(d, d_prev,
+                                  "aligned with a clear lane, she must never retreat or hold")
+            if d < d_prev:
+                got_closer = True
+            d_prev = d
+        self.assertTrue(got_closer,
+                         "aligned with a clear lane inside the standoff band, she must close "
+                         "the gap instead of holding her lineup")
+        self.assertEqual(s.intent, ("blow", 0, 0),
+                          "closing down a clear lane should eventually bring her into blow range")
+
+    def test_aligned_blocked_lane_inside_standoff_sidesteps_not_closes(self):
+        # Rule 3's other branch again, but for the case that stays a sidestep even
+        # though she IS aligned: a pillar fizzles the line. Walking a lane she
+        # cannot shoot through would be the one genuinely dumb version of
+        # "closing", so blocked alignment behaves exactly like non-alignment.
+        # Row 16 carries a real pillar at x=21 (xs {15,21,27,33,39} x ys
+        # {4,10,16,22}); parking the player and her on either side of it gives an
+        # aligned pair with an actually-blocked line, deterministically, off the
+        # fixed floor-8 arena geometry.
+        w = self._world()
+        w.player.x, w.player.y = 20, 16
+        s = self._syrinx(w, 6, 0)            # (26, 16): aligned, distance 6, pillar at (21,16) between
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y, "sanity: starts aligned")
+        self.assertFalse(
+            w.line_clear(s.x, s.y, w.player.x, w.player.y, config.SYRINX_STANDOFF),
+            "sanity: the pillar must actually block this lane")
+        d0 = s.dist(w.player.x, w.player.y)
+        self.assertLessEqual(d0, config.SYRINX_STANDOFF, "sanity: starts inside the band")
+        s.take_turn(w)
+        self.assertEqual(s.dist(w.player.x, w.player.y), d0,
+                          "a blocked lane must never close, even while aligned")
+
+    def test_regression_aligned_dead_zone_is_no_longer_a_free_kill(self):
+        # The exploit this whole change closes. Rule 3 used to read "if already
+        # aligned, hold" -- so a player standing aligned at distance 4-6 (inside
+        # SYRINX_STANDOFF, outside SYRINX_BLOW_RANGE) was never engaged: she held
+        # her lineup forever. That is not merely a stall -- World._firestorm
+        # damages every visible non-hidden monster, she takes double fire damage
+        # (SYRINX_FIRE_MULT), and the Robe of Hades armour capstone fires it
+        # automatically on a recharge timer. A player in that robe could park in
+        # the dead zone and kill her for free. She must eventually close and
+        # blow, not sit there ignoring an aligned player indefinitely.
+        w = self._world()
+        s = self._syrinx(w, config.SYRINX_STANDOFF, 0)   # distance 6: the far edge of the dead zone
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y, "sanity: parked aligned")
+        self.assertGreater(s.dist(w.player.x, w.player.y), config.SYRINX_BLOW_RANGE,
+                            "sanity: starts outside blow range -- this is the dead zone")
+        engaged = False
+        for _ in range(config.SYRINX_STANDOFF - config.SYRINX_BLOW_RANGE + 2):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+        self.assertTrue(engaged,
+                         "a player parked aligned in the standoff band must eventually be "
+                         "engaged, not held indefinitely -- this was the Robe of Hades exploit")
 
     def test_beyond_standoff_she_still_closes_the_gap(self):
         # Rule 4: she is not a statue. Past SYRINX_STANDOFF she is not yet in the

@@ -775,15 +775,24 @@ class Monster:
           3. EMERGE: targetable, moves at the player's own speed, never melees.
           4. HUNT: not a chase -- the gate down does not open until she is dead, so
              the player has to come to her, and she does not need to close the
-             distance herself. Four rules, checked in this order every turn she is
+             distance herself. Five rules, checked in this order every turn she is
              emerged and not retreating:
                a. player adjacent and diagonal (not aligned) -- she cannot gust from
                   there, so she steps away rather than stand and take it.
                b. player aligned, within SYRINX_BLOW_RANGE, clear line -- telegraphs.
-               c. player within SYRINX_STANDOFF -- sidesteps onto the player's row or
-                  column WITHOUT reducing her distance to them. This is the real
-                  leash: not a chase radius, a refusal to close.
-               d. player beyond SYRINX_STANDOFF -- steps toward, one tile, just
+               c. player aligned, clear line, within SYRINX_STANDOFF (so beyond
+                  SYRINX_BLOW_RANGE, or rule b would already have fired) -- she
+                  already has the shot lined up, so closing IS taking it: she walks
+                  the lane toward the player, one tile. There is no "hold" state
+                  left in her -- a lineup she is not yet close enough to fire is
+                  something to close, not something to wait on.
+               d. player aligned but the line is blocked (a pillar fizzles it), OR
+                  not aligned at all, and within SYRINX_STANDOFF -- she manoeuvres
+                  instead of closing: one step along whichever axis currently has
+                  the SMALLER offset, toward the player, WITHOUT reducing her
+                  distance to them. This is the real leash: not a chase radius, a
+                  refusal to close a lane she cannot use.
+               e. player beyond SYRINX_STANDOFF -- steps toward, one tile, just
                   enough to drag them back into the band she actually fights in.
           5. BLOW: a telegraph-then-resolve pair (self.intent), same shape as the
              Warden's spit; a pillar in the eyeline fizzles it.
@@ -878,40 +887,61 @@ class Monster:
             self.intent = ("blow", 0, 0)
             return
 
-        # Rule 3: inside the standoff band but not yet a shot -- she manoeuvres
-        # instead of closing. This is the real leash now that the old arena check
-        # is meaningless (the arena IS the floor): not a radius she refuses to
-        # leave, but a gap she refuses to close. If she is already aligned (a
-        # pillar is fizzling the line, or she is just past blow range), there is
-        # nothing left to align -- she holds, patient, rather than break her own
-        # lineup or step into reach for no reason. If she is not aligned, she
-        # takes exactly one step along whichever axis currently has the SMALLER
-        # offset: stepping the smaller-offset axis toward the player can only
-        # ever tie the larger axis's offset, never beat it below her current
-        # chebyshev distance, so alignment progresses without her ever getting
-        # closer. This has to be a single deliberate tile, not a call to
-        # _step_toward with some crafted one-axis target -- that helper breaks
-        # ties toward whichever of its 8 neighbours comes first in DIRS8, and a
-        # DIAGONAL neighbour ties the pure single-axis one exactly when the
-        # locked axis starts at offset 0 (this fight's whole standoff geometry),
-        # so it would silently nudge the locked axis too and quietly close the
-        # gap it exists to hold open. One candidate tile, walked through the
-        # same walkable/monster/vendor/player guard every other manual step in
-        # this method already uses (see RETREAT above), sidesteps the ambiguity
-        # instead of fighting the helper's tie-break.
+        # Rule 3: inside the standoff band. She never just holds here -- "hold when
+        # already aligned" was the exploit (see the design brief): a player parked
+        # aligned at distance 4-6 was ignored forever, and World._firestorm hits
+        # every visible monster including her, at SYRINX_FIRE_MULT, on the Robe of
+        # Hades' own recharge timer -- a park-and-farm free kill. Two branches now:
+        #
+        #   - aligned AND the line is clear: she already has the shot lined up,
+        #     just out of blow range (rule b above would have fired already if she
+        #     were close enough). Waiting on a lineup she already has is not
+        #     patience, it is a free turn -- so she walks the lane toward the
+        #     player, one tile. Stepping out of the lane is the player's answer;
+        #     that breaks alignment and drops her straight back to the sidestep
+        #     branch below, so this is real cat-and-mouse, not a one-way close.
+        #
+        #   - everything else within the band (not aligned at all, OR aligned but
+        #     a pillar fizzles the line): nothing to shoot, so she manoeuvres
+        #     instead -- one step along whichever axis currently has the SMALLER
+        #     offset, toward the player. Stepping the smaller-offset axis can only
+        #     ever tie the larger axis's offset, never beat it below her current
+        #     chebyshev distance, so this never closes the gap -- including the
+        #     blocked-alignment case, where the "smaller offset" axis is exactly
+        #     the aligned one sitting at 0: stepping it by one is how she peels off
+        #     a lane a pillar has fizzled, and it still only ties, never beats, her
+        #     current distance.
+        #
+        # BOTH branches walk a single hand-picked candidate tile, never a call to
+        # _step_toward with the real or a crafted one-axis target -- that helper's
+        # chebyshev search ties a DIAGONAL DIRS8 neighbour against the straight
+        # in-lane/in-axis one exactly when an axis offset is already 0 (this
+        # fight's whole standoff geometry, in both branches), and DIRS8's
+        # iteration order resolves that tie toward the diagonal FIRST. Left to the
+        # helper, "close down the lane" would drift diagonally off it, and
+        # "sidestep" would silently close the gap it exists to hold open -- the
+        # bug that bit the first pass at this fight. One manual tile, walked
+        # through the same walkable/monster/vendor/player guard every other manual
+        # step in this method already uses (see RETREAT above), sidesteps the
+        # ambiguity instead of fighting the helper's tie-break.
         if d <= config.SYRINX_STANDOFF:
-            if not aligned:
+            if aligned and world.line_clear(self.x, self.y, p.x, p.y, d):
+                if self.y == p.y:
+                    nx, ny = self.x + (1 if p.x > self.x else -1), self.y
+                else:
+                    nx, ny = self.x, self.y + (1 if p.y > self.y else -1)
+            else:
                 dx, dy = abs(p.x - self.x), abs(p.y - self.y)
                 if dx <= dy:
                     nx, ny = self.x + (1 if p.x > self.x else -1), self.y
                 else:
                     nx, ny = self.x, self.y + (1 if p.y > self.y else -1)
-                if (world.walkable(nx, ny) and not world.monster_at(nx, ny)
-                        and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
-                    self.x, self.y = nx, ny
-                    world.on_monster_moved(self)
-                # else: the sidestep tile is blocked this turn -- she holds and
-                # tries again next turn, same as a boxed-in retreat does above.
+            if (world.walkable(nx, ny) and not world.monster_at(nx, ny)
+                    and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
+                self.x, self.y = nx, ny
+                world.on_monster_moved(self)
+            # else: the candidate tile is blocked this turn -- she holds and tries
+            # again next turn, same as a boxed-in retreat does above.
             return
 
         # Rule 4: out past the standoff band, she is not a statue -- she closes one
