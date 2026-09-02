@@ -208,6 +208,14 @@ SYRINX_SPEED_FLOOR = 70    # she matches the player's speed (see Monster.speed_n
                            # bug to smooth over, it is the game telling you the build has
                            # a cost, and floor 8 is where you find out.
 
+# How many pillars form the pool she picks her surfacing spot from, ranked by
+# nearness TO THE PLAYER (see Monster._syrinx_relocate). She goes into one pillar
+# and comes up out of another -- never the one she entered -- and this is the only
+# dial on how guessable that is. Smaller: she surfaces closer and more predictably.
+# Larger: she can come up further out and is harder to wait for, at the cost of
+# sometimes surfacing somewhere that does not threaten you at all.
+SYRINX_SURFACE_CHOICES = 4
+
 # what she leaves on her body when she dies, on top of the two guaranteed gear
 # pieces below (see roll_monster_loot). Named here, not left as a literal in the
 # drop list, because it is the one number in her hoard that is a "how much gold"

@@ -11164,6 +11164,14 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         self.assertIn(target, w.level.syrinx_pillars())
 
     def test_reaching_the_target_pillar_re_hides_her(self):
+        """Arriving at her retreat target ends the retreat and takes her off the
+        grid, with the forced-emergence clock reset.
+
+        She no longer STAYS on the tile she retreated to: the moment she is hidden
+        she relocates, unseen, to a different pillar and surfaces from that one
+        instead (see TestSyrinxSurfacesFromAnotherPillar). So this asserts the state
+        change and that she ends up in SOME pillar -- her exact tile is that other
+        test's business, not this one's."""
         w = self._world()
         target = w.level.syrinx_pillars()[1]
         s = self._syrinx(w, *target)
@@ -11172,8 +11180,13 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         s.take_turn(w)
         self.assertTrue(s.hidden)
         self.assertFalse(s.retreating)
-        self.assertEqual((s.pillar_x, s.pillar_y), target)
         self.assertEqual(s.hidden_turns, 0)
+        self.assertIn((s.pillar_x, s.pillar_y), w.level.syrinx_pillars(),
+                      "wherever she went, it is a real pillar")
+        self.assertEqual((s.x, s.y), (s.pillar_x, s.pillar_y),
+                          "and her position agrees with the pillar she now holds")
+        self.assertNotEqual((s.x, s.y), target,
+                            "she goes in at one pillar and comes up at another")
 
     def test_a_blocked_straight_walk_re_routes_to_another_pillar(self):
         from .monsters import _syrinx_path_blocked
@@ -11214,7 +11227,14 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         self.assertTrue(
             s.hidden,
             f"never re-hid; stuck at ({s.x}, {s.y}) instead of reaching {target}")
-        self.assertEqual((s.pillar_x, s.pillar_y), target)
+        # She does not stay on the tile she walked to: going hidden relocates her,
+        # unseen, to a different pillar she will surface from (see
+        # TestSyrinxSurfacesFromAnotherPillar). What this test guards is the STEP --
+        # that her last retreat move can phase onto a WALL pillar at all, without
+        # which she oscillates one tile short forever and never re-hides. Reaching
+        # the hidden state at all is the proof that step landed.
+        self.assertIn((s.pillar_x, s.pillar_y), pillars,
+                      "she is holding a real pillar, whichever one she moved on to")
 
     def test_retreat_does_not_phase_through_ordinary_walls_en_route(self):
         # phase=True used to apply to the WHOLE retreat step, not just the final
@@ -12886,6 +12906,122 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
         self.assertTrue(w.level.mouth_sealed, "the gate fell behind her, on foot")
         self.assertTrue(any(m.key == "syrinx" for m in w.level.monsters),
                         "and she arrived")
+
+
+class TestSyrinxSurfacesFromAnotherPillar(unittest.TestCase):
+    """She goes into pillar A and comes up out of pillar B, never A.
+
+    Playtest: sinking into a pillar and popping back out of the same one makes her
+    a thing that ducks. The walk she makes to reach cover is the ESCAPE (nearest
+    pillar, _syrinx_retreat_target); the move that happens the instant she goes
+    hidden is the REPOSITION (_syrinx_relocate), and it is chosen off the PLAYER's
+    position, which is what stops her shuttling along one row of the lattice."""
+
+    def _arena(self, run_seed=1):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=run_seed)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()                       # commit for real: seals, spawns her
+        return w
+
+    def _syrinx(self, w):
+        return [m for m in w.level.monsters if m.key == "syrinx"][0]
+
+    def test_she_never_surfaces_from_the_pillar_she_entered(self):
+        w = self._arena()
+        s = self._syrinx(w)
+        pillars = w.level.syrinx_pillars()
+        for entered in pillars:
+            for _ in range(12):
+                s.x, s.y = entered
+                s._syrinx_relocate(w, w.player, entered=entered)
+                self.assertNotEqual((s.x, s.y), entered,
+                                    "she must come up somewhere other than the "
+                                    "pillar you watched her go into")
+                self.assertIn((s.x, s.y), pillars,
+                              "and it must be a real pillar, not open floor")
+
+    def test_the_surfacing_pillar_is_drawn_from_those_nearest_the_player(self):
+        """Nearest the PLAYER, not nearest her -- that is what makes the candidate
+        pool travel with the player instead of pinning her to one corner."""
+        w = self._arena()
+        s = self._syrinx(w)
+        p = w.player
+        entered = w.level.syrinx_pillars()[0]
+        pool = sorted((sp for sp in w.level.syrinx_pillars() if sp != entered),
+                      key=lambda sp: max(abs(sp[0] - p.x), abs(sp[1] - p.y)))
+        pool = pool[:config.SYRINX_SURFACE_CHOICES]
+        for _ in range(40):
+            s.x, s.y = entered
+            s._syrinx_relocate(w, p, entered=entered)
+            self.assertIn((s.x, s.y), pool,
+                          "she surfaces from the pool nearest the player")
+
+    def test_she_stays_hidden_across_the_move(self):
+        """The relocation is invisible by construction: it happens on the same turn
+        she goes hidden, so she is untargetable and unrendered for all of it."""
+        w = self._arena()
+        s = self._syrinx(w)
+        entered = w.level.syrinx_pillars()[0]
+        s.x, s.y = entered
+        s.hidden = True
+        s._syrinx_relocate(w, w.player, entered=entered)
+        self.assertTrue(s.hidden)
+        self.assertIsNone(w.monster_at(s.x, s.y),
+                          "a hidden Syrinx must not be targetable where she surfaces")
+
+    def test_a_long_fight_uses_more_of_the_lattice_than_the_top_row(self):
+        """The old rule sorted by distance from HER, so from a top-row pillar the
+        nearest other was the one next door: traced over 80 hides she used 7 of the
+        20 pillars and never once touched rows 16 or 22."""
+        w = self._arena()
+        s = self._syrinx(w)
+        s.hp = 9999
+        w.player.hp = 9999
+        seen, was_hidden = [], s.hidden
+        for _ in range(900):
+            dx = (s.x > w.player.x) - (s.x < w.player.x)
+            dy = (s.y > w.player.y) - (s.y < w.player.y)
+            if not w.player_move(dx, dy):
+                w.player_wait()
+            if s.hidden and not was_hidden:
+                seen.append((s.x, s.y))
+            was_hidden = s.hidden
+
+        self.assertGreater(len(seen), 10, "the fight must actually cycle her")
+        pillars = set(w.level.syrinx_pillars())
+        self.assertTrue(set(seen) <= pillars, "every surfacing spot is a real pillar")
+        self.assertGreater(len(set(seen)), 7,
+                           "she must range wider than the seven pillars the "
+                           "nearest-to-her rule used")
+        self.assertTrue({y for _, y in seen} - {4, 10},
+                        "she must reach pillar rows the old shuttle never touched")
+
+    def test_the_surfacing_sequence_is_deterministic_per_run_seed(self):
+        """It draws on the per-RUN rng, like every other monster roll -- so a seed
+        replays identically, which the blind-vs-omniscient invariant depends on."""
+        def sequence(run_seed):
+            w = self._arena(run_seed)
+            s = self._syrinx(w)
+            s.hp = 9999
+            w.player.hp = 9999
+            out, was_hidden = [], s.hidden
+            for _ in range(300):
+                dx = (s.x > w.player.x) - (s.x < w.player.x)
+                dy = (s.y > w.player.y) - (s.y < w.player.y)
+                if not w.player_move(dx, dy):
+                    w.player_wait()
+                if s.hidden and not was_hidden:
+                    out.append((s.x, s.y))
+                was_hidden = s.hidden
+            return out
+
+        first = sequence(1)
+        self.assertTrue(first, "the fight must cycle her at least once")
+        self.assertEqual(first, sequence(1), "one seed, one sequence")
+        self.assertNotEqual(first, sequence(2), "a different run deals differently")
 
 
 if __name__ == "__main__":

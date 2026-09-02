@@ -476,6 +476,37 @@ class Monster:
                 return sp
         return ranked[0] if ranked else None
 
+    def _syrinx_relocate(self, world, p, entered):
+        """Move her, unseen, from the pillar she just sank into to the one she will
+        surface from. Called only at the instant she goes hidden.
+
+        WHICH pillar is chosen off the PLAYER's position, not hers, and that is the
+        whole trick. Sorting by distance from HER is what produced the old
+        behaviour: from a top-row pillar the nearest other pillar is the one next
+        door, so she shuttled along row 4 in a loop you could set your watch by --
+        traced over 80 hides she used seven of the twenty and never once touched
+        rows 16 or 22. Anchoring to the player instead means the candidate pool
+        travels with them: cross the hall and a different quarter of the lattice
+        becomes hers. She uses the whole room because YOU do.
+
+        Random within the pool is the other half. Nearest-to-the-player alone would
+        just be a new rule to memorise; a handful of candidates means you can narrow
+        her down and never be sure, so standing beside a pillar waiting for her to
+        surface is a bet rather than a certainty.
+
+        Never the pillar she just entered -- that is the bug this exists to kill.
+        Draws on world.rng (the per-run LIVING clock, same as every other monster
+        roll); it must never consult anything the Kodex knows, or a blind and an
+        omniscient run of one seed would stop playing out identically.
+        """
+        pillars = [sp for sp in world.level.syrinx_pillars() if sp != entered]
+        if not pillars:
+            return                    # a one-pillar arena: nowhere to go, so stay
+        pillars.sort(key=lambda sp: max(abs(sp[0] - p.x), abs(sp[1] - p.y)))
+        pool = pillars[:max(1, config.SYRINX_SURFACE_CHOICES)]
+        self.x, self.y = world.rng.choice(pool)
+        self.pillar_x, self.pillar_y = self.x, self.y
+
     def _adjacent_to_player(self, world):
         return self.dist(world.player.x, world.player.y) <= 1
 
@@ -786,8 +817,12 @@ class Monster:
         """Hide/telegraph/emerge/hunt/blow/stun/retreat -- her whole loop, from the
         design spec:
           0. ARRIVE: one held turn on materialising, then straight to RETREAT.
-          1. HIDDEN: off the grid, ticking toward a forced emergence.
-          2. TELEGRAPH: one turn's warning on the pillar she is already standing in.
+          1. HIDDEN: off the grid, ticking toward a forced emergence -- and NOT in
+             the pillar you watched her enter. The instant she goes under she
+             relocates, unseen, to a different pillar chosen off the PLAYER's
+             position (see _syrinx_relocate). She goes in at A and comes up at B.
+          2. TELEGRAPH: one turn's warning on the pillar she will actually surface
+             from -- which is the one she relocated to, not the one she entered.
           3. EMERGE: targetable, moves at the player's own speed, never melees.
           4. HUNT: not a chase -- the gate down does not open until she is dead, so
              the player has to come to her, and she does not need to close the
@@ -880,9 +915,22 @@ class Monster:
             if (self.x, self.y) == target:
                 self.hidden = True
                 self.retreating = False
-                self.pillar_x, self.pillar_y = target
                 self.hidden_turns = 0
                 world.add_fx("vanish", self.x, self.y, color=self.t.color, life=0.5)
+                # AND THEN SHE IS NOT THERE ANY MORE. Going into a pillar and coming
+                # back out of the same one makes her a thing that ducks; the whole
+                # point of a creature who lives in the stone is that she goes in
+                # here and comes up over THERE. The walk she just made was the
+                # ESCAPE (nearest cover, see _syrinx_retreat_target); this is the
+                # REPOSITION, and it is a different job with a different rule.
+                #
+                # It costs nothing to do it now: she is already hidden as of the
+                # line above, which means untargetable and unrendered, so the move
+                # cannot be seen. The hidden_turns countdown that was already
+                # ticking toward a forced emergence becomes the time she spends
+                # travelling. No pathfinding, no extra turns, no new state -- x, y,
+                # pillar_x and pillar_y are all in _MONSTER_STATE already.
+                self._syrinx_relocate(world, p, entered=target)
                 return
             # the pillar itself is a WALL tile -- same reason wraith/poltergeist
             # phase to reach the player, she has to phase to reach IT, or her
