@@ -190,6 +190,7 @@ _MONSTER_STATE = (
     "poisoned", "fled", "disguised", "warden_last", "feed", "recharge",
     "ray_armed", "weak", "feared", "confused", "hammer_hits", "enraged",
     "hidden", "hidden_turns", "pillar_x", "pillar_y", "retreating",
+    "just_forced_close",
 )
 
 
@@ -235,6 +236,12 @@ class Monster:
         self.hidden_turns = 0
         self.pillar_x, self.pillar_y = (x, y) if key == "syrinx" else (-1, -1)
         self.retreating = False
+        # Syrinx only: set for exactly the one turn after her sidestep's own
+        # fallback-of-last-resort close (Rule 3b) lands her somewhere rule 1
+        # would otherwise immediately recoil her off of, undoing the close
+        # before it can accomplish anything. See _ai_syrinx's rule 1 comment
+        # for the full reasoning and the stall it fixes.
+        self.just_forced_close = False
 
     @property
     def name(self):
@@ -246,6 +253,34 @@ class Monster:
 
     def dist(self, x, y):
         return max(abs(self.x - x), abs(self.y - y))   # chebyshev: 8-way grid
+
+    def speed_now(self, world):
+        """Energy gained per tick (see World.advance / freeze_tick). Almost always
+        just self.speed -- a fixed number baked in from the Template at spawn.
+
+        Syrinx is the one exception. Her own design spec (_ai_syrinx's docstring)
+        says she "moves at the player's own speed", but self.speed alone cannot
+        express that: it is fixed at 100 (== config.BASE_SPEED) forever, while the
+        player's actual speed swings turn to turn with boots, armour, weapon, and
+        the haste/berserk/heroism buffs. Hard-coding her at 100 quietly broke the
+        stated design the moment a player wore anything but bare feet -- measured:
+        Swift boots (125 speed) act 1.25x per her tick, Blink (115) 1.15x, which
+        plays as "she is delayed" even though nothing about her is actually slow.
+        She matches the player's CURRENT speed instead, buffs included -- you
+        cannot outrun the wind by drinking a potion. That is deliberate.
+
+        She has a floor under that, though: config.SYRINX_SPEED_FLOOR. Playtest
+        found that a deliberately slow build (heaviest armour, heaviest boots,
+        a Hammer) can push the player all the way down to 45 speed -- and at
+        that speed she could no longer reach a pillar before the hammer stun
+        wore off, which made the hardest-hitting build in the game also make
+        her trivial. She is never slower than the floor, only ever faster, so
+        a normal-or-better build (100+) sees no change at all; only the
+        bottom of the speed range gets clawed back.
+        """
+        if self.key == "syrinx":
+            return max(config.SYRINX_SPEED_FLOOR, world.player.speed())
+        return self.speed
 
     # --- serialization --------------------------------------------------
     def to_dict(self):
@@ -295,7 +330,33 @@ class Monster:
         # loses the thread. it cannot approach, cannot strike -- it just casts about.
         # ethereal monsters are exempt: invisibility puts you in THEIR realm, so a
         # wraith or poltergeist sees you plainly and keeps hunting.
-        if world.player_hidden() and not is_incorporeal(self.key) and not self.hidden:
+        # Syrinx is exempt outright, by key, not by a self.hidden check -- she runs
+        # her own complete state machine in _ai_syrinx (arrive/hidden/telegraph/
+        # emerge/hunt/blow/stun/retreat) and this generic wander has nothing to
+        # offer her in ANY of those states. It used to be gated on "and not
+        # self.hidden" instead, which covered her while hidden but reopened the
+        # instant a later change (her un-hidden ARRIVE beat) put her on the grid
+        # un-hidden -- an invisible player standing near the mouth would eat her
+        # held arrival turn and send her wandering the floor forever, arrive-intent
+        # dropped, retreating never set. Second time this exact branch has caught
+        # her out; exclude her for good instead of chasing the next state -- any
+        # future addition to her state machine would only be a third state shape
+        # for a by-state guard to miss, so the exclusion is pinned to the one thing
+        # about her that never changes: her key.
+        #
+        # The side effect is deliberate, not incidental: invisibility does NOTHING
+        # against her, full stop, whether she is emerged and hunting or mid-telegraph.
+        # She is already immune to poison, freeze and fear (see TestSyrinxResistances
+        # in tests.py) on the same fiction -- wind and stone do not hunt by sight, so
+        # a cloak that blinds a mundane hunter's eyes gives her nothing to lose. This
+        # was a ratified design call (2026-08-31), pinned by
+        # TestSyrinxResistances.test_invisibility_does_nothing_against_her (and its
+        # brute contrast case, proving the immunity is hers specifically and not a
+        # broken invisibility system) -- both drive her through take_turn, not
+        # _ai_syrinx directly, for the same reason this comment exists: calling the
+        # AI method directly skips this exact guard.
+        if (world.player_hidden() and not is_incorporeal(self.key)
+                and not self.hidden and self.key != "syrinx"):
             self.intent = None
             if world.rng.random() < 0.6:
                 self._wander(world)
@@ -414,6 +475,37 @@ class Monster:
             if not _syrinx_path_blocked(self.x, self.y, sp[0], sp[1], p.x, p.y):
                 return sp
         return ranked[0] if ranked else None
+
+    def _syrinx_relocate(self, world, p, entered):
+        """Move her, unseen, from the pillar she just sank into to the one she will
+        surface from. Called only at the instant she goes hidden.
+
+        WHICH pillar is chosen off the PLAYER's position, not hers, and that is the
+        whole trick. Sorting by distance from HER is what produced the old
+        behaviour: from a top-row pillar the nearest other pillar is the one next
+        door, so she shuttled along row 4 in a loop you could set your watch by --
+        traced over 80 hides she used seven of the twenty and never once touched
+        rows 16 or 22. Anchoring to the player instead means the candidate pool
+        travels with them: cross the hall and a different quarter of the lattice
+        becomes hers. She uses the whole room because YOU do.
+
+        Random within the pool is the other half. Nearest-to-the-player alone would
+        just be a new rule to memorise; a handful of candidates means you can narrow
+        her down and never be sure, so standing beside a pillar waiting for her to
+        surface is a bet rather than a certainty.
+
+        Never the pillar she just entered -- that is the bug this exists to kill.
+        Draws on world.rng (the per-run LIVING clock, same as every other monster
+        roll); it must never consult anything the Kodex knows, or a blind and an
+        omniscient run of one seed would stop playing out identically.
+        """
+        pillars = [sp for sp in world.level.syrinx_pillars() if sp != entered]
+        if not pillars:
+            return                    # a one-pillar arena: nowhere to go, so stay
+        pillars.sort(key=lambda sp: max(abs(sp[0] - p.x), abs(sp[1] - p.y)))
+        pool = pillars[:max(1, config.SYRINX_SURFACE_CHOICES)]
+        self.x, self.y = world.rng.choice(pool)
+        self.pillar_x, self.pillar_y = self.x, self.y
 
     def _adjacent_to_player(self, world):
         return self.dist(world.player.x, world.player.y) <= 1
@@ -724,10 +816,55 @@ class Monster:
     def _ai_syrinx(self, world, p):
         """Hide/telegraph/emerge/hunt/blow/stun/retreat -- her whole loop, from the
         design spec:
-          1. HIDDEN: off the grid, ticking toward a forced emergence.
-          2. TELEGRAPH: one turn's warning on the pillar she is already standing in.
+          0. ARRIVE: one held turn on materialising, then straight to RETREAT.
+          1. HIDDEN: off the grid, ticking toward a forced emergence -- and NOT in
+             the pillar you watched her enter. The instant she goes under she
+             relocates, unseen, to a different pillar chosen off the PLAYER's
+             position (see _syrinx_relocate). She goes in at A and comes up at B.
+          2. TELEGRAPH: one turn's warning on the pillar she will actually surface
+             from -- which is the one she relocated to, not the one she entered.
           3. EMERGE: targetable, moves at the player's own speed, never melees.
-          4. HUNT: actively seeks an aligned, clear line -- never waits passively.
+          4. HUNT: not a chase -- the gate down does not open until she is dead, so
+             the player has to come to her, and she does not need to close the
+             distance herself. Five rules, checked in this order every turn she is
+             emerged and not retreating:
+               a. player adjacent and diagonal (not aligned) -- she cannot gust from
+                  there, so she steps away rather than stand and take it. Suppressed
+                  for exactly the one turn right after rule d's own fallback close
+                  (below) forces her onto such a tile -- otherwise the close and the
+                  recoil undo each other forever. See rule a's own inline comment.
+               b. player aligned, within SYRINX_BLOW_RANGE, clear line -- telegraphs.
+               c. player aligned, clear line, within SYRINX_STANDOFF (so beyond
+                  SYRINX_BLOW_RANGE, or rule b would already have fired) -- she
+                  already has the shot lined up, so closing IS taking it: she walks
+                  the lane toward the player, one tile. There is no "hold" state
+                  left in her -- a lineup she is not yet close enough to fire is
+                  something to close, not something to wait on.
+               d. player aligned but the line is blocked (a pillar fizzles it), OR
+                  not aligned at all, and within SYRINX_STANDOFF -- she manoeuvres
+                  instead of closing: tries, in order, the smaller-offset axis
+                  toward the player, then the other axis toward the player,
+                  taking the first that (i) is free, (ii) does not reduce her
+                  distance to the player, and (iii) does not leave her aligned on
+                  a still-blocked lane. If neither candidate survives all three,
+                  she closes rather than freezing -- a close always reduces
+                  distance, so it cannot repeat forever the way a hold could, and
+                  in practice it is what finally opens a lane a pillar was
+                  shielding. That close also arms the one-turn rule-a suppression
+                  above (`just_forced_close`): the tile a plain nearest-neighbour
+                  close lands on is sometimes diagonally adjacent to the player,
+                  and letting rule a recoil off it immediately would undo the
+                  close before it accomplished anything, reopening the exact
+                  stall this fallback exists to prevent. (An away-from-player
+                  fallback on each axis was
+                  tried and rejected: with "away" available, the smaller axis's
+                  toward-tile and away-tile become a stable two-tile orbit around
+                  a permanently blocked lane, so the two candidates that could
+                  actually break it never get exhausted. See the sidestep's own
+                  comment for the reproduction.) This is the real leash: not a
+                  chase radius, a refusal to close a lane she cannot use.
+               e. player beyond SYRINX_STANDOFF -- steps toward, one tile, just
+                  enough to drag them back into the band she actually fights in.
           5. BLOW: a telegraph-then-resolve pair (self.intent), same shape as the
              Warden's spit; a pillar in the eyeline fizzles it.
           6. STUNNED: fully vulnerable for one turn (config.SYRINX_STUN_TURNS) --
@@ -736,7 +873,14 @@ class Monster:
              re-routing per turn if the player's body blocks the straight walk to it.
           8. RE-HIDE: reaching it, she goes off-grid again and the budget resets.
         """
-        RANGE = 9
+        if self.intent and self.intent[0] == "arrive":
+            # the held beat: she has just come out of nothing at the far end of the
+            # hall. One turn standing, then she turns for a column. If the player is
+            # somehow close enough to witness it, they have been taught her whole
+            # mechanic for the price of one turn.
+            self.intent = None
+            self.retreating = True
+            return
 
         if self.hidden:
             if self.intent and self.intent[0] == "emerge":
@@ -753,7 +897,7 @@ class Monster:
 
         if self.intent and self.intent[0] == "blow":
             self.intent = None
-            if world.line_clear(self.x, self.y, p.x, p.y, RANGE):
+            if world.line_clear(self.x, self.y, p.x, p.y, config.SYRINX_BLOW_RANGE):
                 world.add_fx("beam", p.x, p.y, color=self.t.color, life=0.4,
                              tiles=[(self.x, self.y)])
                 self._hit(world, verb="buffets")
@@ -771,9 +915,22 @@ class Monster:
             if (self.x, self.y) == target:
                 self.hidden = True
                 self.retreating = False
-                self.pillar_x, self.pillar_y = target
                 self.hidden_turns = 0
                 world.add_fx("vanish", self.x, self.y, color=self.t.color, life=0.5)
+                # AND THEN SHE IS NOT THERE ANY MORE. Going into a pillar and coming
+                # back out of the same one makes her a thing that ducks; the whole
+                # point of a creature who lives in the stone is that she goes in
+                # here and comes up over THERE. The walk she just made was the
+                # ESCAPE (nearest cover, see _syrinx_retreat_target); this is the
+                # REPOSITION, and it is a different job with a different rule.
+                #
+                # It costs nothing to do it now: she is already hidden as of the
+                # line above, which means untargetable and unrendered, so the move
+                # cannot be seen. The hidden_turns countdown that was already
+                # ticking toward a forced emergence becomes the time she spends
+                # travelling. No pathfinding, no extra turns, no new state -- x, y,
+                # pillar_x and pillar_y are all in _MONSTER_STATE already.
+                self._syrinx_relocate(world, p, entered=target)
                 return
             # the pillar itself is a WALL tile -- same reason wraith/poltergeist
             # phase to reach the player, she has to phase to reach IT, or her
@@ -793,19 +950,247 @@ class Monster:
             return
 
         aligned = (self.x == p.x or self.y == p.y)
-        if (aligned and self.dist(p.x, p.y) <= RANGE
-                and world.line_clear(self.x, self.y, p.x, p.y, RANGE)):
+        d = self.dist(p.x, p.y)
+
+        # Rule 1: diagonal adjacency is the blind spot. Aligned means same row or
+        # column, and a diagonal neighbour is neither -- she cannot gust them from
+        # there, and standing still while adjacent-but-unable-to-hit would make her
+        # free damage. She recoils instead. This is the one case where she moves
+        # AWAY regardless of range band; everything below only ever moves her
+        # sideways or closer.
+        #
+        # One deliberate, one-turn exception: `just_forced_close`. Rule 3b's own
+        # fallback-of-last-resort close (below, "nothing survived: close instead
+        # of holding") picks whichever legal neighbour is nearest the player and
+        # nothing else -- it has no opinion on which tile AT that minimum
+        # distance she lands on, because everything that needs an opinion (the
+        # blocked-lane test, the never-reduce invariant) already ran, and failed,
+        # for both sidestep candidates. On a pillar-adjacent tile the single
+        # closest legal neighbour sometimes turns out to be diagonally adjacent
+        # to the player -- distance 1, unaligned -- which is precisely rule 1's
+        # own trigger. Recoiling off it on the very next turn hands her straight
+        # back to (or past) the tile she just forced her way off of, and the
+        # close and the recoil become each other's fallback: a second, smaller
+        # stall sitting directly on top of the one the sidestep fix above
+        # already closed. Confirmed on the report's own worked example --
+        # (15,11) player, Syrinx from (13,9) -- which orbits
+        # (13,9) -> (14,9) -> (14,10) -> (13,9) forever without this exception,
+        # and a full-arena sweep in which every surviving stall was this exact
+        # 3-cycle shape, always pinned to a pillar's own column.
+        #
+        # A memoryless fix was tried first and rejected: making the fallback
+        # close itself refuse a diagonal-adjacent landing (preferring the
+        # nearest legal tile that ISN'T one) sounds like the same idea without
+        # new state, but it silently changes what the close's own contract
+        # depends on. The close's fallback-close guarantee ("a close always
+        # reduces distance, so unlike a hold it cannot repeat forever") assumes
+        # it takes the true nearest legal tile; filtering that choice can leave
+        # only a same-distance tile behind, which is no longer a close at all --
+        # on this exact worked example the diagonal-adjacent tile is the UNIQUE
+        # distance-reducing neighbour, so avoiding it only trades the 3-cycle
+        # for a fresh 2-cycle between two tiles that never reduce distance
+        # either (verified by simulation, not assumed). The one-turn suppression
+        # below is what actually lets the close finish what it started: she is
+        # trusted to have had a real reason for landing where she is (a lane a
+        # sidestep could not use), and rules 2-4 get one clear turn to act on
+        # that landing before rule 1 is allowed an opinion again.
+        #
+        # Costs a field (`just_forced_close`, in `_MONSTER_STATE`, round-tripped
+        # through to_dict/from_dict like every other scalar here) rather than
+        # zero new state -- the one tradeoff this fix makes deliberately, because
+        # the zero-state alternative does not actually work. Read-and-cleared
+        # unconditionally, right here, every turn she actually reaches this
+        # method -- so it can never suppress more than the single turn
+        # immediately following the close that set it. That is one ACTING
+        # turn, not one game turn: take_turn's stunned early-return skips this
+        # method entirely, so a stun landed right after the close (a
+        # hammer-stagger, a freeze) leaves the flag armed and waiting until she
+        # next moves -- worth at most one extra free swing on that turn, never
+        # more, since the first acting turn clears it unconditionally no matter
+        # how many stunned turns came first. It is a missed heartbeat, not a
+        # mode.
+        suppress_recoil, self.just_forced_close = self.just_forced_close, False
+        if d == 1 and not aligned and not suppress_recoil:
+            self._step_away(world, p.x, p.y)
+            return
+
+        # Rule 2: aligned, close enough, and nothing in the eyeline -- the blow
+        # telegraphs. SYRINX_BLOW_RANGE is short and deliberate: the shove is what
+        # actually hurts (SYRINX_PUSH_DIST tiles across a trapped floor), so the
+        # gust itself only needs to reach point-blank-ish, not across the hall.
+        if (aligned and d <= config.SYRINX_BLOW_RANGE
+                and world.line_clear(self.x, self.y, p.x, p.y, config.SYRINX_BLOW_RANGE)):
             self.intent = ("blow", 0, 0)
             return
-        # She is a boss-ROOM fight, not a floor-wide hunter: her pillars and
-        # telegraphed blow only make sense inside her own arena, where the player
-        # has cover to duck behind. Chasing outside it would strand her in bare
-        # corridors with no pillars, bypassing that whole design -- so if the
-        # player has left her arena, she simply does not move. Her hidden_turns
-        # countdown (above) keeps ticking regardless; only this hunt movement
-        # is leashed.
-        if not world.level._syrinx_arena().contains(p.x, p.y):
+
+        # Rule 3: inside the standoff band. She never just holds here -- "hold when
+        # already aligned" was the exploit (see the design brief): a player parked
+        # aligned at distance 4-6 was ignored forever, and World._firestorm hits
+        # every visible monster including her, at SYRINX_FIRE_MULT, on the Robe of
+        # Hades' own recharge timer -- a park-and-farm free kill. Two branches now:
+        #
+        #   - aligned AND the line is clear: she already has the shot lined up,
+        #     just out of blow range (rule b above would have fired already if she
+        #     were close enough). Waiting on a lineup she already has is not
+        #     patience, it is a free turn -- so she walks the lane toward the
+        #     player, one tile. Stepping out of the lane is the player's answer;
+        #     that breaks alignment and drops her straight back to the sidestep
+        #     branch below, so this is real cat-and-mouse, not a one-way close.
+        #
+        #   - everything else within the band (not aligned at all, OR aligned but
+        #     a pillar fizzles the line): nothing to shoot, so she manoeuvres
+        #     instead. See the sidestep block below for how -- it used to be a
+        #     single hand-picked tile, which is exactly what went wrong.
+        #
+        # Neither branch calls _step_toward with the real or a crafted one-axis
+        # target -- that helper's chebyshev search ties a DIAGONAL DIRS8
+        # neighbour against the straight in-lane/in-axis one exactly when an axis
+        # offset is already 0 (this fight's whole standoff geometry, in both
+        # branches), and DIRS8's iteration order resolves that tie toward the
+        # diagonal FIRST. Left to the helper, "close down the lane" would drift
+        # diagonally off it, and "sidestep" would silently close the gap it
+        # exists to hold open -- the bug that bit the first pass at this fight.
+        # Manual tiles, walked through the same walkable/monster/vendor/player
+        # guard every other manual step in this method already uses (see RETREAT
+        # above), sidestep the ambiguity instead of fighting the helper's
+        # tie-break.
+        if d <= config.SYRINX_STANDOFF:
+            if aligned and world.line_clear(self.x, self.y, p.x, p.y, d):
+                # Closing the lane: unchanged, and not what broke. One
+                # candidate, walked if it is free, held if it is not -- a
+                # blocked closing step just means try again next turn; the
+                # pillar cannot move, and whatever transiently blocked this
+                # tile (a monster wandering through, the player's own body)
+                # usually will.
+                if self.y == p.y:
+                    nx, ny = self.x + (1 if p.x > self.x else -1), self.y
+                else:
+                    nx, ny = self.x, self.y + (1 if p.y > self.y else -1)
+                if (world.walkable(nx, ny) and not world.monster_at(nx, ny)
+                        and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
+                    self.x, self.y = nx, ny
+                    world.on_monster_moved(self)
+                # else: the candidate tile is blocked this turn -- she holds and
+                # tries again next turn, same as a boxed-in retreat does above.
+                return
+
+            # --- the sidestep: manoeuvre without closing ------------------
+            #
+            # This used to be ONE hand-picked candidate tile -- step along
+            # whichever axis has the smaller offset, toward the player -- with
+            # no fallback and no memory of what she just tried. That produced
+            # two permanent dead states, both leaving her emerged, visible and
+            # unhidden: a free kill via World._firestorm (the VORN scroll, and
+            # the Robe of Hades' automatic recharge -- SYRINX_FIRE_MULT hits her
+            # for double).
+            #
+            #   (a) TWO-CYCLE ON A BLOCKED LANE. Aligned-but-blocked falls in
+            #       here -- the "aligned and line_clear" test just above failed.
+            #       The aligned axis sits at offset 0, which is always the
+            #       "smaller" one, so the single candidate peeled her one tile
+            #       off the lane... and the very next turn, the OTHER axis was
+            #       now the smaller offset (it hadn't moved), so the single
+            #       candidate walked her straight back onto the lane she'd just
+            #       left. Two tiles, forever, intent never set.
+            #   (b) FROZEN ON A BLOCKED CANDIDATE. When the one candidate landed
+            #       on a pillar (or a monster, or the player), the old
+            #       "else: hold" fallback repeated identically every turn --
+            #       her position never changed, so the candidate it computed
+            #       never changed either. A single unlucky pick was a permanent
+            #       stall, not a one-turn stumble.
+            #
+            # The fix is not a cleverer single tile, it is giving the sidestep
+            # somewhere else to go when its first idea does not pan out:
+            #
+            #   1. Never step into a lane she cannot shoot down. A candidate
+            #      that would leave her aligned with the player AND still
+            #      blocked is rejected outright -- that is precisely what let
+            #      (a) cycle: she kept treating a shielded lane as somewhere
+            #      worth returning to.
+            #   2. Two ordered candidates, not one: the smaller-offset axis
+            #      toward the player (her old and still-preferred move), then
+            #      the other axis toward the player. Both also have to pass
+            #      the distance invariant below -- a sidestep may tie her
+            #      chebyshev distance, never reduce it -- and stepping TOWARD
+            #      the player on whichever axis is currently DOMINANT (already
+            #      equal to the chebyshev distance) is exactly a reduction, so
+            #      it is filtered out the same as a blocked tile would be. In
+            #      practice the smaller-offset axis almost always wins
+            #      outright; the other axis only ever wins when the two
+            #      offsets are tied, since then neither axis is uniquely
+            #      dominant and stepping either one still only ties.
+            #
+            #      An EARLIER version of this fix also tried the opposite
+            #      (away-from-player) direction on each axis, as two further
+            #      fallbacks, before giving up. A probe script caught why that
+            #      is actively wrong, not just unnecessary: once "away" is a
+            #      legal answer, the smaller axis's toward-tile and away-tile
+            #      are each other's fallback. Reproduction (a) below settles
+            #      into peeling one tile off the lane, discovering next turn
+            #      that stepping back onto it is the blocked lane rule 1 just
+            #      excluded, retreating one tile further out, discovering THAT
+            #      tile's own toward-step is free again next turn, and
+            #      returning -- a stable two-tile orbit between the two
+            #      states adjacent to the blocked lane, forever, because nothing
+            #      in a memoryless, position-only decision ever prefers
+            #      continuing outward over trying inward again. The dominant
+            #      axis (the one that would actually break the deadlock) can
+            #      never be touched without reducing distance, which the
+            #      invariant forbids -- so with "away" on the table, the
+            #      exhaustion this rule needs to reach point 3 never happens.
+            #      Dropping the away fallbacks removes that trap: now the only
+            #      way off the smaller axis is real closing, via point 3.
+            #   3. If both candidates are rejected, close instead of freezing.
+            #      A close always reduces distance, so unlike a hold it cannot
+            #      repeat forever -- it terminates at blow range or adjacency,
+            #      where rules 1 and 2 take back over. That is exactly what (b)
+            #      needed: a permanent hold IS the bug, so the fallback of last
+            #      resort must never be "do nothing". It is also what actually
+            #      resolves (a): a couple of turns spent closing down the
+            #      blocked axis is what finally opens a lane she CAN use.
+            adx, ady = abs(p.x - self.x), abs(p.y - self.y)
+            x_toward = (1 if p.x > self.x else -1)
+            y_toward = (1 if p.y > self.y else -1)
+            # smaller/other, not "primary/secondary" -- match the naming the
+            # rest of this docstring already uses for "whichever axis has the
+            # SMALLER offset". Ties go to x, same as the single-candidate code
+            # this replaces did.
+            if adx <= ady:
+                smaller, other = (x_toward, 0), (0, y_toward)
+            else:
+                smaller, other = (0, y_toward), (x_toward, 0)
+            candidates = [smaller, other]
+
+            for cdx, cdy in candidates:
+                nx, ny = self.x + cdx, self.y + cdy
+                if not (world.walkable(nx, ny) and not world.monster_at(nx, ny)
+                        and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
+                    continue                      # occupied/solid this turn
+                new_d = max(abs(nx - p.x), abs(ny - p.y))
+                if new_d < d:
+                    continue                      # that would be a close, not a sidestep
+                new_aligned = (nx == p.x or ny == p.y)
+                if new_aligned and not world.line_clear(nx, ny, p.x, p.y, new_d):
+                    continue                      # would walk right back onto a dead lane
+                self.x, self.y = nx, ny
+                world.on_monster_moved(self)
+                return
+
+            # Nothing survived: every free tile would have either closed the
+            # gap or dropped her back onto a blocked lane. Close for real
+            # rather than freeze -- see point 3 above. Same call Rule 4 makes
+            # below; it is always safe here because it always terminates --
+            # PROVIDED rule 1 does not immediately undo it. See the
+            # just_forced_close flag set below, and its own comment at the top
+            # of this method, for why that provision needed enforcing.
+            self._step_toward(world, p.x, p.y)
+            self.just_forced_close = True
             return
+
+        # Rule 4: out past the standoff band, she is not a statue -- she closes one
+        # tile, just enough to drag the player back toward the range where she
+        # actually fights. She still is not chasing to melee: closing only ever
+        # feeds rules 1-3 above, never a strike of her own.
         self._step_toward(world, p.x, p.y)
 
 

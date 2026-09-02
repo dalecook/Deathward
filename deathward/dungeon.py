@@ -57,6 +57,10 @@ FILLER_CLASSES = [LARGE] * 20 + [MEDIUM] * 40 + [SMALL] * 30 + [NOOK] * 10
 # how many halls a floor gets: 0 (40%), 1 (40%), 2 (20%).
 HALL_WEIGHTS = [0] * 40 + [1] * 40 + [2] * 20
 
+# Her hall's hazards. No alarm rune: wake_all() in a sealed one-monster room wakes a
+# boss who is already hunting you, so it is the one trap that means nothing here.
+ARENA_TRAP_POOL = ("dart", "spike", "gas", "glyph")
+
 # the map is cut into sectors, and two halls never share one (nor touch). that is
 # what stops them both landing in the middle.
 SECTOR_COLS, SECTOR_ROWS = 3, 2
@@ -216,6 +220,15 @@ class Level:
         # Syrinx's arena, if this is floor 8 -- reserved BEFORE the ordinary
         # population pass runs, so nothing ambient lands in it. None everywhere else.
         self._reserved_room = None
+        # Floor 8 only: her hall. All None elsewhere, and `is_arena_floor()` is the
+        # single check every arena rule keys off.
+        self.ante_room = None      # the prep room you arrive in
+        self.arena_room = None     # her hall
+        self.mouth = None          # the one tile joining them
+        # the three gates, as state. All false/open elsewhere in the dungeon.
+        self.mouth_sealed = False  # has the gate fallen behind you
+        self.stairs_locked = False # is the way down barred (until she dies)
+        self.boss_spawned = False  # has she arrived
         self.visible = [[False] * self.w for _ in range(self.h)]
         # THE STONE you have seen, in any previous run of this game. A death does not
         # un-draw your map, and a Scroll of Mapping fills this in for the whole floor.
@@ -348,6 +361,10 @@ class Level:
         return (r.cx, r.cy)
 
     def _cut_stone(self, codex):
+        if self.is_arena_floor():
+            self._cut_arena_floor(codex)
+            return
+
         # --- the stone: cut once per GAME, identical on every respawn ----
         rng = self.lrng
 
@@ -449,11 +466,9 @@ class Level:
         persisted_armours = dict(codex.armour_ground)
         if self.depth >= config.DEPTH_MAX:
             self._populate_boss()
-        elif self.depth == config.SYRINX_DEPTH:
-            # her arena is reserved BEFORE the ordinary pass runs, so _free_tile
-            # (and the hoard/orc-pack room picks) never put ambient content in it.
-            self._reserved_room = self._syrinx_arena()
-            self._populate(codex)
+        elif self.is_arena_floor():
+            # no ordinary population at all: her hall has no ambient monsters, no
+            # chests, no gold. The floor's whole content is her, and its hazards.
             self._populate_syrinx()
         else:
             self._populate(codex)
@@ -469,11 +484,18 @@ class Level:
         from .monsters import Monster
         from .vendor import Vendor
         self._cut_stone(codex)
-        if self.depth == config.SYRINX_DEPTH:
+        if self.is_arena_floor():
             # her pillar WALL tiles are not part of the stone _cut_stone lays down --
-            # they must be re-carved here, exactly as _populate_syrinx does on the
-            # generate path, or a resumed floor 8 loses her arena's terrain.
+            # they must be re-carved here, exactly as the generate path does, or a
+            # resumed floor 8 loses her arena's terrain.
             self._carve_syrinx_pillars()
+            self.mouth_sealed = data.get("mouth_sealed", False)
+            self.stairs_locked = data.get("stairs_locked", True)
+            self.boss_spawned = data.get("boss_spawned", False)
+            if self.mouth_sealed:
+                # a gate you shut stays shut through a suspend
+                mx, my = self.mouth
+                self.grid[my][mx] = WALL
         self.monsters = [Monster.from_dict(m) for m in data["monsters"]]
         self.drops = [Drop.from_dict(d) for d in data["drops"]]
         self.chests = [Chest.from_dict(c) for c in data["chests"]]
@@ -507,6 +529,9 @@ class Level:
             "traps": [t.to_dict() for t in self.traps],
             "hoard": [self.hoard.cx, self.hoard.cy] if self.hoard else None,
             "seen": [row[:] for row in self.seen],
+            "mouth_sealed": self.mouth_sealed,
+            "stairs_locked": self.stairs_locked,
+            "boss_spawned": self.boss_spawned,
         }
 
     def _replay_magicals(self, persisted):
@@ -787,39 +812,116 @@ class Level:
                 self.chests.append(Chest(spot[0], spot[1], roll_chest(rng, 8)))
         self.stairs = None      # there is no down from here. there is only the Warden.
 
+    def is_arena_floor(self):
+        """The one check every gate, seal and reveal keys off."""
+        return self.depth == config.SYRINX_DEPTH
+
+    def tile_is_sealed_off(self, x, y):
+        """Somewhere the player must never be put once the mouth has shut. Floor 8's
+        only exits are the way up (stone on arrival) and the way down (barred, and
+        inside the hall) -- so a scroll that dropped you back in the antechamber would
+        leave no legal move at all. That is a softlock, and this game guarantees the
+        dungeon is always completable."""
+        return (self.mouth_sealed and self.ante_room is not None
+                and self.ante_room.contains(x, y))
+
+    def _cut_arena_floor(self, codex):
+        """Floor 8 is not a dungeon floor. There is no room generator here, no
+        corridors, no loops -- just her hall and the room you steady yourself in
+        before you walk into it.
+
+        Cut from LRNG-free arithmetic on purpose: unlike every other floor, this
+        geometry does not vary between games. What varies is the hazards, which
+        _install_arena_traps deals from lrng exactly as ordinary traps are dealt.
+        """
+        arena = Room(2 + config.ANTE_W + 1, 2, config.ARENA_W, config.ARENA_H)
+        # the two rooms share a centre line, so the mouth is a straight step through
+        ante = Room(2, arena.cy - config.ANTE_H // 2, config.ANTE_W, config.ANTE_H)
+
+        self._carve_room(ante)
+        self._carve_room(arena)
+        self.rooms = [ante, arena]
+        self.ante_room, self.arena_room = ante, arena
+        # kept in step with the old reserved-room contract: nothing ambient in her hall
+        self._reserved_room = arena
+
+        self.mouth = (arena.x - 1, arena.cy)
+        self.grid[self.mouth[1]][self.mouth[0]] = FLOOR
+
+        self.gate_room = ante
+        self.entrance = (ante.cx, ante.cy)
+        self.start = self.entrance
+        # the way down sits at the far end of the hall, opposite the mouth
+        self.stairs = (arena.x + arena.w - 2, arena.cy)
+        self.stairs_locked = True      # it opens when she does not get up
+
+        self._carve_syrinx_pillars()
+        self._install_arena_traps()
+
+    def boss_arrival(self):
+        """Where she materialises when you commit: the far end of the hall, ~27 tiles
+        from the mouth and far outside FOV_RADIUS. The room shows you its shape when
+        the gate falls; it never shows you her."""
+        a = self.arena_room
+        return (a.x + a.w - 4, a.cy)
+
+    def _install_arena_traps(self):
+        """Deal her hall's hazards. LRNG, like every other trap in the game: cut into
+        the stone once per GAME, so they sit in the same tiles on every re-entry and
+        move only when a new dungeon is cut.
+
+        Nothing lands on a pillar, the stairs, the mouth, her arrival tile, or within
+        one tile of the threshold -- stepping through the gate straight onto a fire
+        glyph is not a fight, it is a coin toss.
+        """
+        rng = self.lrng
+        a = self.arena_room
+        forbidden = set(self.syrinx_pillars())
+        forbidden |= {self.stairs, self.mouth, self.boss_arrival()}
+        tx, ty = a.x, a.cy                       # the tile you step in on
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                forbidden.add((tx + dx, ty + dy))
+
+        taken = set()
+        for _ in range(4000):
+            if len(taken) >= config.ARENA_TRAPS:
+                break
+            x = rng.randint(a.x, a.x + a.w - 1)
+            y = rng.randint(a.y, a.y + a.h - 1)
+            if self.grid[y][x] != FLOOR:
+                continue
+            if (x, y) in forbidden or (x, y) in taken:
+                continue
+            taken.add((x, y))
+            self.traps.append(Trap(rng.choice(ARENA_TRAP_POOL), x, y))
+
     def _syrinx_arena(self):
-        """The biggest room that is not the gate room -- same rule as the Warden's
-        arena. A pure function of the STONE (self.rooms/self.gate_room never change
-        after generation), so population, a resumed run and the AI's retreat target
-        all recompute the identical room without anything about it being saved."""
-        candidates = [r for r in self.rooms if r is not self.gate_room] or self.rooms
-        return max(candidates, key=lambda r: r.w * r.h)
+        """Her hall. Name kept because monsters.py leashes her hunt to it
+        (`world.level._syrinx_arena().contains(...)`)."""
+        return self.arena_room
 
     def syrinx_pillars(self):
-        """Six tiles scattered through her arena -- her hiding spots, the surface
-        her emergence telegraph appears on, and the line-of-sight cover the player
-        can use against her blow. Never the stairs tile, so carving them can never
-        wall off the way down. A freak arena too small for the spread falls back to
-        just its centre, so she always has SOMEWHERE to hide -- and if that centre
-        happens to BE the stairs tile (real: the stairs always sit on some room's
-        exact centre, and this fires whenever that room is also the small arena),
-        nudge one tile off it instead of leaving her with nowhere at all."""
-        arena = self._syrinx_arena()
-        if arena.w < 7 or arena.h < 6:
-            cx, cy = arena.cx, arena.cy
-            if (cx, cy) != self.stairs:
-                return [(cx, cy)]
-            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                nx, ny = cx + dx, cy + dy
-                if (arena.x <= nx < arena.x + arena.w
-                        and arena.y <= ny < arena.y + arena.h
-                        and (nx, ny) != self.stairs):
-                    return [(nx, ny)]
+        """The twenty columns: her hiding spots, the surface her emergence telegraph
+        paints on, and the only line-of-sight cover you have against her blow.
+
+        A 5x4 lattice on a 6-tile pitch. Sparse on purpose -- twenty columns in a room
+        this size is a cathedral, not a thicket. Pillars are WALL tiles and the shove
+        stops at the first one, so a tighter pitch would cut every push short and the
+        trapped floor she throws you across would never get crossed. It also means she
+        has to COMMIT to reach a hiding place, and is exposed while she travels.
+
+        Never the stairs, the mouth, or her own arrival tile.
+        """
+        a = self.arena_room
+        if a is None:
             return []
-        xs = [arena.x + 2, arena.x + arena.w // 2, arena.x + arena.w - 3]
-        ys = [arena.y + 2, arena.y + arena.h - 3]
-        spots = [(x, y) for y in ys for x in xs]
-        return [(x, y) for x, y in spots if (x, y) != self.stairs]
+        xs = [a.x + config.ARENA_MARGIN_X + i * config.ARENA_PILLAR_PITCH
+              for i in range(config.ARENA_PILLAR_COLS)]
+        ys = [a.y + config.ARENA_MARGIN_Y + j * config.ARENA_PILLAR_PITCH
+              for j in range(config.ARENA_PILLAR_ROWS)]
+        blocked = {self.stairs, self.mouth, self.boss_arrival()}
+        return [(x, y) for y in ys for x in xs if (x, y) not in blocked]
 
     def _carve_syrinx_pillars(self):
         """Cut her pillar tiles into the grid. Called on both the GENERATE path (via
@@ -830,13 +932,11 @@ class Level:
             self.grid[py][px] = WALL
 
     def _populate_syrinx(self):
-        """Her arena, carved AFTER the floor's ordinary pass (see _generate) -- floor
-        8 is not the Warden's floor: it keeps its stairs and everything else."""
-        spots = self.syrinx_pillars()
-        if not spots:
-            return
+        """Nothing but her terrain. She is not in the hall until the player commits to
+        it -- World._arena_commit places her, so that a suspend in the antechamber
+        resumes to an empty room and a suspend mid-fight resumes to her exactly where
+        she stood."""
         self._carve_syrinx_pillars()
-        self.monsters.append(Monster("syrinx", *spots[0]))
 
     # --- queries --------------------------------------------------------
     def in_bounds(self, x, y):

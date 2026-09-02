@@ -55,11 +55,16 @@ AUTOSAVE_INTERVAL_TURNS = 5
 # place.
 LAYOUT_VERSION = 4
 
-# Bumped when the run-save (suspend/resume) serialization shape changes. A save
+# Bumped when the run-save (suspend/resume) serialization shape changes -- a new
+# field on Monster, World, or Level that an old save simply will not have. A save
 # whose run block carries a different version is discarded -- Continue falls back
-# to a fresh run -- exactly as LAYOUT_VERSION discards a stale map. Bumped for
-# Syrinx's new Monster fields (hidden/hidden_turns/pillar_x/pillar_y/retreating).
-RUN_SAVE_VERSION = 3
+# to a fresh run -- exactly as LAYOUT_VERSION discards a stale map. See the
+# inline legend below for what each bump actually added.
+RUN_SAVE_VERSION = 5     # 4: floor 8's gate state (mouth_sealed/stairs_locked/boss_spawned)
+                         # 5: Syrinx's new just_forced_close field (3-cycle fix) -- Monster.
+                         # from_dict indexes _MONSTER_STATE with data[k], not data.get(k), so
+                         # an old save missing this key would KeyError on load, not just
+                         # misbehave -- has to be a hard version bump, not a soft default.
 
 # --- palette -------------------------------------------------------------
 BG          = (10, 11, 16)
@@ -175,8 +180,69 @@ FULGURITE_INCORP_MULT = 1.5       # Fulgurite's bonus vs wraith/poltergeist
 SYRINX_HIDDEN_MAX = 5      # turns she may stay hidden before a forced emergence
 SYRINX_DEPTH      = 8      # the floor her arena is on
 SYRINX_STUN_TURNS = 1      # turns fully vulnerable after her blow lands
-SYRINX_PUSH_DIST  = 2      # tiles the gust shoves the player back
+SYRINX_PUSH_DIST  = 5      # tiles the gust shoves the player back. long enough that
+                           # the slide crosses real floor -- and her arena's floor is
+                           # trapped, which is where her damage actually comes from.
 SYRINX_FIRE_MULT  = 2.0    # matches the stone golem's existing fire weakness
+SYRINX_BLOW_RANGE = 3      # tiles the gust can be thrown from. she used to hunt out to
+                           # RANGE=9 and poke from range; now the poke IS the close
+                           # fight -- she is not a predator that runs you down, she is
+                           # stone punishing anyone who reaches her. this replaced the
+                           # old hard-coded RANGE=9 everywhere it appeared in her AI.
+SYRINX_STANDOFF   = 6      # beyond this she closes the gap; within it she manoeuvres
+                           # instead -- the real leash on her now that the sealed-floor
+                           # arena leash means nothing (the arena IS the floor). she
+                           # will line herself up on your row or column, but she will
+                           # not walk into your reach to do it.
+SYRINX_SPEED_FLOOR = 70    # she matches the player's speed (see Monster.speed_now),
+                           # but never falls below this no matter how slow the build.
+                           # Playtest: Full Plate (-20) + Plate Boots (-10) + any Hammer
+                           # (-25) puts the player at 45, the slowest possible speed, and
+                           # at that speed she could not reach a pillar before the hammer
+                           # stun wore off -- the heaviest armour in the game made her
+                           # trivial instead of dangerous. The floor claws back some of
+                           # that: at 45 she now acts ~1.56x per player tick. At 100 and
+                           # above (bare speed or faster) this changes nothing at all. It
+                           # is deliberate that this makes a heavy-armour, slow-speed
+                           # build nearly impossible to win her fight in -- that is not a
+                           # bug to smooth over, it is the game telling you the build has
+                           # a cost, and floor 8 is where you find out.
+
+# How many pillars form the pool she picks her surfacing spot from, ranked by
+# nearness TO THE PLAYER (see Monster._syrinx_relocate). She goes into one pillar
+# and comes up out of another -- never the one she entered -- and this is the only
+# dial on how guessable that is. Smaller: she surfaces closer and more predictably.
+# Larger: she can come up further out and is harder to wait for, at the cost of
+# sometimes surfacing somewhere that does not threaten you at all.
+SYRINX_SURFACE_CHOICES = 4
+
+# what she leaves on her body when she dies, on top of the two guaranteed gear
+# pieces below (see roll_monster_loot). Named here, not left as a literal in the
+# drop list, because it is the one number in her hoard that is a "how much gold"
+# balance call rather than a fixed identity of the hoard itself.
+SYRINX_GOLD_DROP  = 250
+
+# --- floor 8: her hall ----------------------------------------------------
+# The geometry is FIXED -- cut identically in every game -- and only the hazards are
+# re-dealt per game. 31x23 is ~2.7x the largest room the generator can make (a 20x13
+# hall), because every part of this fight needs open floor: pillars are walls, and the
+# shove stops at the first one, so a dense lattice would cut every push short and the
+# trapped floor would never get crossed.
+ARENA_W, ARENA_H          = 31, 23
+ARENA_PILLAR_PITCH        = 6      # one column every 6th tile, both axes
+ARENA_PILLAR_COLS         = 5
+ARENA_PILLAR_ROWS         = 4      # 5 x 4 = twenty single-tile columns
+ARENA_MARGIN_X            = 3      # floor between the outer columns and the walls
+ARENA_MARGIN_Y            = 2
+ANTE_W, ANTE_H            = 9, 7   # the prep room. a vendor stands here one day.
+
+# ~150 hazards across ~680 eligible floor tiles (~22%), so a five-tile shove usually
+# crosses one and often two. (An earlier pass at 50/~7% left her blow, not the room,
+# as the real threat -- a five-tile shove crossed a hazard barely a third of the
+# time.) The minefield DEPLETES as the fight runs on: dart, gas and glyph are
+# one-shot once sprung. The spike pit is not -- it re-fires forever and costs you a
+# turn climbing out, which is a turn she is winding up in.
+ARENA_TRAPS = 150
 
 # --- held-key movement ---------------------------------------------------
 # A tap is exactly one step. Hold the key past the delay and the hero keeps

@@ -33,10 +33,10 @@ import random
 
 from . import config
 from .codex import CAUSE_NAME, fact_title
-from .dungeon import WALL, Chest, Corpse, Drop, Level, Slain
+from .dungeon import FLOOR, WALL, Chest, Corpse, Drop, Level, Slain
 from .items import (ALL_GEAR, CONSUMABLES, is_magical, is_magical_armour, is_magical_boot,
                      roll_loot, roll_monster_loot)
-from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
+from .monsters import DIRS4, DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
 
 MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
 
@@ -211,6 +211,14 @@ class World:
             return
         if self.depth >= config.DEPTH_MAX:
             return          # not in the Warden's room. it trades; it does not gawp.
+        if level.is_arena_floor():
+            # Her hall (and its antechamber) is sealed, ambient-free ground -- no
+            # vendor, ever, not tucked in the antechamber and certainly not standing
+            # in the middle of the hazards. We return before touching vendor_pct or
+            # rolling the die, so this floor does not burn the roll: the odds that
+            # would have been spent here simply carry over and get spent on floor 9
+            # instead, at the same rate they always would have.
+            return
         if self.vendor_pct <= 0:
             return
         if self.rng.randint(1, 100) > self.vendor_pct:
@@ -262,6 +270,10 @@ class World:
         if (self.player.x, self.player.y) != self.level.stairs:
             self.log("You are not standing on the stairs.", config.DIM)
             return False
+        if self.level.stairs_locked:
+            self.log("The way down is grated over. How can this be moved?",
+                     config.BLOOD)
+            return False
         self.remember_map()
         self.new_level(self.depth + 1, arrive="entrance")
         self.log("You descend to floor %d." % self.depth, config.STAIRS)
@@ -288,6 +300,15 @@ class World:
         """
         if (self.player.x, self.player.y) != self.level.entrance:
             self.log("You are not standing on the way up.", config.DIM)
+            return False
+        if self.level.is_arena_floor() and self.level.stairs_locked:
+            # the same rule as floor 1's front gate, one floor deeper: you came down
+            # into her hall, and while she is standing the hall gives nothing back.
+            # `stairs_locked` is the "she is still alive" flag -- kill_monster clears
+            # it and reopens the mouth in the same breath, and from that moment this
+            # floor is an ordinary room you may walk out of either end.
+            self.log("The portcullis behind you is down, and there is no winch on "
+                     "this side.", config.BLOOD)
             return False
         if self.depth <= 1:
             return "sealed"          # the gate you came in by. it is not a door now.
@@ -495,6 +516,13 @@ class World:
         [lo, hi]. Used by the Flicker: the blink teleports, so there is NO line-of-
         sight or path check -- it ignores walls and your body, the tile just has to be
         open floor. Returns None only if the player is genuinely boxed in.
+
+        The one wall it does still respect is Floor 8's sealed mouth. Everything
+        else about this function is deliberately blind to walls -- that is the whole
+        point of a blink -- but the mouth is one tile thick, well within blink range,
+        and once it has shut the antechamber beyond it has no legal way out. A blink
+        that ignores THAT wall does not save you a few steps, it strands you for
+        good, so tile_is_sealed_off gets a veto no other wall gets.
         """
         candidates = []
         for dy in range(-hi, hi + 1):
@@ -505,27 +533,41 @@ class World:
                 x, y = cx + dx, cy + dy
                 if (x, y) == (self.player.x, self.player.y):
                     continue
-                if self.walkable(x, y) and not self.monster_at(x, y):
+                if (self.walkable(x, y) and not self.monster_at(x, y)
+                        and not self.level.tile_is_sealed_off(x, y)):
                     candidates.append((x, y))
         return self.rng.choice(candidates) if candidates else None
 
-    def _nearest_walkable(self, x, y):
+    def _nearest_walkable(self, x, y, unoccupied=False):
         """The closest walkable tile to (x, y): the immediate 8 neighbours first (the
         same DIRS8 pattern Monster._step_toward uses), then ring by ring outward if
         none of those are open. Used to relocate a Slain entry born on an unwalkable
         tile (e.g. Syrinx dying on her own pillar) so the body -- and its loot --
-        stays reachable instead of buried in a wall forever."""
-        if self.walkable(x, y):
+        stays reachable instead of buried in a wall forever.
+
+        unoccupied=True additionally rejects any tile the player or a monster is
+        already standing on -- for placing something living (Syrinx's arrival),
+        not a corpse, which is happy to share a tile."""
+        def open_tile(tx, ty):
+            if not self.walkable(tx, ty):
+                return False
+            if not unoccupied:
+                return True
+            if (tx, ty) == (self.player.x, self.player.y):
+                return False
+            return not any(mo.x == tx and mo.y == ty for mo in self.level.monsters)
+
+        if open_tile(x, y):
             return (x, y)
         for dx, dy in DIRS8:
             nx, ny = x + dx, y + dy
-            if self.walkable(nx, ny):
+            if open_tile(nx, ny):
                 return (nx, ny)
         for r in range(2, max(self.level.w, self.level.h)):
             ring = [(x + dx, y + dy)
                      for dx in range(-r, r + 1) for dy in range(-r, r + 1)
                      if max(abs(dx), abs(dy)) == r]
-            open_ring = [t for t in ring if self.walkable(*t)]
+            open_ring = [t for t in ring if open_tile(*t)]
             if open_ring:
                 return min(open_ring, key=lambda t: (t[0] - x) ** 2 + (t[1] - y) ** 2)
         return (x, y)   # should not happen on a connected level; last resort
@@ -763,7 +805,34 @@ class World:
     def _syrinx_knockback(self, m):
         """The gust: shove the player straight back along the line from her to you,
         tile by tile, stopping at the first wall or body. Reposition is the point --
-        it can push you out of the cover you were using, or off her line entirely."""
+        it can push you out of the cover you were using, or off her line entirely.
+
+        And the slide is not free. Each tile you are dragged over is a tile you
+        ENTER, so its trap fires: her own blow is 1-3 against 26 HP, and the floor
+        of her hall is what actually kills you. Three things stop the slide early --
+        stone, a body, and a spike pit IN THE PATH, which you fall into rather than
+        skate over.
+
+        We used to tell "a pit just caught me" apart from "I was already stuck
+        from climbing out of one last turn" by snapshotting player.stuck before the
+        slide and breaking only when it went UP. That reads fine until you notice
+        traps.py sets player.stuck = 1 outright -- nothing in the game ever counts
+        higher -- so a player who enters the shove already stuck at 1 hits a pit
+        mid-slide, gets re-set to 1, and 1 > 1 is False: the gust reads a live pit
+        under their heels as nothing happening and drags them straight over it,
+        after it has already dealt its damage. Wrong both ways round: a stale stuck
+        flag with no pit anywhere near the path must not arrest the slide, and a
+        real pit IN THE PATH must arrest it regardless of what stuck was a moment
+        ago.
+
+        So we stop asking the flag and start asking the ground: look up whatever
+        trap sits on the tile we are about to enter BEFORE entering it, let
+        _enter_tile() spring it as normal, and only break if that tile itself held
+        a spike pit and the player is (now) stuck. A pit you fell into on some
+        EARLIER turn, one that is not on this tile, never enters into it -- there
+        is no trap here to check, so the stale flag is simply never consulted. A
+        player killed partway is not dragged any further.
+        """
         p = self.player
         dx = (p.x > m.x) - (p.x < m.x)
         dy = (p.y > m.y) - (p.y < m.y)
@@ -773,7 +842,13 @@ class World:
             nx, ny = p.x + dx, p.y + dy
             if not self.walkable(nx, ny) or self.monster_at(nx, ny):
                 break
+            t = self.level.trap_at(nx, ny)
             p.x, p.y = nx, ny
+            self._enter_tile()
+            if p.hp <= 0:
+                break
+            if t is not None and t.key == "spike" and p.stuck:
+                break     # a pit IN THE PATH caught you -- not a stale flag from last turn
         self.level.compute_fov(p.x, p.y)
 
     def _void_immune(self, m):
@@ -815,6 +890,31 @@ class World:
         if m not in self.level.monsters:
             return
         self.level.monsters.remove(m)
+
+        # the gate answers to her death, not to who dealt it -- a fire glyph counts.
+        if m.key == "syrinx" and self.level.stairs_locked:
+            # HER DEATH RELEASES THE WHOLE HALL, not just the way down. The three
+            # gates were hers: the portcullis behind you on arrival, the mouth that
+            # shut when you committed, and the grate over the stairs. Opening only
+            # the last one left the player walled into her hall with exactly one
+            # legal exit -- no way back to the antechamber they prepared in, and no
+            # way up at all, on a floor whose only threat was already dead. So the
+            # mouth comes back up too, and ascend() stops refusing (it now keys off
+            # stairs_locked, i.e. "is she still standing", rather than "is this her
+            # floor"). What is left is an ordinary, quiet room you may leave by
+            # either end.
+            self.level.stairs_locked = False
+            sx, sy = self.level.stairs
+            self.log("Iron grinds somewhere in the dark. The way down is open.",
+                     config.STAIRS)
+            self.add_fx("pulse", sx, sy, color=config.STAIRS, life=1.2)
+            if self.level.mouth_sealed and self.level.mouth:
+                mx, my = self.level.mouth
+                self.level.grid[my][mx] = FLOOR
+                self.level.mouth_sealed = False
+                self.log("Behind you, the mouth of the hall grinds open as well.",
+                         config.STAIRS)
+                self.add_fx("pulse", mx, my, color=config.STAIRS, life=1.2)
 
         # a body's Slain entry has to land somewhere the player can actually stand,
         # or its loot (loot_options only offers a body's contents on its exact tile)
@@ -1090,11 +1190,15 @@ class World:
             self.player_attack(m)
             return self._end_player_turn()
         if not self.walkable(nx, ny):
-            # Shademail: step INTO in-bounds stone (never off-map), if not on cooldown.
-            # No _enter_tile() here -- traps, drops, chests and the stairs live only
-            # on floor, so a stone tile has nothing to trigger by design.
+            # Shademail: step INTO in-bounds stone (never off-map), if not on cooldown,
+            # and only onto a wall tile that is itself beside floor (_shade_enterable) --
+            # a slide along a wall FACE, never a tunnel deeper into the mass; see
+            # _shade_enterable for why. No _enter_tile() here -- traps, drops, chests
+            # and the stairs live only on floor, so a stone tile has nothing to trigger
+            # by design.
             if (p.armour.trait == "shade" and p.shade_cd == 0
-                    and self.in_bounds(nx, ny) and self.level.grid[ny][nx] == WALL):
+                    and self.in_bounds(nx, ny) and self.level.grid[ny][nx] == WALL
+                    and self._shade_enterable(nx, ny)):
                 p.x, p.y = nx, ny
                 self.codex.stats["steps"] += 1
                 return self._end_player_turn()
@@ -1766,11 +1870,13 @@ class World:
 
     # --- targeted teleport (ZEPH) ---------------------------------------
     def valid_teleport(self, x, y):
-        """A spot you may jump to: somewhere you have SEEN, that is open floor, and
-        that has nothing standing on it."""
+        """A spot you may jump to: somewhere you have SEEN, that is open floor, that
+        has nothing standing on it -- and that is not on the far side of a gate that
+        has already shut behind you."""
         return (self.in_bounds(x, y) and self.level.explored[y][x]
                 and self.walkable(x, y) and not self.monster_at(x, y)
                 and not self.vendor_at(x, y)
+                and not self.level.tile_is_sealed_off(x, y)
                 and (x, y) != (self.player.x, self.player.y))
 
     def teleport_to(self, x, y):
@@ -1901,6 +2007,8 @@ class World:
                 r = self.rng.choice(self.level.rooms)
                 x = self.rng.randint(r.x, r.x + r.w - 1)
                 y = self.rng.randint(r.y, r.y + r.h - 1)
+                if self.level.tile_is_sealed_off(x, y):
+                    continue          # never back through a gate that has shut
                 if self.walkable(x, y) and not self.monster_at(x, y):
                     self.add_fx("vanish", p.x, p.y, color=config.MANA, life=0.5)
                     p.x, p.y = x, y
@@ -2178,6 +2286,85 @@ class World:
             self.log("The scroll leaves a door open in the air. Choose where it "
                      "leads.", config.MANA)
 
+    def _arena_commit(self):
+        """The first time you stand in her hall, the gate falls behind you and the
+        room shows you what it is.
+
+        The reveal touches `explored` and NEVER `seen`. That distinction is the whole
+        game: `explored` is the stone you have seen (a Scroll of Mapping fills it in),
+        `seen` is the contents you have laid eyes on, and nothing but your own line of
+        sight ever sets it. So you get the shape of the hall entire -- 31x23 of it,
+        the columns marching away -- and not one thing that is standing in it. The
+        hazards are stone but UNDISCOVERED, and an undiscovered trap draws as clean
+        floor, so this defuses nothing: it is a beautifully lit room you still cannot
+        cross.
+        """
+        lvl = self.level
+        if not lvl.is_arena_floor() or lvl.mouth_sealed:
+            return
+        if not lvl.stairs_locked:
+            # she is dead and the hall has already let go (see kill_monster). The
+            # mouth is open again precisely so the player can walk back out to the
+            # antechamber and the way up -- re-sealing it behind them the moment
+            # they step back in would trap them in an empty room for nothing.
+            return
+        if lvl.arena_room is None or not lvl.arena_room.contains(self.player.x,
+                                                                 self.player.y):
+            return
+        mx, my = lvl.mouth
+        lvl.grid[my][mx] = WALL
+        lvl.mouth_sealed = True
+        self.log("Iron comes down behind you, hard enough to feel through your "
+                 "boots.", config.BLOOD)
+        self.shake(8)
+
+        a = lvl.arena_room
+        for y in range(max(0, a.y - 1), min(lvl.h, a.y + a.h + 1)):
+            for x in range(max(0, a.x - 1), min(lvl.w, a.x + a.w + 1)):
+                lvl.explored[y][x] = True
+        lvl.explored[my][mx] = True
+
+        self._spawn_arena_boss()
+
+    def _spawn_arena_boss(self):
+        """She materialises at the far end of the hall, visible -- and ~27 tiles away,
+        far outside FOV_RADIUS, so 'visible' is a fact about her state and not about
+        what you saw. She holds one turn (the "arrive" intent) and then goes to
+        ground. The first thing you ever actually learn about her is whatever she
+        chooses to show you.
+        """
+        lvl = self.level
+        if lvl.boss_spawned:
+            return
+        ax, ay = lvl.boss_arrival()
+        # boss_arrival() is a fixed tile, and Task 7 turns teleport into another
+        # commit path -- so a player could in principle be standing on (39,13)
+        # itself the instant the gate falls (Escape, Zeph's Teleport, a resume
+        # that lands them there...). She does not spawn on top of you, or on top
+        # of some other monster that wandered in: if the tile is taken, she takes
+        # the nearest open ground next to it instead.
+        if ((ax, ay) == (self.player.x, self.player.y)
+                or any(mo.x == ax and mo.y == ay for mo in lvl.monsters)):
+            ax, ay = self._nearest_walkable(ax, ay, unoccupied=True)
+        m = Monster("syrinx", ax, ay)
+        m.hidden = False                    # Monster.__init__ starts her hidden
+        m.intent = ("arrive", ax, ay)
+        # pillar_x/pillar_y is meant to read "the pillar she is in or heading for",
+        # and (ax, ay) here is deliberately NOT one -- boss_arrival() sits in the
+        # open floor, arena pillar ys are {4,10,16,22} (see syrinx_pillars()), this
+        # is not among them. That is fine and not an oversight: _syrinx_retreat_
+        # target only excludes "the one she just left" by comparing (pillar_x,
+        # pillar_y) for equality against world.level.syrinx_pillars(), a list this
+        # value was never drawn from and can never coincidentally equal (arrival's
+        # y is 13; no pillar y is), so it can never accidentally get excluded there.
+        # It only has to hold a real (x, y) pair until her first ARRIVE turn hands
+        # off to `retreating`, at which point retreat picks a genuine pillar and
+        # overwrites it for good.
+        m.pillar_x, m.pillar_y = ax, ay
+        lvl.monsters.append(m)
+        lvl.boss_spawned = True
+        self.add_fx("arrive", ax, ay, color=m.t.color, life=0.6)
+
     def _enter_tile(self):
         p = self.player
         t = self.level.trap_at(p.x, p.y)
@@ -2187,6 +2374,37 @@ class World:
             t.trigger(self, p)
 
     # --- Shademail --------------------------------------------------------
+    def _shade_enterable(self, x, y):
+        """A wall tile is enterable by Shademail only if it is orthogonally (4-way)
+        beside a FLOOR tile -- diagonal neighbours do not count, or a corner-cut
+        would let the check pass one tile deeper than it should.
+
+        This is what keeps the armour a slide along a wall FACE rather than a
+        tunnel through the mass behind it: every tile you can stand on has a
+        floor tile one step away, so there is always somewhere to surface. It
+        also removes the crush death BY WALKING DEEPER -- SHADE_SUBMERGE_MAX
+        used to let you walk deep enough into a wall that no adjacent tile was
+        floor, at which point _shade_tick's blink_tile_near() eject had
+        nothing to land on and SHADE_CRUSH_DMG hit every turn thereafter while
+        you kept walking. That specific route to the crush is gone: you can
+        never be more than one step from a floor tile, so the eject target
+        this rule guarantees always exists.
+
+        It does NOT remove the crush outright, though -- blink_tile_near also
+        vetoes a floor tile that is occupied (monster_at) or sealed off
+        (tile_is_sealed_off), and this rule has no say over either. Jam every
+        adjacent floor tile with monsters and the guaranteed eject tile is
+        still unusable (see TestShademail.test_boxed_in_crushes_instead_of_ejecting,
+        which still crushes on purpose). Floor 8 has a live version of the
+        same trap: once the antechamber's mouth seals, a player submerged in
+        its outer wall can have its one adjacent floor tile vetoed as sealed-
+        off, and the crush still bites."""
+        for dx, dy in DIRS4:
+            ax, ay = x + dx, y + dy
+            if self.in_bounds(ax, ay) and self.level.grid[ay][ax] == FLOOR:
+                return True
+        return False
+
     def player_submerged(self):
         """Standing inside STONE, wearing the one armour that lets you. This is the
         single check every stone-related guard (attacks, FOV) is built on."""
@@ -2235,6 +2453,11 @@ class World:
 
     # --- the turn engine ------------------------------------------------
     def _end_player_turn(self):
+        # Standing in her hall IS the commitment, however you arrived -- walked
+        # through the mouth, or dropped in by scroll. Hanging this on _enter_tile
+        # alone left three ways in (ZEPH, UUL, the descent scroll) that never fire
+        # it, and a gate that only shuts for players who use the door is not a gate.
+        self._arena_commit()
         p = self.player
         p.energy -= config.ACT_COST
         p.tick_effects(self)
@@ -2277,8 +2500,14 @@ class World:
             self.tick += 1
             self.codex.stats["turns"] += 1
             self.player.energy += self.player.speed()
+            # speed_now(), not the raw .speed field -- Syrinx's one exception:
+            # she is built to move at the PLAYER'S current speed (see
+            # Monster.speed_now), which shifts every turn with boots/armour/
+            # weapon and haste/berserk/heroism. Every other monster's
+            # speed_now() is just its own fixed .speed, so this is a no-op
+            # for the rest of the roster.
             for m in list(self.level.monsters):
-                m.energy += m.speed
+                m.energy += m.speed_now(self)
             self._update_stealth_alert()
             for m in list(self.level.monsters):
                 inner = 0
@@ -2336,7 +2565,7 @@ class World:
         self.tick += 1
         self.codex.stats["turns"] += 1
         for m in list(self.level.monsters):
-            m.energy += m.speed
+            m.energy += m.speed_now(self)   # see advance(): syrinx matches the player even while frozen
         for m in list(self.level.monsters):
             inner = 0
             while (m.energy >= config.ACT_COST and m.alive and not self.dead
@@ -2375,7 +2604,13 @@ class World:
 
     def on_monster_moved(self, m):
         t = self.level.trap_at(m.x, m.y)
-        if t and not t.sprung and m.key != "wraith":
+        # wraith: ethereal, there is nothing here for a pressure plate to catch.
+        # syrinx: her hall's ~150 hazards are dealt for the PLAYER to cross, one-shot
+        # dart/gas/glyph included -- if she springs them wandering her own room she
+        # consumes the minefield meant for you, and fire glyphs hit her at
+        # SYRINX_FIRE_MULT, so a 30 HP boss can quietly bleed out on her own floor.
+        # She owns the room; its hazards are not hers to trigger.
+        if t and not t.sprung and m.key not in ("wraith", "syrinx"):
             t.trigger(self, m)
 
     # --- death ----------------------------------------------------------

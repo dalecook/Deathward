@@ -736,7 +736,37 @@ def roll_monster_loot(rng, depth, key):
         # her whole reason for existing: Windfang and Shademail, guaranteed, every
         # time -- the two boss-reserved rewards share her death rather than being
         # split across two encounters (see the design spec's Identity & Theme).
-        return [("gear", "windfang", 0), ("gear", "shade", 0)]
+        #
+        # Playtest, once the fight had real teeth (arena traps + the speed floor
+        # above): the fight now burns a serious pile of consumables to survive --
+        # "probably going to take 3 to 4 tries" -- and two pieces of gear did not
+        # replace what the attempts actually cost. So this is a fixed HOARD, not a
+        # roll: every entry below is guaranteed, every time, same as the two gear
+        # pieces always were. It is not run through roll_loot/roll_chest's dice
+        # because a boss you can only fight once a game should not be able to
+        # shortchange you on a bad string of rng -- you already paid for this in
+        # potions and scrolls spent surviving her, so the game is entitled to just
+        # hand it back rather than gamble it again on the way out.
+        #
+        # SECOND PASS on the hoard, same playtest: the first version also carried
+        # three Potions of Healing and both enchant scrolls (one Weapon, one
+        # Armour, on the reading that she drops one weapon and one suit of armour).
+        # All five were cut. What is left is deliberately NARROW -- healing you
+        # will actually feel, and nothing that permanently scales you. The plain
+        # Healing potions were the weakest thing here and the least worth walking
+        # back across a trapped floor for; the enchant scrolls were the strongest,
+        # and a boss you can only meet once a game handing out permanent +n on both
+        # of the gear pieces she just gave you compounds a reward that was already
+        # the best on the floor.
+        #
+        # It also drops her body to SEVEN entries, which quietly fixes a real thing:
+        # the loot menu selects by number key 1-9, so at eleven entries the last
+        # two -- which were the enchant scrolls, the most valuable items on her --
+        # could not be picked directly at all until earlier entries were cleared.
+        return [("gear", "windfang", 0), ("gear", "shade", 0),
+                ("gold", config.SYRINX_GOLD_DROP),
+                ("item", "rose"), ("item", "rose"),
+                ("item", "crimson"), ("item", "crimson")]
     chance, n = MONSTER_LOOT.get(key, (0.25, 1))
     if rng.random() >= chance:
         return []

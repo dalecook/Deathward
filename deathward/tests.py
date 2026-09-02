@@ -36,6 +36,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame  # noqa: E402
 
 from . import config  # noqa: E402
+from . import render  # noqa: E402
 from .codex import FACTS, TOTAL_FACTS, Codex  # noqa: E402
 from .items import ALL_GEAR, BOOTS, CONSUMABLES, roll_floor_armour_magical  # noqa: E402
 from .world import World  # noqa: E402
@@ -3284,6 +3285,76 @@ class TestTheVendor(unittest.TestCase):
         self.assertEqual(w2.vendor_pct, 0,
                          "a fresh run starts on floor 1 with no chance at all")
 
+    # --- floor 8: her hall gets no vendor, ever --------------------------
+    def test_floor_eight_never_gets_a_vendor(self):
+        """_maybe_spawn_vendor bails out on is_arena_floor() before it so much as
+        rolls the die. Prove it the same way test_it_never_stands_in_the_wardens_room
+        proves the Warden's floor: force vendor_pct to 100 so an unguarded roll would
+        succeed every single time, then try a wide spread of seeds. If the guard is
+        ever weakened or deleted, this fails on the very first seed -- there is no
+        20%-chance-of-getting-unlucky here for the guard to hide behind."""
+        codex = FakeSave()
+        codex.world_seed = 4242
+        for seed in range(80):
+            w = World(codex, seed=seed)
+            w.vendor_pct = 100
+            w.new_level(config.SYRINX_DEPTH)
+            self.assertIsNone(w.level.vendor,
+                              "seed %d: a vendor turned up in Syrinx's sealed hall"
+                              % seed)
+
+    def test_floor_eight_does_not_burn_the_odds_ratchet(self):
+        """The guard returns BEFORE it touches vendor_pct or rolls -- so, from the
+        ratchet's point of view, floor 8 must look exactly like an ordinary deep
+        floor whose roll simply came up empty: the odds keep climbing on the way
+        down, and floor 9 is not left starved because floor 8 was sealed.
+
+        The naive way to check this walks 5->6->7->8->9 on one seed and reads off
+        vendor_pct at the far end. That is not actually testing the guard: an
+        HONEST roll on floor 5, 6 or 7 can plant a vendor of its own, and simply
+        walking past it (as this kind of test does, never trading) makes
+        _vendor_step reset the counter to VENDOR_BASE_PCT right there -- at which
+        point whatever the test reads off floor 9 has nothing to do with floor 8
+        at all, and the assertion is a coin flip wearing a lab coat. So every
+        floor from 5 up to (but NOT including) 8 has its vendor explicitly cleared
+        before the next descent, same as test_the_odds_climb_five_a_floor_going_down
+        does -- that isolates the ratchet from the ordinary spawn roll. Floor 8's
+        vendor is deliberately left untouched: with the guard doing its job it is
+        already None, so leaving it alone (instead of clearing it like the others)
+        still proves the point, and does not paper over a leak the way clearing it
+        would.
+        """
+        codex = FakeSave()
+        codex.world_seed = 4242
+        w = World(codex, seed=6)
+
+        for d in range(config.VENDOR_MIN_DEPTH, config.SYRINX_DEPTH):
+            w.new_level(d)
+            w.level.vendor = None      # isolate: an honest spawn must not reset us
+
+        w.new_level(config.SYRINX_DEPTH)
+        steps_to_8 = config.SYRINX_DEPTH - config.VENDOR_MIN_DEPTH
+        expected_at_8 = config.VENDOR_BASE_PCT + config.VENDOR_STEP_PCT * steps_to_8
+        self.assertEqual(w.vendor_pct, expected_at_8,
+                         "5:5, 6:10, 7:15, 8:20 -- the ladder must still hold "
+                         "arriving at her hall")
+        self.assertIsNone(w.level.vendor, "the arena guard must have blocked it here")
+
+        # Leave floor 8 WITHOUT touching level.vendor. If the guard did its job it
+        # is None already -- indistinguishable, to _vendor_step, from an honest
+        # roll that simply failed -- so this descent must CLIMB, not reset.
+        w.new_level(config.SYRINX_DEPTH + 1)
+        self.assertEqual(w.vendor_pct, expected_at_8 + config.VENDOR_STEP_PCT,
+                         "5:5 ... 8:20, 9:25 -- leaving her hall must climb the "
+                         "ladder, not burn it back down to base")
+
+        # And the guard is a floor-8-only guard, not a floor-8-onward one: force
+        # the roll and confirm floor 9 can still, in fact, get a vendor.
+        w.vendor_pct = 100
+        w._maybe_spawn_vendor(w.level, True)
+        self.assertIsNotNone(w.level.vendor,
+                             "floor 9 must still be able to get a vendor")
+
     # --- trading --------------------------------------------------------
     def _vendor_world(self):
         from .vendor import Vendor
@@ -5793,6 +5864,149 @@ class TestShademail(unittest.TestCase):
             "wallhack out through the doorway (~49 tiles unfixed)")
 
 
+class TestShademailWallAdjacencyRule(unittest.TestCase):
+    """SHADE_SUBMERGE_MAX (10 turns) let the player STAY in stone, but nothing
+    ever stopped a stone-to-stone STEP -- so a Shademail wearer could burrow
+    deep into a wall mass with no floor anywhere nearby. Measured on floor 4:
+    nine consecutive tiles through solid rock before being spat out, and deep
+    inside a mass there is no adjacent floor tile to eject to, so
+    _shade_tick's crush branch (SHADE_CRUSH_DMG) fired every turn while the
+    player kept right on walking.
+
+    The new rule, in the user's words: a wall tile is only enterable if it is
+    next to a floor tile, using orthogonal (4-way) adjacency. This lets you
+    slide ALONG a wall face (every such tile touches a corridor) but never
+    move deeper into a mass -- which also removes the crush death outright,
+    since a tile with no adjacent floor to eject to can no longer be entered
+    at all."""
+
+    def _wear(self, w):
+        from .items import ALL_GEAR
+        w.player.armour = ALL_GEAR["shade"].copy()
+
+    def _build_mass(self, w, ox=10, oy=10, thickness=21):
+        """A big isolated block of solid WALL with exactly one FLOOR entry tile
+        on its west face, far from any generated room/corridor so nothing else
+        in the level interferes. (ox, oy) is the entry floor tile; the wall
+        mass runs from (ox+1, oy) for `thickness` tiles east -- deep enough
+        that its middle has no adjacent floor at all."""
+        from .dungeon import WALL, FLOOR
+        lvl = w.level
+        # a generous WALL moat around the whole test area first, so no stray
+        # floor tile from the generated level sneaks in and legalizes a tile
+        # this test means to prove is illegal
+        for y in range(oy - 5, oy + 6):
+            for x in range(ox - 5, ox + thickness + 5):
+                lvl.grid[y][x] = WALL
+        lvl.grid[oy][ox] = FLOOR                 # the one doorway in
+        return (ox, oy)
+
+    def test_entering_a_wall_beside_floor_works(self):
+        w = self._world_for_mass()
+        px, py = self._build_mass(w)
+        self._wear(w)
+        w.player.x, w.player.y = px, py
+        w.level.compute_fov(px, py)
+        self.assertTrue(w.player_move(1, 0), "the doorway wall tile touches floor")
+        self.assertEqual((w.player.x, w.player.y), (px + 1, py))
+        self.assertTrue(w.player_submerged())
+
+    def test_stepping_deeper_into_the_mass_is_refused(self):
+        w = self._world_for_mass()
+        px, py = self._build_mass(w)
+        self._wear(w)
+        w.player.x, w.player.y = px, py
+        w.level.compute_fov(px, py)
+        w.player_move(1, 0)                       # into the doorway tile -- legal
+        self.assertEqual((w.player.x, w.player.y), (px + 1, py))
+        moved = w.player_move(1, 0)                # one tile deeper -- no floor anywhere near it
+        self.assertFalse(moved, "a wall tile with no adjacent floor must refuse entry")
+        self.assertEqual((w.player.x, w.player.y), (px + 1, py),
+                         "the player must not have moved")
+
+    def test_sliding_along_a_wall_face_works(self):
+        """A wall row directly north of an open floor corridor: every tile in
+        that row touches floor to its north, so walking ALONG the row (not
+        deeper into anything) must stay legal the whole way."""
+        from .dungeon import WALL, FLOOR
+        w = self._world_for_mass()
+        ox, oy = 10, 10
+        for y in range(oy - 3, oy + 3):
+            for x in range(ox - 3, ox + 14):
+                w.level.grid[y][x] = WALL
+        for x in range(ox, ox + 12):
+            w.level.grid[oy + 1][x] = FLOOR       # the corridor
+            w.level.grid[oy][x] = WALL            # the wall face directly above it
+        self._wear(w)
+        w.player.x, w.player.y = ox, oy + 1
+        w.level.compute_fov(w.player.x, w.player.y)
+        self.assertTrue(w.player_move(0, -1), "step up into the wall face")
+        self.assertEqual((w.player.x, w.player.y), (ox, oy))
+        # keep the whole slide under SHADE_SUBMERGE_MAX (10) turns submerged --
+        # that limit is a separate mechanic (see TestShademail) and not what
+        # this test is about; going past it would eject the player mid-slide.
+        for i in range(1, 9):
+            moved = w.player_move(1, 0)
+            self.assertTrue(moved, "tile %d of the wall face still touches the corridor" % i)
+            self.assertEqual((w.player.x, w.player.y), (ox + i, oy))
+            self.assertTrue(w.player_submerged())
+
+    def test_the_nine_tile_tunnel_from_the_probe_is_now_impossible(self):
+        w = self._world_for_mass()
+        px, py = self._build_mass(w, thickness=21)
+        self._wear(w)
+        w.player.x, w.player.y = px, py
+        w.level.compute_fov(px, py)
+        steps_in = 0
+        for _ in range(9):
+            if not w.player_move(1, 0):
+                break
+            steps_in += 1
+        self.assertLess(steps_in, 9,
+                        "nine consecutive tiles through solid rock must no longer be possible")
+        self.assertLessEqual(steps_in, 1,
+                        "with a floor tile only on the entry face, at most one step in is legal")
+
+    def _world_for_mass(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=6)
+        w.level.monsters = []
+        return w
+
+    def test_a_diagonal_only_floor_neighbour_does_not_count(self):
+        """The docstring's own argument for DIRS4 over DIRS8: 'diagonal neighbours
+        do not count, or a corner-cut would let the check pass one tile deeper
+        than it should.' Nothing above actually built that corner-cut -- every
+        _build_mass tile is either the doorway itself or buried too deep in the
+        block to have ANY floor within chebyshev 2, so swapping DIRS4 for DIRS8
+        in _shade_enterable still passes every test above. This builds the one
+        shape that tells them apart: a wall tile whose ONLY floor neighbour sits
+        on the diagonal -- the exact stairstep a corner-cut would tunnel through."""
+        from .dungeon import WALL, FLOOR
+        w = self._world_for_mass()
+        ox, oy = 10, 10
+        # a wall moat around the whole test area, so no stray generated-level
+        # floor tile sneaks in and legalizes the tile this test means to refuse
+        for y in range(oy - 5, oy + 6):
+            for x in range(ox - 5, ox + 6):
+                w.level.grid[y][x] = WALL
+        w.level.grid[oy][ox] = FLOOR              # the only floor tile in the area
+        tx, ty = ox + 1, oy + 1                    # diagonally adjacent to it only --
+        self.assertEqual(w.level.grid[ty][tx], WALL)  # every ORTHOGONAL neighbour of (tx,ty)
+        self.assertFalse(w._shade_enterable(tx, ty),  # is still WALL from the moat above
+                          "a diagonal-only floor neighbour must not make a wall tile "
+                          "enterable -- orthogonal (4-way) adjacency only")
+
+        # and the refusal is not just the raw helper -- a player really cannot
+        # corner-cut into it either
+        self._wear(w)
+        w.player.x, w.player.y = ox, oy
+        w.level.compute_fov(ox, oy)
+        moved = w.player_move(1, 1)                 # the diagonal step onto (tx, ty)
+        self.assertFalse(moved, "diagonal-only adjacency must not let the player step in")
+        self.assertEqual((w.player.x, w.player.y), (ox, oy), "the player must not have moved")
+
+
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
 
@@ -6434,7 +6648,11 @@ class TestHeadlessSmoke(unittest.TestCase):
                 if w.dead or w.won:
                     break
                 w.player_wait()
-            self.assertGreaterEqual(len(w.level.rooms), 4)
+            if w.level.is_arena_floor():
+                # her hall is not a dungeon floor: exactly two rooms, by design.
+                self.assertEqual(len(w.level.rooms), 2)
+            else:
+                self.assertGreaterEqual(len(w.level.rooms), 4)
 
 
 class TestActiveEffectPips(unittest.TestCase):
@@ -9863,6 +10081,76 @@ class TestSyrinxIdentity(unittest.TestCase):
         self.assertEqual(CAUSE_NAME["syrinx"], "Syrinx")
 
 
+class TestSyrinxAlwaysRendersAsHerself(unittest.TestCase):
+    """Every other un-codexed monster draws as sprites.unknown() -- a featureless
+    '?' -- until the Kodex has an entry for it. Syrinx is a deliberate exception:
+    she is drawn as herself from the very first game, so a player who has never
+    met her still sees "this is a real threat" instead of a blank silhouette.
+    This is a RENDER-layer call only: the Kodex itself is untouched, so her tier
+    stays 0 (no entry) until she is actually killed the normal way."""
+
+    def setUp(self):
+        # sprites.unknown() (drawn by the control comparison below) needs the font
+        # module up to render its '?' glyph. In the full suite an earlier test
+        # always initialises it first, so this was never caught running alone --
+        # standalone it raises pygame.error: font not initialized. Same fix as
+        # TestFontCache.setUp elsewhere in this file, for the same problem.
+        pygame.font.init()
+
+    def _world_with_visible_syrinx(self):
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=7)
+        w.level.monsters = []
+        for r in w.level.rooms:
+            if r.w >= 9 and r.h >= 7:
+                w.player.x, w.player.y = r.cx, r.cy
+                break
+        s = Monster("syrinx", w.player.x + 3, w.player.y)
+        s.hidden = False                    # emerged: has a sprite to draw
+        w.level.monsters.append(s)
+        w.level.visible[s.y][s.x] = True
+        w.level.compute_fov(w.player.x, w.player.y)
+        w.level.visible[s.y][s.x] = True    # compute_fov may not reach 3 tiles away
+        cam = render.Camera()
+        cam.center_on(w.player.x, w.player.y)
+        return w, s, cam
+
+    def test_her_kodex_tier_is_still_zero_with_a_blank_codex(self):
+        w, s, cam = self._world_with_visible_syrinx()
+        self.assertEqual(w.codex.tier("syrinx"), 0,
+                         "the exemption must be render-only -- the Kodex still knows nothing")
+
+    def test_she_draws_as_herself_not_the_unknown_silhouette(self):
+        from . import sprites
+        w, s, cam = self._world_with_visible_syrinx()
+        self.assertEqual(w.codex.tier("syrinx"), 0, "sanity: a blank codex")
+
+        # sanity: the two candidate sprites must actually differ, or a control
+        # comparison below would prove nothing either way.
+        her_key_sprite = pygame.image.tostring(sprites.monster("syrinx", s.t.color, 255),
+                                               "RGBA")
+        unknown_sprite = pygame.image.tostring(sprites.unknown(), "RGBA")
+        self.assertNotEqual(her_key_sprite, unknown_sprite,
+                            "sanity: the two sprites must actually differ")
+
+        # swap her key for a mundane monster nobody knows either, and confirm
+        # THAT one draws as the unknown silhouette while she does not -- the
+        # controlled comparison that proves the exemption is real.
+        s.key = "kobold"
+        control_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(control_surf, w, w.codex, cam, 0.0)
+        s.key = "syrinx"
+        syrinx_surf = pygame.Surface((config.W, config.H))
+        render.draw_world(syrinx_surf, w, w.codex, cam, 0.0)
+
+        self.assertNotEqual(
+            pygame.image.tostring(control_surf, "RGB"),
+            pygame.image.tostring(syrinx_surf, "RGB"),
+            "an equally un-codexed kobold and Syrinx must NOT render identically -- "
+            "she alone must be drawn as herself")
+
+
 class TestSyrinxHiddenState(unittest.TestCase):
     def _world(self):
         codex = FakeSave()
@@ -9997,14 +10285,19 @@ class TestSyrinxHiddenState(unittest.TestCase):
 
 
 class TestSyrinxArena(unittest.TestCase):
-    def test_floor_eight_places_exactly_one_hidden_syrinx(self):
+    def test_floor_eight_holds_no_syrinx_until_you_commit(self):
         for seed in range(20):
             codex = FakeSave(); codex.world_seed = seed
             w = World(codex, seed=1)
             w.new_level(8)
-            found = [m for m in w.level.monsters if m.key == "syrinx"]
-            self.assertEqual(len(found), 1, "seed %d: floor 8 needs its Syrinx" % seed)
-            self.assertTrue(found[0].hidden)
+            self.assertEqual([m for m in w.level.monsters if m.key == "syrinx"], [],
+                             "seed %d: she arrives when you cross the mouth" % seed)
+            a = w.level.arena_room
+            w.player.x, w.player.y = a.x, a.cy
+            w._end_player_turn()      # Task 7: commit fires here now
+            self.assertEqual(
+                len([m for m in w.level.monsters if m.key == "syrinx"]), 1,
+                "seed %d: and exactly one of her does" % seed)
 
     def test_floor_eight_keeps_its_stairs(self):
         codex = FakeSave(); codex.world_seed = 3
@@ -10044,33 +10337,37 @@ class TestSyrinxArena(unittest.TestCase):
                 self.assertEqual(w.level.grid[py][px], WALL)
                 self.assertNotEqual((px, py), w.level.stairs)
 
-    def test_small_arena_nudges_off_stairs_instead_of_vanishing(self):
-        """A freak layout where the small arena's centre tile IS the stairs tile
-        (real: _place_stairs always drops the stairs on some room's exact centre,
-        and this fires whenever the stairs room is also the small syrinx arena).
-        She must still get a hiding spot -- not an empty list, which makes
-        _populate_syrinx skip appending her monster entirely."""
-        from .dungeon import Room
+    def test_she_always_has_somewhere_to_hide(self):
+        """Replaces test_small_arena_nudges_off_stairs_instead_of_vanishing.
+
+        That test guarded a fallback that no longer exists: her arena used to be
+        "the biggest room the generator happened to deal", so it could come out too
+        small to spread six pillars through, and could even put its only hiding spot
+        on the stairs tile -- which left syrinx_pillars() empty and made
+        _populate_syrinx skip appending her monster entirely. Floor 8 is cut to a
+        fixed 31x23 now, so a too-small arena cannot happen. What still MATTERS is
+        the consequence the old test was really protecting: pillars exist, they are
+        distinct, none of them is a tile she must never stand on, and she therefore
+        gets placed."""
         codex = FakeSave(); codex.world_seed = 3
         w = World(codex, seed=1)
         w.new_level(8)
         lvl = w.level
 
-        small = Room(5, 5, 6, 5)                    # w=6 < 7 -> small-arena fallback
-        other = Room(40, 40, 6, 5)                  # stand-in gate room, excluded
-        lvl.rooms = [small, other]
-        lvl.gate_room = other
-        self.assertEqual(lvl._syrinx_arena(), small)  # sanity: small room IS the arena
-
-        lvl.stairs = (small.cx, small.cy)            # the collision
-
         pillars = lvl.syrinx_pillars()
-        self.assertEqual(len(pillars), 1,
-                          "she needs SOMEWHERE to hide, not an empty list")
-        px, py = pillars[0]
-        self.assertNotEqual((px, py), lvl.stairs)
-        self.assertTrue(small.x <= px < small.x + small.w)
-        self.assertTrue(small.y <= py < small.y + small.h)
+        self.assertTrue(pillars, "she needs SOMEWHERE to hide, not an empty list")
+        self.assertEqual(len(pillars), len(set(pillars)), "no pillar cut twice")
+        for spot in pillars:
+            self.assertTrue(lvl.arena_room.contains(*spot))
+            self.assertNotEqual(spot, lvl.stairs)
+            self.assertNotEqual(spot, lvl.mouth)
+
+        # she is not placed until commit (Task 6) -- but a pillar to hide in means
+        # that, once she is, she has somewhere to retreat to.
+        w.player.x, w.player.y = lvl.arena_room.x, lvl.arena_room.cy
+        w._end_player_turn()      # Task 7: commit fires here now
+        found = [m for m in lvl.monsters if m.key == "syrinx"]
+        self.assertEqual(len(found), 1, "a pillar to hide in means she gets placed")
 
     def test_stairs_stay_reachable_on_floor_eight(self):
         from collections import deque
@@ -10096,13 +10393,18 @@ class TestSyrinxArena(unittest.TestCase):
 
 class TestSyrinxHuntAndBlow(unittest.TestCase):
     def _world(self):
-        codex = FakeSave()
+        # Her hall, not "whichever room on floor 1 happened to be big enough". Floor
+        # 8 is purpose-built for this fight now, and her arena is a fixed 31x23 room
+        # rather than the largest thing the generator dealt -- so `_syrinx_arena()`
+        # is her arena_room or nothing at all, and her hunt leash reads it every
+        # turn. Every assertion in this class is about her AI, so it has to run in
+        # the one place she can exist. Fixing the floor also fixes the geometry:
+        # these tests used to ride a random world_seed and flake accordingly.
+        codex = FakeSave(); codex.world_seed = 5
         w = World(codex, seed=7)
+        w.new_level(8)
         w.level.monsters = []
-        for r in w.level.rooms:
-            if r.w >= 9 and r.h >= 7:
-                w.player.x, w.player.y = r.cx, r.cy
-                break
+        w.player.x, w.player.y = w.level.arena_room.cx, w.level.arena_room.cy
         w.level.compute_fov(w.player.x, w.player.y)
         return w
 
@@ -10113,25 +10415,81 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         w.level.monsters.append(s)
         return s
 
-    def test_she_moves_toward_the_player_when_not_aligned(self):
+    def _fail_if_stall_revisit(self, seen, k=6):
+        """Generic revisit-without-progress stall detector, replacing the old
+        exact-pair match (`seen[-1] == seen[-3] and seen[-2] == seen[-4]`, with
+        a comment explicitly disclaiming three-plus-cycles as "not the bug this
+        guards"). The 3-cycle-fix report's own sweep found the opposite is true:
+        every surviving stall, 1,214 of them across 99 player tiles, was a
+        3-cycle -- the exact shape that check is structurally blind to, since a
+        period-3 orbit never lines up two turns back, only three. Rather than
+        widen the old check to hard-code "also check period 3" (which would
+        just be as blind to period 4, 5, ... as the original was to 3), this
+        checks the underlying property directly: has she returned to ANY tile
+        she already stood on within the last `k` turns, without engaging in
+        between? That catches a stall of any short period up to k in one test,
+        with no need to know its period in advance.
+        """
+        if len(seen) > k and seen[-1] in seen[-(k + 1):-1]:
+            self.fail(f"revisited a position within the last {k} turns without "
+                      f"engaging -- a stall, regardless of its period: {seen[-1]} "
+                      f"already appeared in {seen[-(k + 1):-1]}")
+
+    def test_diagonal_adjacent_she_steps_away_not_toward(self):
+        # Rule 1: aligned means same row or column, and a diagonal neighbour is
+        # neither -- she cannot gust from there. Standing pat would make her free
+        # damage (nothing stops the player hitting her every turn), so she recoils.
+        # This replaces the old assumption that hunting would walk her onto an
+        # aligned tile from here; now she moves AWAY first.
         w = self._world()
-        s = self._syrinx(w, 4, 3)
-        sx, sy = s.x, s.y
+        s = self._syrinx(w, 1, 1)            # adjacent, diagonal -- never aligned
+        d0 = s.dist(w.player.x, w.player.y)
         s.take_turn(w)
-        self.assertLess(max(abs(s.x - w.player.x), abs(s.y - w.player.y)),
-                        max(abs(sx - w.player.x), abs(sy - w.player.y)),
-                        "hunting closes the distance rather than waiting")
+        self.assertGreater(s.dist(w.player.x, w.player.y), d0,
+                            "diagonal adjacency must make her recoil, not close or hold")
+
+    def test_forced_close_suppression_is_one_shot_not_sticky(self):
+        """Mutation-kill: rule 1 reads and clears `just_forced_close` in a single
+        line -- `suppress_recoil, self.just_forced_close = self.just_forced_close,
+        False` -- so a forced close only ever buys ONE turn of immunity from the
+        diagonal-adjacency recoil. A sticky variant that reads the flag without
+        also clearing it (`suppress_recoil = self.just_forced_close`) would leave
+        rule 1 permanently disabled once anything ever forces a close -- she would
+        then stand and take free hits from a diagonally-adjacent player forever,
+        which is the exact blind spot rule 1 exists to close. Nothing else in the
+        suite drives the flag two turns deep, so nothing else catches this.
+        """
+        w = self._world()
+        s = self._syrinx(w, 1, 1)            # diagonal adjacent -- rule 1's own trigger
+        s.just_forced_close = True
+        start = (s.x, s.y)
+
+        s.take_turn(w)                       # the suppressed turn: rule 1 must not fire
+        self.assertFalse(s.just_forced_close,
+                          "the flag must clear itself the instant it is consumed, "
+                          "not persist across turns")
+
+        # Whatever she did on the suppressed turn is not this test's concern --
+        # put her straight back on rule 1's own trigger tile and give her a
+        # second turn. The flag is False now, so a non-sticky implementation
+        # must let rule 1 fire again; a sticky one would still suppress it.
+        s.x, s.y = start
+        d0 = s.dist(w.player.x, w.player.y)
+        s.take_turn(w)
+        self.assertGreater(s.dist(w.player.x, w.player.y), d0,
+                            "with the flag cleared, diagonal adjacency must recoil "
+                            "again -- the suppression must not outlive its one turn")
 
     def test_aligned_and_clear_commits_to_a_telegraphed_blow(self):
         w = self._world()
-        s = self._syrinx(w, 4, 0)
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE, 0)
         s.take_turn(w)
         self.assertEqual(s.intent, ("blow", 0, 0))
         self.assertEqual(w.player.hp, w.player.max_hp, "the telegraph turn does no damage")
 
     def test_the_blow_resolves_next_turn_for_real_chip_damage(self):
         w = self._world()
-        s = self._syrinx(w, 4, 0)
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE, 0)
         s.take_turn(w)                       # telegraph
         hp = w.player.hp
         s.take_turn(w)                       # resolve
@@ -10140,7 +10498,7 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
 
     def test_a_pillar_between_them_fizzles_the_blow(self):
         w = self._world()
-        s = self._syrinx(w, 4, 0)
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE, 0)
         s.take_turn(w)                       # telegraph while the line is clear
         wx = (s.x + w.player.x) // 2
         w.level.grid[w.player.y][wx] = 0     # a pillar drops into the eyeline (0 == WALL)
@@ -10149,14 +10507,24 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         self.assertEqual(w.player.hp, hp, "a blocked blow does no damage")
         self.assertIsNone(s.intent)
 
+    def test_out_of_range_but_aligned_does_not_telegraph(self):
+        # The blow used to reach out to the old RANGE=9; now it is a close-range
+        # rebuff (SYRINX_BLOW_RANGE=3). Aligned alone is no longer enough --
+        # she must actually be close, or she just manoeuvres (rule 3/4) instead.
+        w = self._world()
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE + 2, 0)
+        s.take_turn(w)
+        self.assertIsNone(s.intent, "too far to blow from, even aligned")
+
     def test_she_never_melee_attacks_even_when_adjacent_but_unaligned(self):
         # She has no melee code path: every point of damage, always, comes from
         # the telegraphed blow (self.intent == ("blow", 0, 0) set on a prior
         # turn) -- never an instant, untelegraphed hit. Starting diagonally
-        # adjacent, hunting can walk her onto an aligned tile at distance 1 and
-        # she may telegraph-then-land a point-blank blow -- that's fine; a
-        # melee attack would instead deal damage on the SAME turn it triggers,
-        # with no telegraph turn before it.
+        # adjacent, she recoils first (rule 1) and then manoeuvres/sidesteps
+        # toward alignment (rule 3) over the following turns, and may eventually
+        # telegraph-then-land a blow from wherever that leaves her -- that's
+        # fine; a melee attack would instead deal damage on the SAME turn it
+        # triggers, with no telegraph turn before it.
         w = self._world()
         s = self._syrinx(w, 1, 1)            # adjacent, diagonal -- never aligned
         prev_intent = s.intent
@@ -10170,54 +10538,397 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             prev_intent = s.intent
             prev_hp = hp
 
-    def test_she_does_not_chase_the_player_out_of_her_arena(self):
-        # Her whole design -- pillars to hide behind, a telegraphed blow to duck --
-        # is a boss-ROOM fight. If her hunt fallback chased the player anywhere on
-        # the floor, she would wander into corridors with no cover, bypassing the
-        # entire pillar/telegraph design. The hunt movement must stay leashed to
-        # her own arena: with the player outside it, she is a no-op, not a hunter.
-        codex = FakeSave(); codex.world_seed = 5
-        w = World(codex, seed=1)
-        w.new_level(8)
-        lvl = w.level
-        s = next(m for m in lvl.monsters if m.key == "syrinx")
-        s.hidden = False
-        arena = lvl._syrinx_arena()
-        w.player.x, w.player.y = lvl.entrance
-        self.assertFalse(arena.contains(w.player.x, w.player.y),
-                          "sanity: the entrance sits outside her arena")
-        sx, sy = s.x, s.y
-        for _ in range(5):
-            s.take_turn(w)
-        self.assertEqual((s.x, s.y), (sx, sy),
-                          "she must not leave her arena chasing a player outside it")
-
-    def test_she_still_hunts_a_player_inside_her_arena(self):
-        # Companion to the leash test above: the fix must not turn her into a
-        # statue INSIDE her own room -- she still actively hunts an unaligned
-        # player as long as they are both inside the arena.
-        codex = FakeSave(); codex.world_seed = 5
-        w = World(codex, seed=1)
-        w.new_level(8)
-        lvl = w.level
-        s = next(m for m in lvl.monsters if m.key == "syrinx")
-        s.hidden = False
-        arena = lvl._syrinx_arena()
-        w.player.x, w.player.y = arena.cx, arena.cy
-        self.assertTrue(arena.contains(w.player.x, w.player.y),
-                         "sanity: the arena centre is inside the arena")
-        self.assertTrue(arena.contains(s.x, s.y),
-                         "sanity: she starts inside her own arena")
-        sx, sy = s.x, s.y
-        for _ in range(5):
-            s.take_turn(w)
-            if (s.x, s.y) != (sx, sy) or s.intent is not None:
+    def test_within_standoff_unaligned_she_sidesteps_without_ever_closing(self):
+        # Rule 3's sidestep branch, unaligned case. She is allowed to walk
+        # herself onto the player's row or column, but never at the cost of
+        # distance: each sidestep must hold her chebyshev distance to the player
+        # exactly steady, right up until she reaches alignment.
+        #
+        # Renamed from "...without_ever_closing": the old version of this test
+        # kept looping past the point she reached alignment and asserted she was
+        # STILL holding there -- that was Rule 3's old "if already aligned, hold"
+        # text, and it is exactly the exploit this change closes (see
+        # test_regression_aligned_dead_zone_is_no_longer_a_free_kill below). Once
+        # she IS aligned with a clear line, Rule 3's other branch takes over and
+        # she starts closing down the lane instead, so this test now stops
+        # checking the instant alignment is reached rather than asserting past it.
+        #
+        # Player parked at (25,13), not the arena centre: the centre sits ON
+        # pillar column x=27 (pillars at xs {15,21,27,33,39}), and a diagonal
+        # approach from there walks straight into the pillar at (27,16)
+        # partway to alignment -- at which point the sidestep correctly
+        # refuses to land on a lane it cannot shoot down (see the blocked-lane
+        # test below) and closes instead, exactly as designed. That is real,
+        # intended behaviour, just not what THIS test means to exercise: it is
+        # about the general open-terrain tie, so it needs a start clear of the
+        # lattice for its whole approach.
+        w = self._world()
+        w.player.x, w.player.y = 25, 13
+        s = self._syrinx(w, 5, 5)            # distance 5, inside SYRINX_STANDOFF (6)
+        d0 = s.dist(w.player.x, w.player.y)
+        self.assertLessEqual(d0, config.SYRINX_STANDOFF, "sanity: starts inside the band")
+        for _ in range(6):
+            if s.x == w.player.x or s.y == w.player.y:
                 break
-        moved = (s.x, s.y) != (sx, sy)
-        telegraphed = s.intent == ("blow", 0, 0)
-        self.assertTrue(moved or telegraphed,
-                         "inside her arena she must still hunt (move) or, if "
-                         "already aligned and clear, telegraph a blow")
+            s.take_turn(w)
+            self.assertEqual(s.dist(w.player.x, w.player.y), d0,
+                              "sidestepping toward alignment must never close the gap")
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y,
+                         "a few turns of sidestepping should reach alignment")
+
+    def test_aligned_clear_lane_inside_standoff_closes_instead_of_holding(self):
+        # Rule 3's other branch: aligned, line clear, beyond blow range, still
+        # inside the standoff band. She has the shot lined up already -- closing
+        # IS taking it, so she walks the lane toward the player instead of
+        # holding her lineup. Row 13 of her arena (Room(12,2,31,23), pillars on
+        # xs {15,21,27,33,39} x ys {4,10,16,22}) carries no pillar, so the whole
+        # row is guaranteed clear -- the default player spawn (arena_room.cx,
+        # arena_room.cy) sits on it.
+        w = self._world()
+        s = self._syrinx(w, 5, 0)            # same row, distance 5: > BLOW_RANGE(3), <= STANDOFF(6)
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y, "sanity: starts aligned")
+        self.assertTrue(w.line_clear(s.x, s.y, w.player.x, w.player.y, config.SYRINX_STANDOFF),
+                         "sanity: row 13 carries no pillar, the lane must be clear")
+        d_prev = s.dist(w.player.x, w.player.y)
+        got_closer = False
+        for _ in range(5):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                break
+            d = s.dist(w.player.x, w.player.y)
+            self.assertLessEqual(d, d_prev,
+                                  "aligned with a clear lane, she must never retreat or hold")
+            if d < d_prev:
+                got_closer = True
+            d_prev = d
+        self.assertTrue(got_closer,
+                         "aligned with a clear lane inside the standoff band, she must close "
+                         "the gap instead of holding her lineup")
+        self.assertEqual(s.intent, ("blow", 0, 0),
+                          "closing down a clear lane should eventually bring her into blow range")
+
+    def test_aligned_blocked_lane_inside_standoff_sidesteps_not_closes(self):
+        # Rule 3's other branch again, but for the case that stays a sidestep even
+        # though she IS aligned: a pillar fizzles the line. Walking a lane she
+        # cannot shoot through would be the one genuinely dumb version of
+        # "closing", so blocked alignment behaves exactly like non-alignment.
+        # Row 16 carries a real pillar at x=21 (xs {15,21,27,33,39} x ys
+        # {4,10,16,22}); parking the player and her on either side of it gives an
+        # aligned pair with an actually-blocked line, deterministically, off the
+        # fixed floor-8 arena geometry.
+        #
+        # This is also, verbatim, reproduction (a) from the stall-fix report: the
+        # exact configuration that 2-cycled between (26,16) and (26,15) forever
+        # under the old single-candidate sidestep. The first assertion below
+        # (one turn, distance unchanged) is the ORIGINAL test -- it is what used
+        # to pass right up to the edge of the bug, one turn before the cycle
+        # became visible. The loop after it is the real regression coverage:
+        # run ~20 turns (far past where the old code would have locked into its
+        # two-tile orbit) and check she never settles into ANY short-period
+        # repeat of positions (see _fail_if_stall_revisit -- this configuration
+        # is also, separately, where the later 3-cycle bug showed up once the
+        # 2-cycle above was fixed), and that she actually gets somewhere --
+        # either an observed blow intent, or close enough, aligned, with a
+        # clear shot to take one.
+        w = self._world()
+        w.player.x, w.player.y = 20, 16
+        s = self._syrinx(w, 6, 0)            # (26, 16): aligned, distance 6, pillar at (21,16) between
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y, "sanity: starts aligned")
+        self.assertFalse(
+            w.line_clear(s.x, s.y, w.player.x, w.player.y, config.SYRINX_STANDOFF),
+            "sanity: the pillar must actually block this lane")
+        d0 = s.dist(w.player.x, w.player.y)
+        self.assertLessEqual(d0, config.SYRINX_STANDOFF, "sanity: starts inside the band")
+        s.take_turn(w)
+        self.assertEqual(s.dist(w.player.x, w.player.y), d0,
+                          "a blocked lane must never close, even while aligned")
+
+        seen = [(s.x, s.y)]
+        engaged = False
+        for _ in range(19):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+            pos = (s.x, s.y)
+            aligned = (pos[0] == w.player.x or pos[1] == w.player.y)
+            d = s.dist(w.player.x, w.player.y)
+            if (aligned and d <= config.SYRINX_BLOW_RANGE
+                    and w.line_clear(pos[0], pos[1], w.player.x, w.player.y, config.SYRINX_BLOW_RANGE)):
+                engaged = True   # in range with a clear shot -- next turn telegraphs
+                break
+            seen.append(pos)
+            self._fail_if_stall_revisit(seen)
+        self.assertTrue(engaged,
+                         "a blocked-lane standoff must eventually resolve into blow range, "
+                         "not stall forever behind the pillar")
+
+    def test_regression_repro_a_blocked_lane_two_cycle(self):
+        # The stall-fix report's reproduction (a), by exact coordinates: player
+        # (20,16), Syrinx (26,16), pillar at (21,16) sitting on the lane between
+        # them. Under the old single-candidate sidestep this locked into
+        # (26,16) <-> (26,15) forever, intent never set. Driven through
+        # take_turn (never _ai_syrinx directly) for well past that old cycle's
+        # visible point.
+        w = self._world()
+        w.player.x, w.player.y = 20, 16
+        s = self._syrinx(w, 6, 0)
+        self.assertEqual((s.x, s.y), (26, 16))
+        seen = [(s.x, s.y)]
+        engaged = False
+        for _ in range(25):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+            seen.append((s.x, s.y))
+            # The old bug's exact orbit, confirmed against the unmodified code
+            # during the sidestep-stall fix's own verification pass, was an
+            # unbroken (26,16) <-> (26,15) alternation -- a 2-cycle. Checked here
+            # via the generic revisit detector (any short-period repeat, not
+            # just an exact 2-cycle) rather than trusting "she engaged
+            # eventually" to rule it out -- this exact configuration is also
+            # where the later 3-cycle stall showed up once the 2-cycle was
+            # fixed, so the generic check earns its keep on this test twice.
+            self._fail_if_stall_revisit(seen)
+        self.assertTrue(engaged, "reproduction (a) must eventually engage, not stall")
+
+    def test_regression_repro_b_frozen_on_a_blocked_candidate(self):
+        # The stall-fix report's reproduction (b): player (28,13), Syrinx
+        # (26,16). Under the old code the sidestep's one candidate, (27,16),
+        # is itself a pillar (xs {15,21,27,33,39} x ys {4,10,16,22} -> (27,16)
+        # is a lattice point), so the "else: hold" fallback repeated forever --
+        # she never moved again. The new fallback must find somewhere else to
+        # go, or close, rather than freezing on the very first turn.
+        w = self._world()
+        w.player.x, w.player.y = 28, 13
+        s = self._syrinx(w, -2, 3)           # (26, 16)
+        self.assertEqual((s.x, s.y), (26, 16))
+        start = (s.x, s.y)
+        engaged = False
+        for _ in range(25):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+        self.assertTrue(engaged, "reproduction (b) must eventually engage, not freeze")
+        self.assertNotEqual((s.x, s.y), start,
+                             "she must have actually moved off the frozen candidate at some point")
+
+    def test_regression_repro_b2_frozen_on_a_blocked_candidate_other_corner(self):
+        # The stall-fix report's second (b) example: player (27,13), Syrinx
+        # (33,9). The sidestep's single old candidate, (33,10), is also a
+        # pillar -- a different corner of the same lattice, same failure mode.
+        w = self._world()
+        w.player.x, w.player.y = 27, 13
+        s = self._syrinx(w, 6, -4)           # (33, 9)
+        self.assertEqual((s.x, s.y), (33, 9))
+        engaged = False
+        for _ in range(25):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+        self.assertTrue(engaged, "reproduction (b2) must eventually engage, not freeze")
+
+    def test_regression_blocked_smaller_axis_falls_to_other_not_a_real_close(self):
+        """Mutation-kill: dropping the sidestep's other-axis fallback candidate
+        (mutating `candidates = [smaller, other]` down to `[smaller]`) removes
+        her only way off a blocked smaller-offset axis that isn't the real
+        close -- and nothing in the suite noticed. The only geometry where the
+        other axis is ever legally chosen at all is a TIE (adx == ady -- see
+        the sidestep's own inline comment: "the other axis only ever wins when
+        the two offsets are tied"), so this test ties them, and blocks the
+        smaller (x, by the documented tie-break convention) axis's one-tile
+        candidate with a pillar. Correct behaviour is a plain sidestep onto the
+        other (y) axis's candidate: distance holds steady, and -- the real
+        discriminator -- `just_forced_close` (armed only by the fallback close
+        a few lines below the candidate loop, see _ai_syrinx's rule 1 comment
+        for what it is for) stays False, because a genuine sidestep never
+        reaches that branch. Drop the other-axis candidate and the single
+        remaining (blocked) one exhausts immediately: she falls through to the
+        real close on this very first turn, `just_forced_close` included.
+        """
+        w = self._world()
+        w.player.x, w.player.y = 24, 20
+        s = self._syrinx(w, -4, -4)          # (20, 16): adx == ady == 4, a tie
+        self.assertEqual((s.x, s.y), (20, 16))
+        self.assertFalse(w.level.walkable(21, 16),
+                          "sanity: the smaller (x) axis candidate is a pillar")
+        self.assertTrue(w.level.walkable(20, 17),
+                         "sanity: the other (y) axis candidate is open floor")
+        d0 = s.dist(w.player.x, w.player.y)
+        s.take_turn(w)
+        self.assertEqual(s.dist(w.player.x, w.player.y), d0,
+                          "a blocked smaller-axis candidate must fall to the OTHER axis "
+                          "as a plain sidestep, not to a real close")
+        self.assertFalse(s.just_forced_close,
+                          "a genuine sidestep must never arm the forced-close recoil guard")
+
+    def test_regression_dominant_axis_without_invariant_would_silently_close(self):
+        """Mutation-kill: deleting the sidestep's distance invariant
+        (`if new_d < d: continue`) is the spec's own named central regression --
+        "she does not close while inside the standoff band" -- and the existing
+        sidestep-without-closing test cannot catch it: it starts from a TIED
+        offset (5,5), where both candidates hold distance regardless of whether
+        the invariant exists (see that test's own comment), so the check is
+        never actually exercised. This uses UNEQUAL offsets instead, and blocks
+        the smaller (non-dominant, tying) axis with a pillar so evaluation
+        reaches the other (dominant) axis -- which, whenever the offsets are
+        NOT tied, always REDUCES chebyshev distance if taken, by definition of
+        "dominant." With the invariant intact that candidate is correctly
+        rejected (a reduction masquerading as a sidestep is exactly what it
+        exists to catch), so both candidates fail and she falls to the real
+        close instead -- arming `just_forced_close`, the same discriminator the
+        previous test uses, for the same reason: a genuine sidestep never
+        touches that flag. Delete the invariant and the dominant-axis step is
+        accepted directly as though it were harmless -- closing the gap while
+        `just_forced_close` stays false, i.e. behaving exactly like a hold even
+        though she is quietly closing it, undetectable by distance alone since
+        the real fallback close also reduces distance by the same one tile.
+        """
+        w = self._world()
+        w.player.x, w.player.y = 21, 21
+        s = self._syrinx(w, -1, -5)          # (20, 16): adx=1, ady=5 -- not tied
+        self.assertEqual((s.x, s.y), (20, 16))
+        self.assertFalse(w.level.walkable(21, 16),
+                          "sanity: the smaller (x) axis candidate is a pillar")
+        self.assertTrue(w.level.walkable(20, 17),
+                         "sanity: the other (y, dominant) axis candidate is open floor")
+        s.take_turn(w)
+        self.assertTrue(s.just_forced_close,
+                         "with the distance invariant intact, the dominant-axis candidate "
+                         "must be rejected and both candidates must fail, forcing the real "
+                         "close (which arms the recoil guard) -- False here means the "
+                         "dominant axis was wrongly accepted as a sidestep")
+
+    def test_regression_tied_axes_prefer_the_smaller_x_axis_first(self):
+        """Mutation-kill: swapping the sidestep's candidate order to
+        `[other, smaller]` is only observable when BOTH candidates are legal
+        AND the offsets are tied -- otherwise whichever candidate actually
+        survives the blocked-lane/distance filters wins regardless of try
+        order, same result either way. Open floor on both axes, no pillar or
+        occupancy eliminating either one, so whichever candidate is tried
+        FIRST is the one she takes. "Ties go to x" is this method's own
+        documented, deliberate convention (matching the single-candidate code
+        this replaced), so the correct order lands her on the x-axis tile.
+        """
+        w = self._world()
+        w.player.x, w.player.y = 27, 15
+        s = self._syrinx(w, -2, -2)          # (25, 13): tied offsets, both candidates open
+        self.assertEqual((s.x, s.y), (25, 13))
+        self.assertTrue(w.level.walkable(26, 13) and w.level.walkable(25, 14),
+                         "sanity: both sidestep candidates are open floor here")
+        s.take_turn(w)
+        self.assertEqual((s.x, s.y), (26, 13),
+                          "on a tie, the smaller-offset (x) axis must be tried first")
+
+    def test_sweep_from_many_start_positions_she_reliably_engages(self):
+        """The test that would have caught the stall bug directly, per the
+        stall-fix report: not a few hand-picked cases, but an exhaustive sweep.
+        For a handful of stationary player positions -- including the arena
+        centre (27,13), which sits ON pillar column x=27 (pillars at xs
+        {15,21,27,33,39} x ys {4,10,16,22}), and (20,16), which sits on pillar
+        ROW y=16 -- walk Syrinx over every walkable start tile in the arena and
+        drive her through take_turn for up to SWEEP_MAX_TURNS, counting how
+        many reach engagement.
+
+        CRITICAL FINDING (3-cycle fix pass): the three positions above all
+        scored 100% even on the UNFIXED code, so this sweep had zero power to
+        catch the 3-cycle bug that same code shipped with -- it never touched a
+        weak tile. A follow-up, independent 693-player-tile x 60-start sweep
+        found every surviving stall was the SAME shape: a 3-cycle, and every
+        affected player tile sat one or two tiles south of a pillar, on that
+        pillar's own column. (27,13)/(20,16)/(33,4) all happen to avoid that
+        exact geometry. `(15, 24)` below is added because it does not: it sits
+        two tiles south of the pillar at (15,22), on that column, and was
+        measured (pre-3-cycle-fix) at 32/589 = 5.4% -- the sweep's whole point.
+
+        Measured as part of THIS fix's own verification, against this exact
+        four-position sweep: the pre-fix code (with the sidestep-stall fix
+        already applied, but not this pass) engaged 1797/2354 = 76.3% --
+        (27,13)/(20,16)/(33,4) still at 100% each, (15,24) dragging the
+        combined rate down to where a regression is visible; this fix engages
+        2310/2354 = 98.1% ((15,24) alone lands at 545/589 = 92.5%, capped
+        below 100% by the separately-confirmed, explicitly out-of-scope
+        antechamber-wander sweep artifact -- see the miniboss-arena-floors
+        report -- not by any in-arena stall: an independent generic-cycle sweep
+        over this same fix found zero in-arena stalls of any period). The
+        threshold below stays at 90%: comfortably above the pre-fix 76.3% (so
+        a regression back toward either stall shape fails loudly) and with
+        real margin under the observed 98.1%.
+        """
+        SWEEP_MAX_TURNS = 40
+        from .monsters import Monster
+        w = self._world()
+        room = w.level.arena_room
+        player_positions = [
+            (27, 13),   # arena centre: on pillar column x=27; row 13 has no pillar
+            (20, 16),   # on pillar row y=16 (a pillar sits at (21,16))
+            (33, 4),    # a pillar of the lattice itself as a neighbour, tight corner
+            (15, 24),   # two tiles south of pillar (15,22), on its own column --
+                        # the 3-cycle bug's exact signature; see the docstring above
+        ]
+        total = 0
+        engaged = 0
+        for (px, py) in player_positions:
+            for sx in range(room.x + 1, room.x + room.w - 1):
+                for sy in range(room.y + 1, room.y + room.h - 1):
+                    if (sx, sy) == (px, py) or not w.level.walkable(sx, sy):
+                        continue
+                    w.player.x, w.player.y = px, py
+                    s = Monster("syrinx", sx, sy)
+                    s.hidden = False
+                    w.level.monsters = [s]
+                    total += 1
+                    for _ in range(SWEEP_MAX_TURNS):
+                        s.take_turn(w)
+                        if s.intent == ("blow", 0, 0):
+                            engaged += 1
+                            break
+        self.assertGreaterEqual(total, 1000, "sanity: the sweep actually covered the arena")
+        rate = engaged / total
+        self.assertGreaterEqual(
+            rate, 0.90,
+            f"only {engaged}/{total} ({rate:.1%}) engaged within {SWEEP_MAX_TURNS} turns "
+            "-- the pre-3-cycle-fix figure on this exact four-position sweep was 76.3%")
+
+    def test_regression_aligned_dead_zone_is_no_longer_a_free_kill(self):
+        # The exploit this whole change closes. Rule 3 used to read "if already
+        # aligned, hold" -- so a player standing aligned at distance 4-6 (inside
+        # SYRINX_STANDOFF, outside SYRINX_BLOW_RANGE) was never engaged: she held
+        # her lineup forever. That is not merely a stall -- World._firestorm
+        # damages every visible non-hidden monster, she takes double fire damage
+        # (SYRINX_FIRE_MULT), and the Robe of Hades armour capstone fires it
+        # automatically on a recharge timer. A player in that robe could park in
+        # the dead zone and kill her for free. She must eventually close and
+        # blow, not sit there ignoring an aligned player indefinitely.
+        w = self._world()
+        s = self._syrinx(w, config.SYRINX_STANDOFF, 0)   # distance 6: the far edge of the dead zone
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y, "sanity: parked aligned")
+        self.assertGreater(s.dist(w.player.x, w.player.y), config.SYRINX_BLOW_RANGE,
+                            "sanity: starts outside blow range -- this is the dead zone")
+        engaged = False
+        for _ in range(config.SYRINX_STANDOFF - config.SYRINX_BLOW_RANGE + 2):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+        self.assertTrue(engaged,
+                         "a player parked aligned in the standoff band must eventually be "
+                         "engaged, not held indefinitely -- this was the Robe of Hades exploit")
+
+    def test_beyond_standoff_she_still_closes_the_gap(self):
+        # Rule 4: she is not a statue. Past SYRINX_STANDOFF she is not yet in the
+        # band she actually fights in, so she takes a step toward the player --
+        # just enough to drag them back into range, never all the way to melee.
+        w = self._world()
+        s = self._syrinx(w, config.SYRINX_STANDOFF + 2, 2)
+        d0 = s.dist(w.player.x, w.player.y)
+        self.assertGreater(d0, config.SYRINX_STANDOFF, "sanity: starts outside the band")
+        s.take_turn(w)
+        self.assertLess(s.dist(w.player.x, w.player.y), d0,
+                         "beyond the standoff band she still closes -- not a statue")
 
     def test_drawing_her_blow_telegraph_actually_draws_something(self):
         """The 'blow' intent used to be signalled only by an ephemeral, real-time FX
@@ -10250,6 +10961,157 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             "on the decaying real-time FX pulse")
 
 
+class TestSyrinxSpeedMatchesPlayer(unittest.TestCase):
+    """Her own AI docstring (_ai_syrinx) says she 'moves at the player's own
+    speed', but TEMPLATES['syrinx'] hard-codes speed=100 == config.BASE_SPEED --
+    a fixed number that never moves even though the player's actual speed does,
+    turn to turn, with boots/armour/weapon and haste/berserk/heroism. Measured:
+    with Swift boots the player acted 1.25x per her tick, Blink 1.15x -- "she
+    seems delayed". Monster.speed_now(world) is the seam: self.speed for every
+    ordinary monster, world.player.speed() for her alone."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)          # an ordinary floor -- geometry does not matter here
+        return w
+
+    def test_an_ordinary_monster_still_uses_its_own_fixed_speed(self):
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("kobold", w.player.x, w.player.y)
+        w.player.boots = BOOTS["swift"]   # a fast player must not affect her
+        self.assertEqual(m.speed_now(w), m.speed)
+
+    def test_syrinx_matches_a_swift_booted_player(self):
+        from .monsters import Monster
+        w = self._world()
+        w.player.boots = BOOTS["swift"]
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+        self.assertNotEqual(m.speed_now(w), m.speed,
+                            "her template speed alone must no longer be the truth")
+
+    def test_syrinx_matches_a_hasted_player_too(self):
+        """'Matches CURRENT speed, including haste/berserk/heroism' is deliberate --
+        you cannot outrun the wind."""
+        from .monsters import Monster
+        w = self._world()
+        w.player.haste = 5
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+    def test_advance_grants_her_energy_at_the_players_current_speed(self):
+        """The seam is wired into the real turn engine, not just callable in
+        isolation. advance() runs exactly one tick here (player speed 125 clears
+        ACT_COST(100) in one go), spending 100 of whatever she banked on a turn
+        (a hidden, off-grid Syrinx acts but never moves or attacks) and leaving
+        the remainder. With the stale fixed speed=100 template she would bank
+        exactly ACT_COST and be left with 0; matched to a 125-speed player she
+        banks 125 and is left with 25 -- the only way to tell them apart from
+        outside is the leftover energy itself."""
+        from .monsters import Monster
+        from . import config
+        w = self._world()
+        w.player.boots = BOOTS["swift"]
+        w.player.energy = 0
+        m = Monster("syrinx", 5, 5)     # spawns hidden -- stays off-grid, never moves
+        w.level.monsters = [m]
+        w.advance()                     # runs until the player can act again
+        self.assertEqual(m.energy, w.player.speed() - config.ACT_COST,
+                         "her energy must accrue at the player's CURRENT speed, "
+                         "not her fixed template speed")
+
+    def test_freeze_tick_also_grants_her_energy_at_the_players_current_speed(self):
+        """advance() is not the only turn engine -- while the player is frozen
+        (a beholder's gaze; see World.freeze_tick), the world still moves one tick
+        at a time through freeze_tick() instead. That function has its own copy of
+        the 'm.energy += m.speed_now(self)' loop (see world.py, right next to
+        advance's), and nothing forces the two to agree: someone tidying the
+        duplication could revert just this one back to 'm.energy += m.speed'
+        without a single existing test noticing, because every other Syrinx-speed
+        test above drives advance(), never freeze_tick(). If that happened, a
+        frozen player would face her back at her stale flat template speed(100)
+        instead of their own -- silently, since a frozen player is exactly the
+        player who cannot tell by feel that she sped up or slowed down."""
+        from .monsters import Monster
+        from . import config
+        w = self._world()
+        w.player.boots = BOOTS["swift"]     # 125 speed -- clearly not her template's 100
+        w.player.energy = 0
+        w.player.frozen = 1                 # the ice has you; the world still turns
+        m = Monster("syrinx", 5, 5)         # spawns hidden -- stays off-grid, never moves
+        w.level.monsters = [m]
+        w.freeze_tick()                     # one frozen turn plays out
+        self.assertEqual(m.energy, w.player.speed() - config.ACT_COST,
+                         "even while you are frozen, her energy must accrue at "
+                         "YOUR current speed, not her fixed template speed")
+
+
+class TestSyrinxSpeedFloor(unittest.TestCase):
+    """Matching the player's speed exactly means the heaviest-armour, slowest
+    build in the game (Full Plate + Plate Boots + any Hammer, all speed-negative)
+    drags her down with it -- playtested at player speed 45, where she could not
+    reach a pillar before the hammer's stun wore off. config.SYRINX_SPEED_FLOOR
+    claws back the bottom of that range without touching anything at or above a
+    normal build's speed. Assert the floor is HONOURED, never its numeric value --
+    that value is a balance tunable, deliberately untested."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)          # an ordinary floor -- geometry does not matter here
+        return w
+
+    def _slowest_build(self, w):
+        """Full Plate + Plate Boots + any Hammer: the slowest a player can be."""
+        from .items import ARMOURS, BOOTS, WEAPONS
+        w.player.armour = ARMOURS["plate"]
+        w.player.boots = BOOTS["boots_plate"]
+        w.player.weapon = WEAPONS["bone_hammer"]
+
+    def test_below_the_floor_she_reports_the_floor(self):
+        from .monsters import Monster
+        w = self._world()
+        self._slowest_build(w)
+        self.assertLess(w.player.speed(), config.SYRINX_SPEED_FLOOR,
+                         "test setup must actually put the player under the floor")
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), config.SYRINX_SPEED_FLOOR)
+        self.assertNotEqual(m.speed_now(w), w.player.speed(),
+                            "below the floor she must NOT still match the player")
+
+    def test_at_the_floor_she_reports_the_players_speed(self):
+        """A player sitting exactly on the floor gets no special-cased boost --
+        max(floor, speed) is honest about ties."""
+        from .monsters import Monster
+        from .items import ARMOURS
+        w = self._world()
+        # a COPY of bare armour, tuned so player.speed() lands exactly on the floor
+        # -- copy() so this never mutates the shared ARMOURS['rags'] instance other
+        # tests read from
+        tuned = ARMOURS["rags"].copy()
+        tuned.speed_mod = config.SYRINX_SPEED_FLOOR - config.BASE_SPEED
+        w.player.armour = tuned
+        self.assertEqual(w.player.speed(), config.SYRINX_SPEED_FLOOR)
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+    def test_at_and_above_the_floor_nothing_changes(self):
+        """Normal speed (100) and faster (Swift boots) must be completely
+        unaffected -- the floor only ever raises the slow end, never the rest."""
+        from .monsters import Monster
+        from .items import BOOTS
+        w = self._world()
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertGreaterEqual(w.player.speed(), config.SYRINX_SPEED_FLOOR)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+        w.player.boots = BOOTS["swift"]     # faster still (125)
+        self.assertGreater(w.player.speed(), config.SYRINX_SPEED_FLOOR)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+
 class TestSyrinxStunAndRetreat(unittest.TestCase):
     def _world(self):
         codex = FakeSave(); codex.world_seed = 5
@@ -10269,7 +11131,9 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
     def test_a_landed_blow_stuns_her_and_knocks_the_player_back(self):
         w = self._world()
         w.player.x, w.player.y = 10, 10
-        s = self._syrinx(w, 6, 10)
+        # within SYRINX_BLOW_RANGE (3) of the player -- the resolve check now
+        # re-verifies range as well as line, same as the telegraph did.
+        s = self._syrinx(w, 10 - config.SYRINX_BLOW_RANGE, 10)
         for x in range(6, 13):                 # force the line clear and knockback room (1 == FLOOR)
             w.level.grid[10][x] = 1
         s.intent = ("blow", 0, 0)
@@ -10282,9 +11146,10 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
     def test_a_fizzled_blow_does_not_stun_or_start_a_retreat(self):
         w = self._world()
         w.player.x, w.player.y = 10, 10
-        s = self._syrinx(w, 6, 10)
+        s = self._syrinx(w, 10 - config.SYRINX_BLOW_RANGE, 10)   # within blow range
         s.intent = ("blow", 0, 0)
-        w.level.grid[10][8] = 0                # a wall drops into the line (0 == WALL)
+        wx = 10 - (config.SYRINX_BLOW_RANGE // 2 or 1)
+        w.level.grid[10][wx] = 0               # a wall drops into the line (0 == WALL)
         s.take_turn(w)
         self.assertEqual(s.stunned, 0)
         self.assertFalse(s.retreating)
@@ -10299,6 +11164,14 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         self.assertIn(target, w.level.syrinx_pillars())
 
     def test_reaching_the_target_pillar_re_hides_her(self):
+        """Arriving at her retreat target ends the retreat and takes her off the
+        grid, with the forced-emergence clock reset.
+
+        She no longer STAYS on the tile she retreated to: the moment she is hidden
+        she relocates, unseen, to a different pillar and surfaces from that one
+        instead (see TestSyrinxSurfacesFromAnotherPillar). So this asserts the state
+        change and that she ends up in SOME pillar -- her exact tile is that other
+        test's business, not this one's."""
         w = self._world()
         target = w.level.syrinx_pillars()[1]
         s = self._syrinx(w, *target)
@@ -10307,8 +11180,13 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         s.take_turn(w)
         self.assertTrue(s.hidden)
         self.assertFalse(s.retreating)
-        self.assertEqual((s.pillar_x, s.pillar_y), target)
         self.assertEqual(s.hidden_turns, 0)
+        self.assertIn((s.pillar_x, s.pillar_y), w.level.syrinx_pillars(),
+                      "wherever she went, it is a real pillar")
+        self.assertEqual((s.x, s.y), (s.pillar_x, s.pillar_y),
+                          "and her position agrees with the pillar she now holds")
+        self.assertNotEqual((s.x, s.y), target,
+                            "she goes in at one pillar and comes up at another")
 
     def test_a_blocked_straight_walk_re_routes_to_another_pillar(self):
         from .monsters import _syrinx_path_blocked
@@ -10349,7 +11227,14 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         self.assertTrue(
             s.hidden,
             f"never re-hid; stuck at ({s.x}, {s.y}) instead of reaching {target}")
-        self.assertEqual((s.pillar_x, s.pillar_y), target)
+        # She does not stay on the tile she walked to: going hidden relocates her,
+        # unseen, to a different pillar she will surface from (see
+        # TestSyrinxSurfacesFromAnotherPillar). What this test guards is the STEP --
+        # that her last retreat move can phase onto a WALL pillar at all, without
+        # which she oscillates one tile short forever and never re-hides. Reaching
+        # the hidden state at all is the proof that step landed.
+        self.assertIn((s.pillar_x, s.pillar_y), pillars,
+                      "she is holding a real pillar, whichever one she moved on to")
 
     def test_retreat_does_not_phase_through_ordinary_walls_en_route(self):
         # phase=True used to apply to the WHOLE retreat step, not just the final
@@ -10357,39 +11242,36 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
         # tile from her target, she could cut diagonally through ORDINARY wall
         # tiles if that happened to be the locally-shortest route. She is
         # corporeal, not incorporeal like wraith/poltergeist: only her OWN
-        # pillar should part like stone for her. This walks her across several
-        # turns from well outside melee range of any pillar and checks every
-        # tile she occupies along the way -- only a pillar tile (her final
-        # destination) may ever be a WALL tile.
+        # pillar should part like stone for her.
+        #
+        # This used to sweep the whole map for a start tile more than three tiles
+        # from any pillar, and walk her in from there past whatever rock the
+        # generator happened to leave lying about. Her hall makes that impossible
+        # twice over: the columns sit on a six-tile pitch, so EVERY tile in the
+        # room is within three of one, and the room's interior is unbroken floor,
+        # so a wandering walk would never meet an ordinary wall to phase through
+        # in the first place. The old setup could no longer even be built, let
+        # alone catch the bug.
+        #
+        # So state the intent directly instead of hoping the layout supplies it:
+        # drop a short ordinary wall straight across the line she would otherwise
+        # walk, and watch her go AROUND it. Phasing would take her through.
         from .dungeon import WALL
         w = self._world()
         pillars = w.level.syrinx_pillars()
-        left_pillar = pillars[0]
-        w.player.x, w.player.y = w.level.entrance
+        w.player.x, w.player.y = w.level.entrance   # well clear of the retreat path
 
-        start = None
-        for x in range(w.level.w):
-            for y in range(w.level.h):
-                if not w.level.walkable(x, y):
-                    continue
-                if max(abs(x - left_pillar[0]), abs(y - left_pillar[1])) < 4:
-                    continue
-                probe = self._syrinx(w, x, y)
-                probe.pillar_x, probe.pillar_y = left_pillar
-                target = probe._syrinx_retreat_target(w, w.player)
-                w.level.monsters.remove(probe)
-                if target is None:
-                    continue
-                if max(abs(x - target[0]), abs(y - target[1])) > 3:
-                    start = (x, y)
-                    break
-            if start:
-                break
-        self.assertIsNotNone(start, "expected a start tile well clear of any pillar")
-
-        s = self._syrinx(w, *start)
-        s.pillar_x, s.pillar_y = left_pillar
+        s = self._syrinx(w, 17, 6)
+        s.pillar_x, s.pillar_y = (15, 4)            # the pillar she just left
         s.retreating = True
+        target = s._syrinx_retreat_target(w, w.player)
+        self.assertEqual(target, (21, 4), "sanity: the geometry picks this pillar")
+
+        # a wall she has no business crossing, laid across the direct line
+        barrier = [(18, 5), (19, 5), (19, 4), (19, 3), (19, 2)]
+        for bx, by in barrier:
+            self.assertNotIn((bx, by), pillars, "the barrier must be ORDINARY stone")
+            w.level.grid[by][bx] = WALL
 
         visited = []
         for _ in range(20):
@@ -10399,7 +11281,10 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
             s.take_turn(w)
 
         self.assertTrue(s.hidden, f"never re-hid; stuck at ({s.x}, {s.y})")
+        self.assertGreater(len(visited), 2, "a one-step hop proves nothing")
 
+        for tile in barrier:
+            self.assertNotIn(tile, visited, "she walked THROUGH ordinary stone")
         bad = [(x, y) for (x, y) in visited
                if (x, y) not in pillars and w.level.grid[y][x] == WALL]
         self.assertEqual(
@@ -10495,16 +11380,121 @@ class TestSyrinxResistances(unittest.TestCase):
         t.trigger(w, s)
         self.assertEqual(s.stunned, 0)
 
+    def _arena_world(self):
+        """A real floor 8, her real arena, with the ambient roster and hazard traps
+        stripped out. Arena geometry is LRNG-free arithmetic (see
+        Level._cut_arena_floor) -- Room(12, 2, 31, 23) on every seed -- so (20, 13)
+        and (26, 13), both on row y=13, are always open floor: that row falls
+        between pillar rows (ARENA_MARGIN_Y=2, PITCH=6 -> 4, 10, 16, 22) and neither
+        x lands on a pillar column (15, 21, 27, 33, 39) either."""
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=7)
+        w.new_level(8)
+        w.level.monsters = []
+        w.level.traps = []          # her own hazards are not what this test is about
+        w.player.x, w.player.y = 20, 13
+        w.player.invisible = 30
+        self.assertTrue(w.player_hidden(), "sanity: the player really is invisible")
+        w.level.compute_fov(w.player.x, w.player.y)
+        return w
+
+    def test_invisibility_does_nothing_against_her(self):
+        """Ratified design call (2026-08-31): wind and stone do not hunt by sight, so
+        vanishing from mundane eyes buys the player nothing against her -- she still
+        telegraphs and lands her blow on an invisible player exactly as she would on
+        a visible one. This pins the generic player-hidden wander block in
+        Monster.take_turn (see the "and self.key != 'syrinx'" clause and its comment,
+        monsters.py ~298) to that ruling: the block exists to make invisibility work
+        against everyone else, and her key-based exemption from it is what makes it
+        NOT work against her. Goes through take_turn, not _ai_syrinx directly --
+        calling the AI method skips the very guard under test, which is exactly how
+        the arrival version of this bug went unnoticed the first two times.
+
+        The 2026-09-02 hunting-behaviour redesign changed what this test can prove:
+        she used to hunt anything aligned within RANGE=9, so starting her 6 tiles off
+        and idle was enough to show her closing and striking through the cloak. She
+        no longer closes on an already-aligned, stationary target at all -- rules 3/4
+        leash HER, not a wander block, and that leash is not invisibility-aware by
+        design (spec: "the locked gate hunts for her", not she for the player). So a
+        player standing still at the old distance would now go unstruck whether or
+        not they were visible, which would prove nothing about invisibility either
+        way. Starting her already inside SYRINX_BLOW_RANGE isolates the actual claim:
+        the blow telegraph/resolve pair itself is untouched by invisibility, which is
+        the one part of her still capable of reaching a motionless player."""
+        from .monsters import Monster
+        w = self._arena_world()
+        s = Monster("syrinx", 20 + config.SYRINX_BLOW_RANGE, 13)
+        s.hidden = False
+        s.awake = True
+        w.level.monsters.append(s)
+        for _ in range(6):
+            s.take_turn(w)
+        self.assertLess(w.player.hp, config.BASE_HP,
+                         "she must telegraph and land a blow through invisibility")
+
+    def test_the_same_setup_leaves_an_ordinary_hunter_harmless(self):
+        """Contrast case for the test above, same arena and same invisible player:
+        an ordinary mundane monster (a brute, wide awake and given every chance to
+        close in) IS stopped cold by the generic wander block. This is what proves
+        the immunity above belongs to Syrinx specifically, and is not a sign that
+        invisibility has quietly stopped working at all.
+
+        8 turns, not 6 -- and deliberately not tied to the sibling test's own
+        budget above (that 6 is about how fast SHE lands a blow; this number is
+        about how long a mundane hunter needs to prove it never does). Measured
+        directly: a brute starting at (26, 13) closing on a VISIBLE player at
+        (20, 13) only reaches adjacency on its 6th step and lands its first blow
+        on the 7th; against an invisible player it never lands one at all, at any
+        turn budget tried. 6 turns is short enough that a fully visible brute
+        would also still show zero damage, which made this assertion true no
+        matter what invisibility did -- proven by disabling the wander block
+        game-wide and watching this test keep passing. 8 has real margin on both
+        sides: past where a sighted brute would already have struck, and nowhere
+        near where a blind one ever does."""
+        from .monsters import Monster
+        w = self._arena_world()
+        b = Monster("brute", 26, 13)
+        b.awake = True
+        w.level.monsters.append(b)
+        for _ in range(8):
+            b.take_turn(w)
+        self.assertEqual(w.player.hp, config.BASE_HP,
+                          "an ordinary hunter must lose the thread against an "
+                          "invisible player")
+
+
+SYRINX_HOARD = [("gear", "windfang", 0), ("gear", "shade", 0),
+                ("gold", config.SYRINX_GOLD_DROP),
+                ("item", "rose"), ("item", "rose"),
+                ("item", "crimson"), ("item", "crimson")]
+
 
 class TestSyrinxRewards(unittest.TestCase):
-    def test_she_always_drops_windfang_and_shademail(self):
+    def test_she_always_drops_the_full_hoard(self):
+        """Gear, gold, and consumables alike are all guaranteed -- this is a fixed
+        hoard, not a roll (see roll_monster_loot's comment). Both gear pieces must
+        never go missing; that guarantee predates this change and must survive it."""
         import random
         from .items import roll_monster_loot
         for s in range(50):
             loot = roll_monster_loot(random.Random(s), 8, "syrinx")
-            self.assertEqual(loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
+            self.assertEqual(loot, SYRINX_HOARD)
 
-    def test_her_death_leaves_both_on_the_body(self):
+    def test_the_drop_draws_no_rng(self):
+        """A fixed hoard must not touch the rng at all -- otherwise her drop would
+        quietly consume random-stream state that the blind-vs-omniscient
+        determinism invariant depends on staying identical between runs."""
+        from .items import roll_monster_loot
+
+        class ExplodingRng:
+            def __getattr__(self, name):
+                raise AssertionError("roll_monster_loot('syrinx', ...) touched the "
+                                      "rng -- her drop must be pure data, not a roll")
+
+        loot = roll_monster_loot(ExplodingRng(), 8, "syrinx")
+        self.assertEqual(loot, SYRINX_HOARD)
+
+    def test_her_death_leaves_the_full_hoard_on_the_body(self):
         from .monsters import Monster
         codex = FakeSave()
         w = World(codex, seed=3)
@@ -10515,15 +11505,88 @@ class TestSyrinxRewards(unittest.TestCase):
         w.kill_monster(s, source="player")
         slain = w.level.slain[-1]
         self.assertEqual(slain.key, "syrinx")
-        self.assertEqual(slain.loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
+        self.assertEqual(slain.loot, SYRINX_HOARD)
+
+    def test_every_entry_is_offered_and_takeable(self):
+        """The loot menu does not truncate or choke on her body -- every entry shows
+        up in loot_options, and 'take all' clears the lot in one go.
+
+        Her hoard was eleven entries for one revision, which mattered: the menu
+        selects by number key 1-9, so the last two were unreachable by a single
+        keypress. The second pass cut it to seven and the problem went with it --
+        this test is written against len(SYRINX_HOARD) rather than a literal so it
+        keeps meaning the same thing if the hoard is retuned again."""
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        s.hp = 1
+        w.level.monsters = [s]
+        w.kill_monster(s, source="player")
+        slain = w.level.slain[-1]
+        w.player.x, w.player.y = slain.x, slain.y
+
+        opts = w.loot_options()
+        self.assertEqual(len(opts), len(SYRINX_HOARD),
+                          "the loot menu must offer every entry on her body")
+        self.assertLessEqual(len(SYRINX_HOARD), 9,
+                             "keep her hoard within the loot menu's 1-9 number keys, "
+                             "or the tail of it cannot be picked directly")
+
+        gold_before = w.player.gold
+        self.assertTrue(w.take_all())
+        self.assertEqual(w.player.gold, gold_before + config.SYRINX_GOLD_DROP)
+        self.assertEqual(w.loot_options(), [], "take-all must clear the whole hoard")
+
+    def test_a_full_pack_refuses_a_potion_but_still_takes_the_rest(self):
+        """can_take(payload) gates each 'item' pickup individually (see
+        world.py's _consume_option) -- a full pack must not crash or drop the whole
+        hoard, it must just refuse the potions/scrolls that will not fit and leave
+        them on the body, while gold and gear (never pack-limited) still come off."""
+        from .monsters import Monster
+        from .items import CONSUMABLES
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        # fill every pack slot with something that is not part of her hoard, so
+        # none of it can stack onto what is already carried
+        filler = [k for k in CONSUMABLES if k not in ("rose", "crimson")]
+        for k in filler:
+            while w.player.can_take(k):
+                w.player.pack_add(k)
+        self.assertFalse(w.player.can_take("rose"), "pack must be full for this test")
+
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        s.hp = 1
+        w.level.monsters = [s]
+        w.kill_monster(s, source="player")
+        slain = w.level.slain[-1]
+        w.player.x, w.player.y = slain.x, slain.y
+
+        gold_before = w.player.gold
+        w.take_all()
+        # gold and both gear pieces are never pack-limited -- they must always come off
+        self.assertEqual(w.player.gold, gold_before + config.SYRINX_GOLD_DROP)
+        remaining = [o["kind"] for o in w.loot_options()]
+        self.assertNotIn("gold", remaining)
+        self.assertNotIn("gear", remaining)
+        # every potion/scroll that could not fit is refused, not lost
+        self.assertTrue(remaining, "a full pack must leave the un-takeable "
+                                    "consumables on the body rather than eating them")
+        self.assertTrue(all(k == "item" for k in remaining))
 
     def test_her_corpse_never_gets_buried_in_a_pillar_wall(self):
         from .dungeon import WALL
+        from .monsters import Monster
         codex = FakeSave()
         w = World(codex, seed=3)
         w.new_level(8)
         lvl = w.level
-        s = next(m for m in lvl.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *lvl.syrinx_pillars()[0])
+        lvl.monsters.append(s)
         s.hidden = False
         s.hp = 1
         px, py = s.x, s.y
@@ -10577,11 +11640,15 @@ class TestSyrinxSerialization(unittest.TestCase):
     def test_a_hidden_syrinx_survives_suspend_and_resume(self):
         import json
         from .dungeon import Level, WALL
+        from .monsters import Monster
         codex = FakeSave()
         w = World(codex, seed=4)
         w.new_level(8)
         lv = w.level
-        s = next(m for m in lv.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *lv.syrinx_pillars()[0])
+        lv.monsters.append(s)
         s.hidden_turns = 2
         s.intent = ("emerge", s.x, s.y)
 
@@ -10600,6 +11667,25 @@ class TestSyrinxSerialization(unittest.TestCase):
 
     def test_run_save_version_was_bumped_for_her_new_state(self):
         self.assertGreaterEqual(config.RUN_SAVE_VERSION, 3)
+
+    def test_just_forced_close_round_trips_through_to_dict_from_dict(self):
+        """Mutation-kill: deleting "just_forced_close" from _MONSTER_STATE is
+        the entire justification for the RUN_SAVE_VERSION 4->5 bump (see
+        config.py's own comment on the constant), and nothing else in this
+        class -- or TestMonsterSerialization, TestWorldSerialization,
+        TestLevelSerialization, TestSuspendResumeLifecycle -- sets this flag
+        before round-tripping a monster, so nothing else would notice it
+        silently stopped surviving a save/load. A save spanning the one turn
+        the flag is meant to suppress rule 1 for must come back with the
+        flag still armed, or that suppression silently vanishes across a
+        suspend/resume boundary.
+        """
+        from .monsters import Monster
+        m = Monster("syrinx", 5, 6)
+        m.just_forced_close = True
+        n = Monster.from_dict(m.to_dict())
+        self.assertTrue(n.just_forced_close,
+                         "just_forced_close must round-trip through to_dict/from_dict")
 
 
 class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
@@ -10656,10 +11742,28 @@ class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
         return cur if world.walkable(*cur) else None
 
     def _trace(self, codex):
+        from .monsters import Monster
         w = World(codex, seed=11)
         w.new_level(8)
-        s = next(m for m in w.level.monsters if m.key == "syrinx")
+        # she is not placed at generation any more (Task 6) -- put her on one of
+        # her own pillars directly, same spot _populate_syrinx used to use.
+        s = Monster("syrinx", *w.level.syrinx_pillars()[0])
+        w.level.monsters.append(s)
         arena = w.level._syrinx_arena()
+        # Flag her as already spawned/committed, exactly as a real commit through
+        # the mouth would leave the gate state. This script drops the player
+        # straight into her arena WITHOUT ever walking through the mouth, so
+        # without this the world would still think she has not arrived yet --
+        # a fight against a boss the game itself believes is not there. It is
+        # not defending against a duplicate spawn: _enter_tile is pure
+        # trap-springing again, _arena_commit's one call site is
+        # _end_player_turn(), and _trace never ends a turn, so nothing here
+        # can re-fire the commit path. These two lines exist to pin the traced
+        # fight to the state it claims to be -- one boss, in a hall whose gate
+        # has already fallen -- so the trace is honestly the sealed, one-boss
+        # encounter it is scripted to be, not an artifact of skipping the mouth.
+        w.level.boss_spawned = True
+        w.level.mouth_sealed = True
         # Start inside her arena (not the level's real, distant entrance) -- see the
         # class docstring for why that is what actually gets her engaged.
         w.player.x, w.player.y = arena.cx, arena.cy
@@ -10699,6 +11803,1299 @@ class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
                         "scenario never exercised her retreat")
         self.assertLess(min(row[8] for row in t1), t1[0][8],
                         "scenario never actually landed a blow on the player")
+
+
+class TestSyrinxShoveSpringsTraps(unittest.TestCase):
+    """The gust drags you ACROSS the floor, and the floor is trapped. Before this,
+    _syrinx_knockback moved the player without ever calling _enter_tile(), so it
+    slid you over live traps without springing one -- the shove cost nothing."""
+
+    def _world(self):
+        # An ORDINARY floor on purpose. _syrinx_knockback does not care about depth,
+        # and from Task 5 onward floor 8 seals its mouth the moment the player stands
+        # in the arena -- which would fire inside these tests and spawn her.
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)
+        return w
+
+    def test_shove_springs_every_trap_it_drags_you_over(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        # a clear east-west lane: her at x, player two east, traps at the next two
+        p.x, p.y = 20, 20
+        for x in range(17, 27):
+            w.level.grid[20][x] = 1                     # FLOOR
+        w.level.traps = [Trap("dart", 22, 20), Trap("dart", 23, 20)]
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        before = p.hp
+        w._syrinx_knockback(m)
+        self.assertTrue(all(t.sprung for t in w.level.traps),
+                        "both darts should have fired as she blew you past them")
+        self.assertLess(p.hp, before, "and both should have hurt")
+
+    def test_the_slide_stops_when_the_shove_kills_you(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 27):
+            w.level.grid[20][x] = 1
+        w.level.traps = [Trap("dart", 22, 20), Trap("dart", 25, 20)]
+        p.hp = 1
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertLessEqual(p.hp, 0)
+        self.assertFalse(w.level.traps[1].sprung,
+                         "a dead player is not dragged over any more traps")
+
+    def test_a_spike_pit_arrests_the_slide(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 30):
+            w.level.grid[20][x] = 1
+        w.level.traps = [Trap("spike", 22, 20)]
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertEqual((p.x, p.y), (22, 20),
+                         "you fall into the pit; you do not skip over it")
+
+    def test_a_stale_stuck_flag_does_not_arrest_a_clear_slide(self):
+        """traps.py sets player.stuck = 1 with a plain assignment, and nothing in
+        the game ever counts it higher -- so a player who is ALREADY stuck (from
+        climbing out of a pit on some earlier turn, one nowhere near this lane)
+        must still be dragged the full push distance when the lane itself is
+        clear. The regression this pins: an old version of this method compared
+        stuck against a before-the-slide snapshot and only broke when it went UP,
+        which reads a leftover stuck=1 as "nothing happened" here too -- by
+        accident, the right answer for the WRONG reason. This test exists so a
+        fix that reintroduces the snapshot-and-compare approach, but gets the
+        comparison backwards, cannot sneak back in unnoticed alongside the one
+        below."""
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 30):
+            w.level.grid[20][x] = 1
+        w.level.traps = []
+        p.stuck = 1                    # stale: climbing out of some OTHER pit, days ago
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertEqual((p.x, p.y), (25, 20),
+                         "no pit in this lane -- a stale stuck flag must not stop you")
+
+    def test_a_spike_pit_in_path_still_catches_you_even_with_a_stale_stuck_flag(self):
+        """THE regression case. traps.py's `world.player.stuck = 1` is a plain
+        assignment -- it never counts past 1 -- so a player who enters the shove
+        already stuck at 1 (from a pit they fell into on their OWN previous turn)
+        must not have that stale 1 mistaken for "nothing new happened" when the
+        gust then drags them across a SEPARATE, live pit mid-lane. The old
+        before/after snapshot compared stuck_before(1) against stuck-after(1) and
+        saw no change -- 1 > 1 is False -- so the pit's damage landed and the
+        slide skated straight over it anyway. Reverting the fix must turn this
+        test red: with the snapshot-and-compare approach restored, the player
+        ends up at (25, 20) instead of (22, 20)."""
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        p = w.player
+        p.x, p.y = 20, 20
+        for x in range(17, 30):
+            w.level.grid[20][x] = 1
+        w.level.traps = [Trap("spike", 22, 20)]
+        p.stuck = 1                    # stale: climbing out of some OTHER pit, days ago
+        m = Monster("syrinx", 18, 20)
+        w.level.monsters = [m]
+        w._syrinx_knockback(m)
+        self.assertEqual((p.x, p.y), (22, 20),
+                         "a pit IN THE PATH must still catch you, stale flag or not")
+
+
+class TestSyrinxNeverSpringsHerOwnTraps(unittest.TestCase):
+    """on_monster_moved() already exempted wraiths (ethereal, nothing to spring).
+    Syrinx needs the same exemption for a different reason: the hall's ~150
+    hazards are dealt for the PLAYER to cross, one-shot dart/gas/glyph included,
+    and she wanders that same floor for the whole fight. Every trap she springs
+    herself is a trap that will never threaten the player again, and fire glyphs
+    hit her at SYRINX_FIRE_MULT -- so a 30 HP boss wandering her own room can
+    quietly bleed herself out on the minefield she is supposed to be guarding.
+    She owns the room; its hazards are the player's problem, not hers."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)          # an ordinary floor -- see TestSyrinxShoveSpringsTraps
+        return w
+
+    def test_she_does_not_spring_a_dart_trap_she_walks_onto(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1                      # FLOOR
+        w.level.traps = [Trap("dart", 21, 20)]
+        m = Monster("syrinx", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20                              # she has just stepped onto it
+        w.on_monster_moved(m)
+        self.assertFalse(w.level.traps[0].sprung, "her own hall's dart must stay armed")
+
+    def test_she_takes_no_fire_glyph_damage_from_her_own_hall(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1
+        w.level.traps = [Trap("glyph", 21, 20)]
+        m = Monster("syrinx", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20
+        before = m.hp
+        w.on_monster_moved(m)
+        self.assertEqual(m.hp, before, "the double-damage fire glyph must never fire on her")
+
+    def test_a_wraith_is_still_exempt_too(self):
+        """The pre-existing exemption must survive alongside the new one."""
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1
+        w.level.traps = [Trap("dart", 21, 20)]
+        m = Monster("wraith", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20
+        w.on_monster_moved(m)
+        self.assertFalse(w.level.traps[0].sprung)
+
+    def test_an_ordinary_monster_still_springs_traps_as_before(self):
+        """The exemption is by key, not a blanket skip -- a kobold dragged or
+        stepped onto a trap must still spring it."""
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1
+        w.level.traps = [Trap("dart", 21, 20)]
+        m = Monster("kobold", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20
+        w.on_monster_moved(m)
+        self.assertTrue(w.level.traps[0].sprung, "a mundane monster still springs traps")
+
+
+class TestArenaFloorGeometry(unittest.TestCase):
+    """Floor 8 is not a dungeon floor any more. It is her hall: an antechamber, a
+    one-tile mouth, and a 31x23 room with twenty columns in it. The geometry is
+    FIXED -- identical in every game -- and only the hazards are re-dealt."""
+
+    def _level(self, world_seed=3, run_seed=1):
+        codex = FakeSave(); codex.world_seed = world_seed
+        w = World(codex, seed=run_seed)
+        w.new_level(8)
+        return w.level
+
+    def test_floor_eight_is_exactly_two_rooms(self):
+        lvl = self._level()
+        self.assertEqual(len(lvl.rooms), 2)
+        self.assertIsNotNone(lvl.ante_room)
+        self.assertIsNotNone(lvl.arena_room)
+
+    def test_the_arena_is_the_size_the_design_asks_for(self):
+        lvl = self._level()
+        self.assertEqual((lvl.arena_room.w, lvl.arena_room.h),
+                         (config.ARENA_W, config.ARENA_H))
+
+    def test_geometry_is_identical_across_games(self):
+        a, b = self._level(world_seed=3), self._level(world_seed=99)
+        self.assertEqual((a.arena_room.x, a.arena_room.y), (b.arena_room.x, b.arena_room.y))
+        self.assertEqual(a.mouth, b.mouth)
+        self.assertEqual(a.stairs, b.stairs)
+        self.assertEqual(sorted(a.syrinx_pillars()), sorted(b.syrinx_pillars()))
+
+    def test_twenty_pillars_on_a_six_tile_pitch(self):
+        lvl = self._level()
+        pillars = lvl.syrinx_pillars()
+        self.assertEqual(len(pillars), 20)
+        xs = sorted({x for x, _ in pillars})
+        ys = sorted({y for _, y in pillars})
+        self.assertEqual(len(xs), config.ARENA_PILLAR_COLS)
+        self.assertEqual(len(ys), config.ARENA_PILLAR_ROWS)
+        for a, b in zip(xs, xs[1:]):
+            self.assertEqual(b - a, config.ARENA_PILLAR_PITCH)
+        for a, b in zip(ys, ys[1:]):
+            self.assertEqual(b - a, config.ARENA_PILLAR_PITCH)
+
+    def test_pillars_are_wall_and_never_block_anything_that_matters(self):
+        lvl = self._level()
+        for px, py in lvl.syrinx_pillars():
+            self.assertEqual(lvl.grid[py][px], 0, "a pillar is a WALL tile")
+            self.assertNotEqual((px, py), lvl.stairs)
+            self.assertNotEqual((px, py), lvl.mouth)
+            self.assertNotEqual((px, py), lvl.boss_arrival())
+
+    def test_the_mouth_joins_the_two_rooms_and_starts_open(self):
+        lvl = self._level()
+        mx, my = lvl.mouth
+        self.assertEqual(lvl.grid[my][mx], 1, "the mouth is open until you commit")
+        self.assertTrue(lvl.arena_room.contains(mx + 1, my))
+        self.assertTrue(lvl.ante_room.contains(mx - 1, my))
+
+    def test_you_arrive_in_the_antechamber_and_the_way_down_is_in_the_arena(self):
+        lvl = self._level()
+        self.assertTrue(lvl.ante_room.contains(*lvl.entrance))
+        self.assertTrue(lvl.arena_room.contains(*lvl.stairs))
+        self.assertTrue(lvl.arena_room.contains(*lvl.boss_arrival()))
+
+    def test_she_arrives_at_the_far_end_well_beyond_your_sight(self):
+        lvl = self._level()
+        bx, by = lvl.boss_arrival()
+        mx, my = lvl.mouth
+        self.assertGreater(max(abs(bx - mx), abs(by - my)), config.FOV_RADIUS,
+                           "her arrival must be unwitnessed")
+
+    def test_other_floors_are_untouched(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        self.assertIsNone(w.level.arena_room)
+        self.assertFalse(w.level.is_arena_floor())
+        self.assertGreater(len(w.level.rooms), 2)
+
+
+class TestArenaHazards(unittest.TestCase):
+    """Her blow is 1-3 against 26 HP and there is no levelling. She is not the
+    damage -- the room is. The hazards are stone, dealt from lrng, so they are the
+    same on every re-entry within a game and re-dealt in a new one: dying on floor 8
+    buys you knowledge of THIS dungeon's hall."""
+
+    def _level(self, world_seed=3, run_seed=1):
+        codex = FakeSave(); codex.world_seed = world_seed
+        w = World(codex, seed=run_seed)
+        w.new_level(8)
+        return w.level
+
+    def test_the_hall_is_properly_trapped(self):
+        lvl = self._level()
+        self.assertEqual(len(lvl.traps), config.ARENA_TRAPS)
+
+    def test_no_alarm_rune_in_a_one_monster_room(self):
+        lvl = self._level()
+        keys = {t.key for t in lvl.traps}
+        self.assertNotIn("alarm", keys,
+                         "wake_all() would wake a boss who is already hunting you")
+        self.assertTrue(keys <= {"dart", "spike", "gas", "glyph"})
+
+    def test_every_hazard_is_on_arena_floor_and_nowhere_forbidden(self):
+        lvl = self._level()
+        pillars = set(lvl.syrinx_pillars())
+        for t in lvl.traps:
+            self.assertTrue(lvl.arena_room.contains(t.x, t.y))
+            self.assertEqual(lvl.grid[t.y][t.x], 1)
+            self.assertNotIn((t.x, t.y), pillars)
+            self.assertNotEqual((t.x, t.y), lvl.stairs)
+            self.assertNotEqual((t.x, t.y), lvl.mouth)
+            self.assertNotEqual((t.x, t.y), lvl.boss_arrival())
+
+    def test_no_hazard_ambushes_you_on_the_threshold(self):
+        lvl = self._level()
+        ax, ay = lvl.arena_room.x, lvl.arena_room.cy
+        for t in lvl.traps:
+            self.assertGreater(max(abs(t.x - ax), abs(t.y - ay)), 1,
+                               "stepping through the gate onto a glyph is not a fight")
+
+    def test_one_hazard_per_tile(self):
+        lvl = self._level()
+        spots = [(t.x, t.y) for t in lvl.traps]
+        self.assertEqual(len(spots), len(set(spots)))
+
+    def test_hazards_are_stone__same_all_game__redealt_in_a_new_one(self):
+        # Same world_seed, DIFFERENT run_seed each time -- that is the only way to
+        # tell the stone clock (lrng, per game) apart from the living clock (rng,
+        # per run). Holding run_seed fixed too would make this pass even if the
+        # hazards were dealt from rng: it would just be re-running the same draw.
+        first = None
+        for run_seed in (1, 2, 3):
+            lvl = self._level(world_seed=7, run_seed=run_seed)
+            sig = sorted((t.key, t.x, t.y) for t in lvl.traps)
+            if first is None:
+                first = sig
+            self.assertEqual(sig, first,
+                             "hazards must be part of the permanent stonework -- "
+                             "they cannot move between runs of the same dungeon")
+
+        other = self._level(world_seed=8, run_seed=1)
+        self.assertNotEqual(first, sorted((t.key, t.x, t.y) for t in other.traps),
+                            "a new dungeon must re-deal the hazards")
+
+
+class TestArenaGateState(unittest.TestCase):
+    """Three booleans carry the whole floor: has the mouth shut, is the way down
+    barred, has she arrived. Suspend in the antechamber and she must not exist on
+    resume; suspend mid-fight and she must, exactly where she was."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def test_a_fresh_hall_starts_open_barred_and_empty(self):
+        lvl = self._world().level
+        self.assertFalse(lvl.mouth_sealed)
+        self.assertTrue(lvl.stairs_locked, "the way down is shut until she is dead")
+        self.assertFalse(lvl.boss_spawned)
+
+    def test_ordinary_floors_are_never_barred(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        self.assertFalse(w.level.stairs_locked)
+        self.assertFalse(w.level.mouth_sealed)
+
+    def test_the_three_flags_survive_a_round_trip(self):
+        from .dungeon import Level
+        w = self._world()
+        w.level.mouth_sealed = True
+        w.level.stairs_locked = False
+        w.level.boss_spawned = True
+        data = w.level.to_dict()
+
+        restored = Level(8, w.rng, w.codex, restore=data)
+        self.assertTrue(restored.mouth_sealed)
+        self.assertFalse(restored.stairs_locked)
+        self.assertTrue(restored.boss_spawned)
+
+    def test_a_sealed_mouth_is_still_stone_after_a_resume(self):
+        from .dungeon import Level
+        w = self._world()
+        mx, my = w.level.mouth
+        w.level.grid[my][mx] = 0
+        w.level.mouth_sealed = True
+        data = w.level.to_dict()
+
+        restored = Level(8, w.rng, w.codex, restore=data)
+        self.assertEqual(restored.grid[my][mx], 0,
+                         "a resumed hall must not re-open the gate you shut")
+
+    def test_the_save_version_moved(self):
+        self.assertGreaterEqual(config.RUN_SAVE_VERSION, 4)
+
+
+class TestArenaGates(unittest.TestCase):
+    """Three gates, one object, each opening one way only: the way up seals when you
+    arrive, the mouth seals when you commit, and the way down opens when she dies."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def _commit(self, w):
+        """Walk the player through the mouth into the hall."""
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()      # Task 7: commit now fires here, not on tile entry
+
+    def test_the_way_up_is_stone_the_moment_you_arrive(self):
+        w = self._world()
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.ascend(), "there is no way back from her floor")
+
+    def test_ordinary_floors_still_let_you_climb(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend())
+
+    def test_the_mouth_shuts_behind_you(self):
+        w = self._world()
+        mx, my = w.level.mouth
+        self.assertEqual(w.level.grid[my][mx], 1)
+        self._commit(w)
+        self.assertTrue(w.level.mouth_sealed)
+        self.assertEqual(w.level.grid[my][mx], 0, "the gate is stone now")
+
+    def test_committing_reveals_the_halls_stone_and_never_its_contents(self):
+        w = self._world()
+        self._commit(w)
+        a = w.level.arena_room
+        far_x, far_y = a.x + a.w - 2, a.y + 1
+        self.assertTrue(w.level.explored[far_y][far_x],
+                        "the hall shows you its shape")
+        self.assertFalse(w.level.seen[far_y][far_x],
+                         "nothing but your own eyes ever shows you contents")
+
+    def test_the_hazards_stay_hidden_through_the_reveal(self):
+        w = self._world()
+        self._commit(w)
+        far = [t for t in w.level.traps
+               if max(abs(t.x - w.player.x), abs(t.y - w.player.y)) > config.FOV_RADIUS]
+        self.assertTrue(far, "test needs a hazard out of sight")
+        for t in far:
+            self.assertFalse(w.codex.trap_found(8, t.x, t.y),
+                             "a reveal maps stone, not danger")
+
+    def test_the_way_down_is_barred_until_she_dies(self):
+        w = self._world()
+        self._commit(w)
+        w.player.x, w.player.y = w.level.stairs
+        self.assertFalse(w.descend(), "the hall holds the stairs shut")
+        self.assertEqual(w.depth, 8)
+
+    def test_killing_her_opens_the_way_down(self):
+        from .monsters import Monster
+        w = self._world()
+        self._commit(w)
+        m = Monster("syrinx", w.level.arena_room.cx, w.level.arena_room.cy)
+        w.level.monsters = [m]
+        w.kill_monster(m)
+        self.assertFalse(w.level.stairs_locked)
+        w.player.x, w.player.y = w.level.stairs
+        self.assertTrue(w.descend())
+        self.assertEqual(w.depth, 9)
+
+    def test_a_hazard_that_kills_her_opens_it_too(self):
+        from .monsters import Monster
+        w = self._world()
+        self._commit(w)
+        m = Monster("syrinx", w.level.arena_room.cx, w.level.arena_room.cy)
+        w.level.monsters = [m]
+        w.kill_monster(m, source="glyph")
+        self.assertFalse(w.level.stairs_locked,
+                         "the gate answers to her death, not to who dealt it")
+
+    def test_the_mouth_only_seals_once(self):
+        w = self._world()
+        self._commit(w)
+        w.level.boss_spawned = False       # pretend Task 6 has not run
+        self._commit(w)
+        self.assertTrue(w.level.mouth_sealed)
+
+
+class TestArenaBossArrival(unittest.TestCase):
+    """She is not in the hall until you commit to it. She materialises at the far
+    end, holds one turn, and sinks into a column -- all of it ~27 tiles away, well
+    outside FOV_RADIUS, so you are never shown it happening."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def _commit(self, w):
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        # Task 7 moved the commit call to _end_player_turn(), which also runs
+        # advance() -- and advance() would resolve her held "arrive" turn in the
+        # same call, before these tests get a chance to look at it. Call the
+        # commit primitive directly instead, so she is caught in the freeze-frame
+        # this whole test class is about: materialised, not yet moved.
+        w._arena_commit()
+
+    def test_the_hall_is_empty_until_you_step_into_it(self):
+        w = self._world()
+        self.assertEqual([m for m in w.level.monsters if m.key == "syrinx"], [])
+        self.assertFalse(w.level.boss_spawned)
+
+    def test_she_arrives_on_commit_at_the_far_end_and_not_hidden(self):
+        w = self._world()
+        self._commit(w)
+        found = [m for m in w.level.monsters if m.key == "syrinx"]
+        self.assertEqual(len(found), 1)
+        m = found[0]
+        self.assertEqual((m.x, m.y), w.level.boss_arrival())
+        self.assertFalse(m.hidden, "she materialises before she hides")
+        self.assertTrue(w.level.boss_spawned)
+
+    def test_she_arrives_out_of_sight(self):
+        w = self._world()
+        self._commit(w)
+        m = [m for m in w.level.monsters if m.key == "syrinx"][0]
+        # _commit moves the player and calls _arena_commit, but nothing along that
+        # path recomputes FOV -- w.level.visible is still the grid from wherever
+        # the player last stood (the level entrance, far away). Without this the
+        # assertion below would hold even if she landed on top of the player: it
+        # is testing a stale snapshot, not the claim "you never see her arrive".
+        w.level.compute_fov(w.player.x, w.player.y)
+        self.assertFalse(w.level.visible[m.y][m.x],
+                         "the room shows you its shape, never her")
+
+    def test_she_holds_one_turn_then_goes_to_ground(self):
+        w = self._world()
+        self._commit(w)
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        self.assertEqual(m.intent[0], "arrive")
+        m._ai_syrinx(w, w.player)             # the held turn
+        self.assertIsNone(m.intent)
+        self.assertFalse(m.hidden, "still standing -- she has only just turned to go")
+        self.assertTrue(m.retreating, "and she is now heading for a column")
+        for _ in range(60):                   # let her walk to one
+            if m.hidden:
+                break
+            m._ai_syrinx(w, w.player)
+        self.assertTrue(m.hidden, "she reaches a column and goes off-grid")
+
+    def test_a_real_commit_turn_leaves_her_heading_for_a_column(self):
+        """Every other assertion about her held 'arrive' beat in this class goes
+        through _arena_commit, the primitive that freezes her mid-turn before
+        advance() gets a chance to run. That is deliberate -- it is the only way to
+        catch her standing there un-hidden, intent still set -- but it also means
+        nothing in here exercises the real path: _end_player_turn() commits her AND
+        calls advance() in the same beat, so her held turn could get eaten right
+        there and no test would notice. Drive the real path once, end to end, and
+        check she comes out the other side already turned to go, exactly as the
+        primitive-driven tests above assume she does."""
+        w = self._world()
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()                  # the real path, not the primitive
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        self.assertIsNone(m.intent)
+        self.assertTrue(m.retreating)
+
+    def test_she_lands_on_the_nearest_free_tile_if_her_spot_is_taken(self):
+        """boss_arrival() is a fixed tile, and the docstring on _spawn_arena_boss
+        says a player caught standing on it (Escape, Zeph's Teleport, a resume that
+        lands them there) does not get materialised on top of -- she takes the
+        nearest open ground instead, via _nearest_walkable(..., unoccupied=True).
+        That fallback had no direct test: the only caller is this one, and every
+        existing arrival test leaves (39,13) empty, so the occupancy branch could be
+        gutted and all 783 tests would still pass. Pin it down directly."""
+        w = self._world()
+        ax, ay = w.level.boss_arrival()
+        w.player.x, w.player.y = ax, ay      # standing right on her spot
+        w._arena_commit()
+        found = [m for m in w.level.monsters if m.key == "syrinx"]
+        self.assertEqual(len(found), 1)
+        m = found[0]
+        self.assertNotEqual((m.x, m.y), (ax, ay),
+                            "she must not land on the player")
+        self.assertTrue(w.level.walkable(m.x, m.y))
+        self.assertNotIn((m.x, m.y), w.level.syrinx_pillars(),
+                         "the fallback tile must not be a column")
+        self.assertNotEqual((m.x, m.y), w.level.stairs,
+                            "the fallback tile must not be the way down")
+        self.assertTrue(w.level.arena_room.contains(m.x, m.y),
+                        "the fallback must still be inside her hall")
+
+    def test_an_invisible_player_does_not_break_her_arrival(self):
+        """Regression for the generic invisible-player wander block in
+        Monster.take_turn (deathward/monsters.py ~298): it used to be gated on
+        "and not self.hidden", which protected her only while HIDDEN -- but her
+        ARRIVE beat puts her on the grid un-hidden. Committing while invisible used
+        to have her first take_turn hit that branch instead of _ai_syrinx, drop the
+        ("arrive", ...) intent, never set retreating, and leave her wandering the
+        open floor un-hidden forever. Goes through take_turn (not _ai_syrinx
+        directly) because that generic block sits AHEAD of the per-monster AI
+        dispatch -- calling _ai_syrinx directly skips it and would miss this bug
+        entirely, which is exactly how the original test missed it."""
+        w = self._world()
+        w.player.invisible = 30
+        self.assertTrue(w.player_hidden())
+        self._commit(w)
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        self.assertEqual(m.intent[0], "arrive")
+
+        m.take_turn(w)                        # the held arrival turn
+        self.assertIsNone(m.intent)
+        self.assertFalse(m.hidden, "still standing -- she has only just turned to go")
+        self.assertTrue(m.retreating, "and she is now heading for a column, not wandering")
+
+        for _ in range(60):                   # let her walk to one, still invisible
+            if m.hidden:
+                break
+            m.take_turn(w)
+        self.assertTrue(m.hidden, "she reaches a column and goes off-grid regardless")
+
+    def test_she_arrives_only_once(self):
+        w = self._world()
+        self._commit(w)
+        w.level.mouth_sealed = False
+        self._commit(w)
+        self.assertEqual(len([m for m in w.level.monsters if m.key == "syrinx"]), 1)
+
+    def test_a_resume_before_commit_leaves_the_hall_empty(self):
+        from .dungeon import Level
+        w = self._world()
+        restored = Level(8, w.rng, w.codex, restore=w.level.to_dict())
+        self.assertEqual([m for m in restored.monsters if m.key == "syrinx"], [])
+        self.assertFalse(restored.boss_spawned)
+
+    def test_a_resume_mid_fight_keeps_her_exactly_where_she_was(self):
+        from .dungeon import Level
+        w = self._world()
+        self._commit(w)
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        m.x, m.y = w.level.arena_room.cx, w.level.arena_room.cy
+        m.hp = 11
+        restored = Level(8, w.rng, w.codex, restore=w.level.to_dict())
+        found = [x for x in restored.monsters if x.key == "syrinx"]
+        self.assertEqual(len(found), 1)
+        self.assertEqual((found[0].x, found[0].y), (m.x, m.y))
+        self.assertEqual(found[0].hp, 11)
+
+
+class TestArenaScrollContainment(unittest.TestCase):
+    """Escape and Teleport work perfectly well inside her hall -- she shoves you away
+    and is vulnerable for exactly one turn after her blow, so an aimed jump is the
+    gap-closer that turns her stun into damage. What they are not is an exit. The
+    antechamber leaves the destination pool the moment the mouth shuts, because the
+    floor has no other way out and stranding the player there is a softlock."""
+
+    def _committed(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()      # commitment now fires here, not on tile entry
+        return w
+
+    def test_escape_never_drops_you_in_the_sealed_antechamber(self):
+        w = self._committed()
+        ante = w.level.ante_room
+        for _ in range(150):
+            w.player.x, w.player.y = w.level.arena_room.cx, w.level.arena_room.cy
+            w._apply_effect("blink")
+            self.assertFalse(ante.contains(w.player.x, w.player.y),
+                             "UUL must never roll the sealed room")
+
+    def test_blink_tile_near_never_lands_in_the_sealed_antechamber(self):
+        """blink_tile_near is the fourth repositioner -- the Flicker, the Slipstep
+        boots wrench, and the Shademail surface-spit all go through it -- and unlike
+        Escape/Teleport above it deliberately ignores walls: "the tile just has to be
+        open floor" is the whole point of a blink. But the sealed mouth is one tile
+        thick, well inside a chebyshev-2 leap, and from the threshold tile (12,
+        arena.cy) -- where you walk in, and where her knockback drives you, since she
+        starts at the east end and shoves west -- roughly a third of the ring lands
+        inside the antechamber. Landing there with the mouth sealed is a softlock
+        with no source-level distinction from the Escape/Teleport case above; the
+        only reason it needs its own test is that it is reached through a different
+        function with its own candidate filter."""
+        w = self._committed()
+        ante = w.level.ante_room
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy      # the threshold tile, one step off the mouth
+        for _ in range(300):
+            spot = w.blink_tile_near(w.player.x, w.player.y,
+                                     config.SLIPSTEP_BLINK_DIST,
+                                     config.SLIPSTEP_BLINK_DIST)
+            self.assertIsNotNone(spot, "the threshold tile has open floor at distance 2")
+            self.assertFalse(ante.contains(*spot),
+                             "a wall-ignoring blink must still respect the sealed gate")
+
+    def test_teleport_refuses_the_sealed_antechamber(self):
+        w = self._committed()
+        ante = w.level.ante_room
+        for y in range(ante.y, ante.y + ante.h):
+            for x in range(ante.x, ante.x + ante.w):
+                w.level.explored[y][x] = True
+                self.assertFalse(w.valid_teleport(x, y),
+                                 "the gate does not answer")
+
+    def test_teleport_still_works_inside_the_hall(self):
+        w = self._committed()
+        a = w.level.arena_room
+        tx, ty = a.cx, a.cy
+        w.level.explored[ty][tx] = True
+        self.assertTrue(w.valid_teleport(tx, ty))
+
+    def test_the_antechamber_is_fine_before_you_commit(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        ante = w.level.ante_room
+        w.level.explored[ante.cy][ante.cx + 1] = True
+        w.player.x, w.player.y = ante.x, ante.y
+        self.assertTrue(w.valid_teleport(ante.cx + 1, ante.cy))
+
+    def test_ordinary_floors_are_unaffected(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)
+        self.assertFalse(w.level.tile_is_sealed_off(w.level.stairs[0],
+                                                    w.level.stairs[1]))
+
+    def test_teleporting_into_the_hall_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        for y in range(a.y, a.y + a.h):
+            for x in range(a.x, a.x + a.w):
+                w.level.explored[y][x] = True
+        self.assertTrue(w.teleport_to(a.cx, a.cy))
+        self.assertTrue(w.level.mouth_sealed,
+                        "the gate shuts for scrolls too, not just for the door")
+
+    def test_blinking_into_the_hall_commits_you(self):
+        """Drives the real UUL path -- _apply_effect("blink") -- rather than just
+        teleporting the player there by hand and calling _end_player_turn(), which
+        would be indistinguishable from the plain standing-in-the-hall case below
+        and would never actually exercise the scroll's own random-room roll. UUL
+        picks uniformly between her two rooms (see _apply_effect's "blink" case), so
+        landing in the hall is a coin flip per read; re-read the scroll until it
+        lands there rather than pinning the RNG to one outcome."""
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        for _ in range(200):
+            w._apply_effect("blink")
+            if a.contains(w.player.x, w.player.y):
+                break
+        else:
+            self.fail("UUL never rolled the hall in 200 reads")
+        self.assertFalse(w.level.mouth_sealed,
+                         "reading the scroll alone doesn't commit you -- only ending the turn does")
+        w._end_player_turn()
+        self.assertTrue(w.level.mouth_sealed,
+                        "the scroll's own blink has to trip the same gate walking through the door does")
+
+    def test_standing_in_the_antechamber_never_commits_you(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        for _ in range(5):
+            w._end_player_turn()
+        self.assertFalse(w.level.mouth_sealed,
+                         "the prep room is yours for as long as you want it")
+
+
+class TestArenaGateRendering(unittest.TestCase):
+    """A gate the player cannot see is a bug report. All three draw as the portcullis
+    that floor 1's front gate already uses."""
+
+    # `render` is not imported at tests.py module level; these tests import it.
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        return w
+
+    def test_the_way_up_on_her_floor_draws_as_a_shut_gate(self):
+        w = self._world()
+        self.assertTrue(render.entrance_is_barred(w))
+
+    def test_an_ordinary_floors_way_up_is_stairs(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(7)
+        self.assertFalse(render.entrance_is_barred(w))
+
+    def test_floor_one_is_still_barred(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(1)
+        self.assertTrue(render.entrance_is_barred(w))
+
+    def test_the_barred_gates_are_exactly_the_shut_ones(self):
+        w = self._world()
+        # A fresh hall starts with the way down already barred (stairs_locked
+        # defaults True at floor generation, per TestArenaGateState) but the mouth
+        # still open -- you haven't committed yet.
+        self.assertEqual(render.barred_gates(w), [w.level.stairs],
+                         "only the way down is shut before you commit")
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        # _arena_commit() fires from _end_player_turn(), not _enter_tile() (Task 7
+        # moved it so scroll/teleport arrivals commit too) -- so ending the turn,
+        # not entering the tile, is what seals the gate here.
+        w._end_player_turn()
+        gates = render.barred_gates(w)
+        self.assertIn(w.level.mouth, gates)
+        self.assertIn(w.level.stairs, gates)
+
+    def test_the_way_down_stops_being_barred_when_she_dies(self):
+        w = self._world()
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        w.level.stairs_locked = False
+        self.assertNotIn(w.level.stairs, render.barred_gates(w))
+
+
+class TestArenaIsAlwaysCompletable(unittest.TestCase):
+    """Floor 8 is the first floor in the game with two barred exits -- the mouth
+    behind you and the stairs ahead of you, both stone until she is dead. That is
+    exactly the shape that can strand a player, and this game formally guarantees
+    it never does. These tests are the proof: at every stage of her fight, from
+    the antechamber to the body on the floor, there must be no reachable state in
+    which the player has no legal move left.
+
+    None of this is expected to find anything. An earlier review already traced
+    every write to the player's position in the whole package -- ten sites, all in
+    world.py -- and concluded the set of ways to be stranded is closed. These tests
+    exist to confirm that closure mechanically, on the actual geometry, instead of
+    resting on the review alone.
+    """
+
+    def _committed(self, world_seed=3):
+        codex = FakeSave(); codex.world_seed = world_seed
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        # NOTE: _arena_commit() (which seals the mouth) now hangs off
+        # _end_player_turn(), not _enter_tile() -- Task 7 moved it there because
+        # scroll and teleport arrivals into the hall never call _enter_tile() at
+        # all. Committing via _enter_tile() alone would leave the mouth open and
+        # this whole test class would prove nothing.
+        w._end_player_turn()
+        # Stubbing World._arena_commit to a no-op (a real mutation a review tried)
+        # is invisible to every test below that only checks "such-and-such is
+        # still reachable" -- sealing the mouth only ever SHRINKS the reachable
+        # set, it never grows it, so a commit that silently never happened would
+        # still leave those assertions green. Nail down that the commit actually
+        # fired, once, here, so a stubbed-out commit fails loudly instead of
+        # passing by accident.
+        self.assertTrue(w.level.mouth_sealed, "the helper must actually commit")
+        self.assertTrue(any(m.key == "syrinx" for m in w.level.monsters),
+                        "and she must actually have arrived")
+        return w
+
+    def _reachable(self, lvl, start):
+        seen, stack = {start}, [start]
+        while stack:
+            x, y = stack.pop()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (x + dx, y + dy)
+                if n in seen or not lvl.in_bounds(*n):
+                    continue
+                if lvl.grid[n[1]][n[0]] != 1:
+                    continue
+                seen.add(n)
+                stack.append(n)
+        return seen
+
+    def test_the_way_down_is_reachable_from_where_you_are_sealed_in(self):
+        # This used to loop world_seed over range(10), as though ten seeds meant
+        # ten geometries. They don't: _cut_arena_floor() (dungeon.py) cuts her
+        # hall from fixed arithmetic on purpose, precisely so it is the same
+        # every game (see the docstring there). Only _install_arena_traps() reads
+        # from the seeded lrng, and traps never write to `grid` -- so all ten
+        # iterations flood-filled the exact same walkable set, ten times over.
+        # One seed sees everything this test can see.
+        w = self._committed()
+        reach = self._reachable(w.level, (w.player.x, w.player.y))
+        self.assertIn(w.level.stairs, reach, "she can be reached and so can the stairs")
+        # and the seal has to be load-bearing here, not incidental: if the mouth
+        # never actually sealed, the antechamber would still be part of `reach`
+        # too, and "the stairs are reachable" would be true for the boring reason
+        # that everything is reachable.
+        self.assertNotIn(w.level.entrance, reach,
+                         "the antechamber is sealed off, not just still standing there")
+
+    def test_every_pillar_leaves_the_hall_connected(self):
+        # Same non-variance as above -- see the comment in
+        # test_the_way_down_is_reachable_from_where_you_are_sealed_in. One seed.
+        w = self._committed()
+        a = w.level.arena_room
+        floor = {(x, y) for (x, y) in a.tiles() if w.level.grid[y][x] == 1}
+        reach = self._reachable(w.level, (w.player.x, w.player.y))
+        self.assertTrue(floor <= reach, "the columns must not wall anything off")
+
+    def test_the_antechamber_is_reachable_until_you_commit(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        reach = self._reachable(w.level, w.level.entrance)
+        self.assertIn(w.level.stairs, reach)
+        self.assertIn(w.level.mouth, reach)
+
+    def test_the_full_run_through_her_floor(self):
+        """Arrive, prepare, commit, kill her, take the stairs. End to end."""
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        # 1. you arrive in the antechamber and cannot go back
+        self.assertTrue(w.level.ante_room.contains(w.player.x, w.player.y))
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.ascend())
+        # 2. you commit
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        self.assertTrue(w.level.mouth_sealed)
+        # 3. the way down is shut
+        w.player.x, w.player.y = w.level.stairs
+        self.assertFalse(w.descend())
+        # 4. she dies
+        from .monsters import Monster
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        w.kill_monster(m)
+        # 5. and it opens
+        self.assertTrue(w.descend())
+        self.assertEqual(w.depth, 9)
+
+    def test_a_suspend_at_every_stage_resumes_legally(self):
+        from .dungeon import Level
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        stages = [(w.level.entrance, w.level.to_dict())]       # in the antechamber
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        stages.append(((a.x, a.cy), w.level.to_dict()))        # mid-fight
+        from .monsters import Monster
+        m = [x for x in w.level.monsters if x.key == "syrinx"][0]
+        w.kill_monster(m)
+        stages.append(((a.x, a.cy), w.level.to_dict()))        # she is dead
+        for i, (where, data) in enumerate(stages):
+            restored = Level(8, w.rng, w.codex, restore=data)
+            # Both gates default AWAY from what a lost key would need to be caught:
+            # to_dict() dropping "stairs_locked" comes back True (barred, the safe
+            # default for a floor with a boss still alive) and dropping
+            # "mouth_sealed" comes back False (open, the safe default for every
+            # OTHER floor, which has no mouth to seal at all). A resume that lost
+            # either key would silently re-open a gate it should have kept shut --
+            # a real, permanent softlock if it is stairs_locked coming back True
+            # AFTER she is already dead, with the mouth sealed behind you and
+            # nowhere else to go. So assert the round-trip itself, unconditionally,
+            # at every stage: not "if the flag says open, is it open" (which never
+            # fires when the flag is silently wrong), but "does the restored flag
+            # match what was actually saved."
+            self.assertEqual(restored.mouth_sealed, data["mouth_sealed"],
+                             "stage %d: the mouth's seal must round-trip" % i)
+            self.assertEqual(restored.stairs_locked, data["stairs_locked"],
+                             "stage %d: the stair gate must round-trip" % i)
+            reach = self._reachable(restored, where)
+            self.assertGreater(len(reach), 1,
+                               "stage %d: the player can still move" % i)
+            if i == 1:
+                # An absolute anchor, same purpose as the "she is dead" one below
+                # for stairs_locked: a round-trip check alone can't catch a
+                # to_dict that always lies the same way on both sides (e.g. one
+                # that always wrote mouth_sealed=False -- the restore-vs-serialize
+                # equality above would still hold). Stage 1 is taken right after
+                # the player commits into the hall, where the mouth is known to
+                # have actually sealed, so pin the serialized value itself.
+                self.assertTrue(data["mouth_sealed"],
+                                "stage %d: committing into the hall must seal "
+                                "the mouth" % i)
+            if i == len(stages) - 1:
+                # she is dead: the gate is down for real (not merely defaulted
+                # true by a dropped key), and the way out is not just flagged
+                # open but actually walkable from where the save resumed.
+                self.assertFalse(restored.stairs_locked, "stage %d: she is dead" % i)
+                self.assertIn(restored.stairs, reach,
+                              "stage %d: and can still reach the way down" % i)
+
+    def test_your_own_corpse_lands_in_the_hall_and_can_be_reached(self):
+        """The corpse system needs no change here: it puts your body on the exact tile
+        you fell on, and this floor's stone is fixed, so the tile is still there next
+        run. Die to her and your gold lies in her hall -- getting it back means
+        crossing the mouth and fighting her again."""
+        codex = FakeSave(); codex.world_seed = 3
+        probe = World(codex, seed=1)
+        probe.new_level(8)
+        a = probe.level.arena_room
+        grave = (a.cx, a.cy)
+        # the corpse store is a plain dict keyed by depth-as-string; tests write it
+        # directly (see tests.py:301 for the same idiom).
+        codex.corpses["8"] = {"x": grave[0], "y": grave[1], "gold": 40,
+                              "weapon": None}
+
+        w = World(codex, seed=2)
+        w.new_level(8)
+        self.assertIsNotNone(w.level.corpse, "your body is down there")
+        self.assertEqual((w.level.corpse.x, w.level.corpse.y), grave)
+        reach = self._reachable(w.level, (a.x, a.cy))
+        self.assertIn(grave, reach, "and you can walk back to it -- through her")
+
+    def test_shademail_lets_you_cross_the_sealed_mouth_and_back(self):
+        """The one deliberate exception to 'impossible'. Shademail lets you walk
+        into stone, and the mouth is only stone -- a single wall tile -- once it
+        has sealed. So a Shademail wearer CAN step back into the antechamber
+        through a gate the rest of the game treats as permanent, and can step back
+        out again once SHADE_REENTER_CD lets her submerge a second time.
+        Completability does not ask for the gate to hold against every
+        conceivable armour; it asks that no crossing strands you. This crossing is
+        reversible, so it is fine -- but the property this test proves is
+        REVERSIBILITY, not impossibility. Asserting the mouth can never be
+        crossed at all would be false, and this test would rightly fail the day
+        someone made it true.
+
+        Driven through the real player_move()/shade_cd machinery, one step at a
+        time, rather than teleporting the player -- so it is also an honest check
+        that the cooldown gate actually works, not just that the destination
+        rooms exist.
+        """
+        w = self._committed(world_seed=3)
+        w.player.armour = ALL_GEAR["shade"].copy()
+        a = w.level.arena_room
+        mx, my = w.level.mouth
+        self.assertEqual((w.player.x, w.player.y), (a.x, a.cy))
+        self.assertEqual(mx, a.x - 1, "the mouth is one step west of where you stand")
+        self.assertEqual(w.level.grid[my][mx], 0, "the mouth is sealed stone now")
+
+        # step INTO the sealed mouth -- only Shademail, off cooldown, may do this
+        self.assertEqual(w.player.shade_cd, 0)
+        self.assertTrue(w.player_move(-1, 0), "steps into the wall the gate became")
+        self.assertEqual((w.player.x, w.player.y), (mx, my))
+        self.assertTrue(w.player_submerged())
+
+        # one more step west lands on ordinary antechamber floor -- the mouth is
+        # only ONE tile thick, so a single submerged step is the whole crossing
+        self.assertTrue(w.player_move(-1, 0))
+        self.assertTrue(w.level.ante_room.contains(w.player.x, w.player.y),
+                        "she is back in the antechamber, through stone that is "
+                        "supposed to be permanent")
+        self.assertFalse(w.player_submerged(), "surfaced back onto floor")
+        self.assertGreater(w.player.shade_cd, 0,
+                           "surfacing starts the re-enter cooldown")
+
+        # while on cooldown, the same crossing is refused -- an ordinary wall bump
+        self.assertFalse(w.player_move(1, 0),
+                         "on cooldown, Shademail is just armour: the wall holds")
+        self.assertTrue(w.level.ante_room.contains(w.player.x, w.player.y))
+
+        # once the cooldown lapses -- for REAL, waited out through the actual
+        # _shade_tick() decrement, not zeroed by hand -- she can dive again and
+        # cross straight back. Setting shade_cd = 0 directly would keep this test
+        # green even if the `p.shade_cd -= 1` in _shade_tick() (world.py) were
+        # deleted outright, which would leave any Shademail wearer who steps into
+        # the sealed mouth stranded on the antechamber side forever. Waiting
+        # SHADE_REENTER_CD turns is enough regardless of exactly where the
+        # counter stood going in, since it can only ever be at or below that.
+        for _ in range(config.SHADE_REENTER_CD):
+            w.player_wait()
+        self.assertEqual(w.player.shade_cd, 0, "the cooldown really has lapsed")
+        self.assertTrue(w.player_move(1, 0), "the cooldown lifted: back into the wall")
+        self.assertEqual((w.player.x, w.player.y), (mx, my))
+        self.assertTrue(w.player_submerged())
+        self.assertTrue(w.player_move(1, 0))
+        self.assertTrue(a.contains(w.player.x, w.player.y),
+                        "and she is back in the hall -- the crossing is reversible, "
+                        "not a way to be stranded on either side")
+
+    def test_walking_the_ordinary_route_through_the_mouth(self):
+        """Every other test in this class puts the player on a tile by hand --
+        deliberately: _arena_commit() is arrival-agnostic on purpose, because
+        Task 7 found scroll and teleport arrivals that reach the hall without
+        ever calling _enter_tile(). But none of them walk the PLAIN case: down
+        the antechamber, through the mouth, into the hall, one ordinary step at a
+        time. This one does, through the real player_move()/turn-engine path
+        rather than a teleport, so there is at least one honest crossing of the
+        route most players will actually use."""
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(8)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.level.mouth_sealed, "not committed yet -- she hasn't seen you")
+        a = w.level.arena_room
+        steps = 0
+        while not a.contains(w.player.x, w.player.y):
+            self.assertTrue(w.player_move(1, 0),
+                            "a clear walk east along the shared centre line")
+            steps += 1
+            self.assertLess(steps, 100, "should long since have crossed the hall")
+        self.assertTrue(w.level.mouth_sealed, "the gate fell behind her, on foot")
+        self.assertTrue(any(m.key == "syrinx" for m in w.level.monsters),
+                        "and she arrived")
+
+
+class TestHerDeathReleasesTheWholeHall(unittest.TestCase):
+    """Killing her opens every gate, not only the way down.
+
+    Playtest: "when she dies the gate back to the stairs up does not also reopen."
+    Opening the stairs alone left the player walled into her hall with exactly one
+    legal exit -- no way back to the antechamber they prepared in, and no way up at
+    all, on a floor whose only threat was already dead. The three gates were hers;
+    her death is what releases them."""
+
+    def _committed(self):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        return w
+
+    def _kill_her(self, w):
+        s = [m for m in w.level.monsters if m.key == "syrinx"][0]
+        w.kill_monster(s, source="player")
+
+    def test_while_she_lives_the_hall_holds_you(self):
+        w = self._committed()
+        mx, my = w.level.mouth
+        self.assertTrue(w.level.mouth_sealed)
+        self.assertFalse(w.walkable(mx, my))
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.ascend(), "no way up while she is standing")
+
+    def test_her_death_reopens_the_mouth(self):
+        w = self._committed()
+        mx, my = w.level.mouth
+        self._kill_her(w)
+        self.assertFalse(w.level.mouth_sealed)
+        self.assertTrue(w.walkable(mx, my),
+                        "the mouth must be floor again, or the antechamber and the "
+                        "way up are both unreachable")
+
+    def test_her_death_lets_you_climb_back_out(self):
+        w = self._committed()
+        self._kill_her(w)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend())
+        self.assertEqual(w.depth, 7)
+
+    def test_walking_back_in_does_not_re_seal_the_mouth(self):
+        """The mouth reopens so the player can leave. Slamming it again the moment
+        they step back into the hall would trap them in an empty room for nothing."""
+        w = self._committed()
+        self._kill_her(w)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy       # back inside the hall
+        w._end_player_turn()
+        self.assertFalse(w.level.mouth_sealed, "a dead hall does not shut again")
+        mx, my = w.level.mouth
+        self.assertTrue(w.walkable(mx, my))
+
+    def test_the_way_down_still_opens_too(self):
+        w = self._committed()
+        self._kill_her(w)
+        self.assertFalse(w.level.stairs_locked)
+        w.player.x, w.player.y = w.level.stairs
+        self.assertTrue(w.descend())
+        self.assertEqual(w.depth, 9)
+
+    def test_ordinary_floors_are_untouched(self):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=1)
+        w.new_level(7)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend(), "the arena rule must not leak onto other floors")
+
+
+class TestSyrinxSurfacesFromAnotherPillar(unittest.TestCase):
+    """She goes into pillar A and comes up out of pillar B, never A.
+
+    Playtest: sinking into a pillar and popping back out of the same one makes her
+    a thing that ducks. The walk she makes to reach cover is the ESCAPE (nearest
+    pillar, _syrinx_retreat_target); the move that happens the instant she goes
+    hidden is the REPOSITION (_syrinx_relocate), and it is chosen off the PLAYER's
+    position, which is what stops her shuttling along one row of the lattice."""
+
+    def _arena(self, run_seed=1):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=run_seed)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()                       # commit for real: seals, spawns her
+        return w
+
+    def _syrinx(self, w):
+        return [m for m in w.level.monsters if m.key == "syrinx"][0]
+
+    def test_she_never_surfaces_from_the_pillar_she_entered(self):
+        w = self._arena()
+        s = self._syrinx(w)
+        pillars = w.level.syrinx_pillars()
+        for entered in pillars:
+            for _ in range(12):
+                s.x, s.y = entered
+                s._syrinx_relocate(w, w.player, entered=entered)
+                self.assertNotEqual((s.x, s.y), entered,
+                                    "she must come up somewhere other than the "
+                                    "pillar you watched her go into")
+                self.assertIn((s.x, s.y), pillars,
+                              "and it must be a real pillar, not open floor")
+
+    def test_the_surfacing_pillar_is_drawn_from_those_nearest_the_player(self):
+        """Nearest the PLAYER, not nearest her -- that is what makes the candidate
+        pool travel with the player instead of pinning her to one corner."""
+        w = self._arena()
+        s = self._syrinx(w)
+        p = w.player
+        entered = w.level.syrinx_pillars()[0]
+        pool = sorted((sp for sp in w.level.syrinx_pillars() if sp != entered),
+                      key=lambda sp: max(abs(sp[0] - p.x), abs(sp[1] - p.y)))
+        pool = pool[:config.SYRINX_SURFACE_CHOICES]
+        for _ in range(40):
+            s.x, s.y = entered
+            s._syrinx_relocate(w, p, entered=entered)
+            self.assertIn((s.x, s.y), pool,
+                          "she surfaces from the pool nearest the player")
+
+    def test_she_stays_hidden_across_the_move(self):
+        """The relocation is invisible by construction: it happens on the same turn
+        she goes hidden, so she is untargetable and unrendered for all of it."""
+        w = self._arena()
+        s = self._syrinx(w)
+        entered = w.level.syrinx_pillars()[0]
+        s.x, s.y = entered
+        s.hidden = True
+        s._syrinx_relocate(w, w.player, entered=entered)
+        self.assertTrue(s.hidden)
+        self.assertIsNone(w.monster_at(s.x, s.y),
+                          "a hidden Syrinx must not be targetable where she surfaces")
+
+    def test_a_long_fight_uses_more_of_the_lattice_than_the_top_row(self):
+        """The old rule sorted by distance from HER, so from a top-row pillar the
+        nearest other was the one next door: traced over 80 hides she used 7 of the
+        20 pillars and never once touched rows 16 or 22."""
+        w = self._arena()
+        s = self._syrinx(w)
+        s.hp = 9999
+        w.player.hp = 9999
+        seen, was_hidden = [], s.hidden
+        for _ in range(900):
+            dx = (s.x > w.player.x) - (s.x < w.player.x)
+            dy = (s.y > w.player.y) - (s.y < w.player.y)
+            if not w.player_move(dx, dy):
+                w.player_wait()
+            if s.hidden and not was_hidden:
+                seen.append((s.x, s.y))
+            was_hidden = s.hidden
+
+        self.assertGreater(len(seen), 10, "the fight must actually cycle her")
+        pillars = set(w.level.syrinx_pillars())
+        self.assertTrue(set(seen) <= pillars, "every surfacing spot is a real pillar")
+        self.assertGreater(len(set(seen)), 7,
+                           "she must range wider than the seven pillars the "
+                           "nearest-to-her rule used")
+        self.assertTrue({y for _, y in seen} - {4, 10},
+                        "she must reach pillar rows the old shuttle never touched")
+
+    def test_the_surfacing_sequence_is_deterministic_per_run_seed(self):
+        """It draws on the per-RUN rng, like every other monster roll -- so a seed
+        replays identically, which the blind-vs-omniscient invariant depends on."""
+        def sequence(run_seed):
+            w = self._arena(run_seed)
+            s = self._syrinx(w)
+            s.hp = 9999
+            w.player.hp = 9999
+            out, was_hidden = [], s.hidden
+            for _ in range(300):
+                dx = (s.x > w.player.x) - (s.x < w.player.x)
+                dy = (s.y > w.player.y) - (s.y < w.player.y)
+                if not w.player_move(dx, dy):
+                    w.player_wait()
+                if s.hidden and not was_hidden:
+                    out.append((s.x, s.y))
+                was_hidden = s.hidden
+            return out
+
+        first = sequence(1)
+        self.assertTrue(first, "the fight must cycle her at least once")
+        self.assertEqual(first, sequence(1), "one seed, one sequence")
+        self.assertNotEqual(first, sequence(2), "a different run deals differently")
 
 
 if __name__ == "__main__":

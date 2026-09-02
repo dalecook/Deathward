@@ -101,6 +101,27 @@ def draw_stun_stars(surf, cx, cy, t, fade=1.0):
             glyph(surf, "*", sx, sy, config.GOLD, size)
 
 
+def entrance_is_barred(world):
+    """Floor 1's entrance is a shut portcullis, and so is her hall's: you came down
+    into it and the way back is stone. Every other floor's entrance is a way up."""
+    return world.depth <= 1 or world.level.is_arena_floor()
+
+
+def barred_gates(world):
+    """The gates that are currently SHUT and want a portcullis drawn over them: the
+    mouth once you have committed, and the way down until she is dead. Pure decision,
+    so it can be tested without a surface."""
+    lvl = world.level
+    if not lvl.is_arena_floor():
+        return []
+    gates = []
+    if lvl.mouth_sealed and lvl.mouth:
+        gates.append(lvl.mouth)
+    if lvl.stairs_locked and lvl.stairs:
+        gates.append(lvl.stairs)
+    return gates
+
+
 def draw_world(surf, world, codex, cam, t):
     surf.fill(config.BG)
     lvl = world.level
@@ -152,13 +173,21 @@ def draw_world(surf, world, codex, cam, t):
     if lvl.entrance and lvl.explored[lvl.entrance[1]][lvl.entrance[0]]:
         ex, ey = lvl.entrance
         dim = not lvl.visible[ey][ex]
-        # floor 1's entrance is a shut portcullis. every other floor's is a way back up.
-        img = (sprites.entrance(dim=dim) if world.depth <= 1
+        # floor 1's entrance is a shut portcullis, and so is her hall's. every other
+        # floor's is a way back up.
+        img = (sprites.entrance(dim=dim) if entrance_is_barred(world)
                else sprites.stairs_up(dim=dim))
         surf.blit(img, topleft(ex, ey))
     if lvl.stairs and lvl.explored[lvl.stairs[1]][lvl.stairs[0]]:
         sx_, sy_ = lvl.stairs
         surf.blit(sprites.stairs(dim=not lvl.visible[sy_][sx_]), topleft(sx_, sy_))
+
+    # a shut gate is a WALL tile for movement, line of sight and pathing -- but it
+    # must LOOK like a gate, or a sealed doorway reads as a bug.
+    for gx, gy in barred_gates(world):
+        if not lvl.explored[gy][gx] or not cam.on_screen(gx, gy):
+            continue
+        surf.blit(sprites.entrance(dim=not lvl.visible[gy][gx]), topleft(gx, gy))
 
     # --- the things you have killed --------------------------------------
     for s in lvl.slain:
@@ -265,9 +294,16 @@ def draw_world(surf, world, codex, cam, t):
                 glyph(surf, "!", cx + T // 2 - 5, cy - T // 2 + 6, config.BLOOD, 14)
             continue
 
-        if known == 0:
+        if known == 0 and m.key != "syrinx":
             surf.blit(sprites.unknown(), topleft(m.x, m.y))
             continue
+
+        # Syrinx is drawn as herself from the very first game, even with a Kodex
+        # that knows nothing about her -- a mini-boss should never read as a
+        # featureless '?'. This is a RENDER exemption only: codex.tier() itself is
+        # untouched, so her Kodex entry is still earned the normal way, by killing
+        # her, and everything below this line (health bar, intent telegraphs) is
+        # still correctly gated on knows_tier() same as any other monster.
 
         col = m.t.color
         alpha = 255
