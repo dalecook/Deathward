@@ -10500,7 +10500,18 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         # she IS aligned with a clear line, Rule 3's other branch takes over and
         # she starts closing down the lane instead, so this test now stops
         # checking the instant alignment is reached rather than asserting past it.
+        #
+        # Player parked at (25,13), not the arena centre: the centre sits ON
+        # pillar column x=27 (pillars at xs {15,21,27,33,39}), and a diagonal
+        # approach from there walks straight into the pillar at (27,16)
+        # partway to alignment -- at which point the sidestep correctly
+        # refuses to land on a lane it cannot shoot down (see the blocked-lane
+        # test below) and closes instead, exactly as designed. That is real,
+        # intended behaviour, just not what THIS test means to exercise: it is
+        # about the general open-terrain tie, so it needs a start clear of the
+        # lattice for its whole approach.
         w = self._world()
+        w.player.x, w.player.y = 25, 13
         s = self._syrinx(w, 5, 5)            # distance 5, inside SYRINX_STANDOFF (6)
         d0 = s.dist(w.player.x, w.player.y)
         self.assertLessEqual(d0, config.SYRINX_STANDOFF, "sanity: starts inside the band")
@@ -10553,6 +10564,17 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         # {4,10,16,22}); parking the player and her on either side of it gives an
         # aligned pair with an actually-blocked line, deterministically, off the
         # fixed floor-8 arena geometry.
+        #
+        # This is also, verbatim, reproduction (a) from the stall-fix report: the
+        # exact configuration that 2-cycled between (26,16) and (26,15) forever
+        # under the old single-candidate sidestep. The first assertion below
+        # (one turn, distance unchanged) is the ORIGINAL test -- it is what used
+        # to pass right up to the edge of the bug, one turn before the cycle
+        # became visible. The loop after it is the real regression coverage:
+        # run ~20 turns (far past where the old code would have locked into its
+        # two-tile orbit) and check she never settles into a repeating pair of
+        # positions, and that she actually gets somewhere -- either an observed
+        # blow intent, or close enough, aligned, with a clear shot to take one.
         w = self._world()
         w.player.x, w.player.y = 20, 16
         s = self._syrinx(w, 6, 0)            # (26, 16): aligned, distance 6, pillar at (21,16) between
@@ -10565,6 +10587,146 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         s.take_turn(w)
         self.assertEqual(s.dist(w.player.x, w.player.y), d0,
                           "a blocked lane must never close, even while aligned")
+
+        seen = [(s.x, s.y)]
+        engaged = False
+        for _ in range(19):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+            pos = (s.x, s.y)
+            aligned = (pos[0] == w.player.x or pos[1] == w.player.y)
+            d = s.dist(w.player.x, w.player.y)
+            if (aligned and d <= config.SYRINX_BLOW_RANGE
+                    and w.line_clear(pos[0], pos[1], w.player.x, w.player.y, config.SYRINX_BLOW_RANGE)):
+                engaged = True   # in range with a clear shot -- next turn telegraphs
+                break
+            seen.append(pos)
+            # a repeating PAIR is the specific old failure mode: position N
+            # equal to position N-2, over and over. Three-plus-cycles or slow
+            # drift are not the bug this guards; an exact immediate pair is.
+            if len(seen) >= 4 and seen[-1] == seen[-3] and seen[-2] == seen[-4]:
+                self.fail(f"settled into a repeating position pair: {seen[-4:]}")
+        self.assertTrue(engaged,
+                         "a blocked-lane standoff must eventually resolve into blow range, "
+                         "not stall forever behind the pillar")
+
+    def test_regression_repro_a_blocked_lane_two_cycle(self):
+        # The stall-fix report's reproduction (a), by exact coordinates: player
+        # (20,16), Syrinx (26,16), pillar at (21,16) sitting on the lane between
+        # them. Under the old single-candidate sidestep this locked into
+        # (26,16) <-> (26,15) forever, intent never set. Driven through
+        # take_turn (never _ai_syrinx directly) for well past that old cycle's
+        # visible point.
+        w = self._world()
+        w.player.x, w.player.y = 20, 16
+        s = self._syrinx(w, 6, 0)
+        self.assertEqual((s.x, s.y), (26, 16))
+        seen = [(s.x, s.y)]
+        engaged = False
+        for _ in range(25):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+            seen.append((s.x, s.y))
+            # the old bug's exact orbit, confirmed against the unmodified code
+            # during this fix's own verification pass, was an unbroken
+            # (26,16) <-> (26,15) alternation: position N == position N-2,
+            # forever. Catch that directly rather than just trusting "she
+            # engaged eventually" to rule it out.
+            if len(seen) >= 4 and seen[-1] == seen[-3] and seen[-2] == seen[-4]:
+                self.fail(f"reproduced the old blocked-lane two-cycle: {seen[-4:]}")
+        self.assertTrue(engaged, "reproduction (a) must eventually engage, not stall")
+
+    def test_regression_repro_b_frozen_on_a_blocked_candidate(self):
+        # The stall-fix report's reproduction (b): player (28,13), Syrinx
+        # (26,16). Under the old code the sidestep's one candidate, (27,16),
+        # is itself a pillar (xs {15,21,27,33,39} x ys {4,10,16,22} -> (27,16)
+        # is a lattice point), so the "else: hold" fallback repeated forever --
+        # she never moved again. The new fallback must find somewhere else to
+        # go, or close, rather than freezing on the very first turn.
+        w = self._world()
+        w.player.x, w.player.y = 28, 13
+        s = self._syrinx(w, -2, 3)           # (26, 16)
+        self.assertEqual((s.x, s.y), (26, 16))
+        start = (s.x, s.y)
+        engaged = False
+        for _ in range(25):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+        self.assertTrue(engaged, "reproduction (b) must eventually engage, not freeze")
+        self.assertNotEqual((s.x, s.y), start,
+                             "she must have actually moved off the frozen candidate at some point")
+
+    def test_regression_repro_b2_frozen_on_a_blocked_candidate_other_corner(self):
+        # The stall-fix report's second (b) example: player (27,13), Syrinx
+        # (33,9). The sidestep's single old candidate, (33,10), is also a
+        # pillar -- a different corner of the same lattice, same failure mode.
+        w = self._world()
+        w.player.x, w.player.y = 27, 13
+        s = self._syrinx(w, 6, -4)           # (33, 9)
+        self.assertEqual((s.x, s.y), (33, 9))
+        engaged = False
+        for _ in range(25):
+            s.take_turn(w)
+            if s.intent == ("blow", 0, 0):
+                engaged = True
+                break
+        self.assertTrue(engaged, "reproduction (b2) must eventually engage, not freeze")
+
+    def test_sweep_from_many_start_positions_she_reliably_engages(self):
+        """The test that would have caught the stall bug directly, per the
+        stall-fix report: not a few hand-picked cases, but an exhaustive sweep.
+        For a handful of stationary player positions -- including the arena
+        centre (27,13), which sits ON pillar column x=27 (pillars at xs
+        {15,21,27,33,39} x ys {4,10,16,22}), and (20,16), which sits on pillar
+        ROW y=16 -- walk Syrinx over every walkable start tile in the arena and
+        drive her through take_turn for up to SWEEP_MAX_TURNS, counting how
+        many reach engagement.
+
+        Measured as part of this fix's own verification, against this exact
+        sweep: the unmodified (buggy) code engaged 388/1765 = 22.0% of start
+        positions; this fix engages 1765/1765 = 100%. The threshold below is
+        set at 90% -- comfortably clear of the old 22% (so an old-style
+        regression fails loudly) with real margin under the observed 100% for
+        engine noise across FOV/placement details this test does not control.
+        """
+        SWEEP_MAX_TURNS = 40
+        from .monsters import Monster
+        w = self._world()
+        room = w.level.arena_room
+        player_positions = [
+            (27, 13),   # arena centre: on pillar column x=27; row 13 has no pillar
+            (20, 16),   # on pillar row y=16 (a pillar sits at (21,16))
+            (33, 4),    # a pillar of the lattice itself as a neighbour, tight corner
+        ]
+        total = 0
+        engaged = 0
+        for (px, py) in player_positions:
+            for sx in range(room.x + 1, room.x + room.w - 1):
+                for sy in range(room.y + 1, room.y + room.h - 1):
+                    if (sx, sy) == (px, py) or not w.level.walkable(sx, sy):
+                        continue
+                    w.player.x, w.player.y = px, py
+                    s = Monster("syrinx", sx, sy)
+                    s.hidden = False
+                    w.level.monsters = [s]
+                    total += 1
+                    for _ in range(SWEEP_MAX_TURNS):
+                        s.take_turn(w)
+                        if s.intent == ("blow", 0, 0):
+                            engaged += 1
+                            break
+        self.assertGreaterEqual(total, 1000, "sanity: the sweep actually covered the arena")
+        rate = engaged / total
+        self.assertGreaterEqual(
+            rate, 0.90,
+            f"only {engaged}/{total} ({rate:.1%}) engaged within {SWEEP_MAX_TURNS} turns "
+            "-- the pre-fix figure on this exact sweep was 22.0%")
 
     def test_regression_aligned_dead_zone_is_no_longer_a_free_kill(self):
         # The exploit this whole change closes. Rule 3 used to read "if already

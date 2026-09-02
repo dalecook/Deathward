@@ -45,8 +45,22 @@ Checked in order, each turn she is emerged and not retreating:
 |---|---|---|
 | 1 | Player adjacent **and not aligned** (i.e. diagonal) | **Steps away.** |
 | 2 | Player aligned, within `SYRINX_BLOW_RANGE`, line clear | **Telegraphs**, resolving next turn. |
-| 3 | Player within `SYRINX_STANDOFF` | **Sidesteps toward alignment. Does not close.** |
+| 3a | Player aligned, line clear, within `SYRINX_STANDOFF` (so beyond `SYRINX_BLOW_RANGE`, or rule 2 would have fired) | **Closes down the lane**, one tile. |
+| 3b | Player within `SYRINX_STANDOFF`, otherwise (not aligned, or aligned but the line is blocked) | **Sidesteps toward alignment. Does not close.** |
 | 4 | Player beyond `SYRINX_STANDOFF` | **Steps toward**, one tile. |
+
+> **Superseded 2026-09-02 (later the same day), by the aligned-dead-zone fix:** rule 3 as
+> originally shipped read "sidesteps toward alignment, does not close" unconditionally — an
+> aligned player sitting at distance 4–6 (inside the standoff band, outside blow range) was
+> simply held there forever. That is `World._firestorm`'s free kill (the VORN scroll, and the
+> Robe of Hades' automatic recharge, both hit every visible non-hidden monster at
+> `SYRINX_FIRE_MULT`): park aligned in the dead zone, farm her for nothing. Rule 3 split in two:
+> an aligned player with a clear lane gets closed down (3a) — waiting on a lineup she already has
+> is a free turn, not patience — and only a genuinely unusable lane (not aligned, or aligned but
+> blocked) still gets the pure sidestep (3b). See `.superpowers/sdd/syrinx-hunting-report.md`
+> for the change and its tests. The stall-fix pass (`## Stall fix` in that same report) later
+> reworked 3b's own internals — it used to be a single hand-picked tile with no fallback, which
+> produced two permanent stalls of its own — without touching this split.
 
 **Rule 1 closes a real blind spot.** Diagonal adjacency means neither the same row nor the same
 column, so it is not "aligned" and she cannot gust from it — a player standing diagonally on top
@@ -56,7 +70,7 @@ her.
 
 **Rule 3 is the fight.** This is her at her most characteristic — patient, lining the player up,
 refusing to walk into reach. It is also the real leash: what stops her closing, rather than what
-stops her chasing.
+stops her chasing. (As shipped, this now splits into 3a/3b above — see the supersession note.)
 
 **Rule 4 stops her being a statue.** She closes only to bring the player back into the band, not
 to reach them. In the user's words: she wants you out of there, and that means dead, so she will

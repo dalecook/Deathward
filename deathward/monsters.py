@@ -788,10 +788,21 @@ class Monster:
                   something to close, not something to wait on.
                d. player aligned but the line is blocked (a pillar fizzles it), OR
                   not aligned at all, and within SYRINX_STANDOFF -- she manoeuvres
-                  instead of closing: one step along whichever axis currently has
-                  the SMALLER offset, toward the player, WITHOUT reducing her
-                  distance to them. This is the real leash: not a chase radius, a
-                  refusal to close a lane she cannot use.
+                  instead of closing: tries, in order, the smaller-offset axis
+                  toward the player, then the other axis toward the player,
+                  taking the first that (i) is free, (ii) does not reduce her
+                  distance to the player, and (iii) does not leave her aligned on
+                  a still-blocked lane. If neither candidate survives all three,
+                  she closes rather than freezing -- a close always reduces
+                  distance, so it cannot repeat forever the way a hold could, and
+                  in practice it is what finally opens a lane a pillar was
+                  shielding. (An away-from-player fallback on each axis was
+                  tried and rejected: with "away" available, the smaller axis's
+                  toward-tile and away-tile become a stable two-tile orbit around
+                  a permanently blocked lane, so the two candidates that could
+                  actually break it never get exhausted. See the sidestep's own
+                  comment for the reproduction.) This is the real leash: not a
+                  chase radius, a refusal to close a lane she cannot use.
                e. player beyond SYRINX_STANDOFF -- steps toward, one tile, just
                   enough to drag them back into the band she actually fights in.
           5. BLOW: a telegraph-then-resolve pair (self.intent), same shape as the
@@ -903,45 +914,148 @@ class Monster:
         #
         #   - everything else within the band (not aligned at all, OR aligned but
         #     a pillar fizzles the line): nothing to shoot, so she manoeuvres
-        #     instead -- one step along whichever axis currently has the SMALLER
-        #     offset, toward the player. Stepping the smaller-offset axis can only
-        #     ever tie the larger axis's offset, never beat it below her current
-        #     chebyshev distance, so this never closes the gap -- including the
-        #     blocked-alignment case, where the "smaller offset" axis is exactly
-        #     the aligned one sitting at 0: stepping it by one is how she peels off
-        #     a lane a pillar has fizzled, and it still only ties, never beats, her
-        #     current distance.
+        #     instead. See the sidestep block below for how -- it used to be a
+        #     single hand-picked tile, which is exactly what went wrong.
         #
-        # BOTH branches walk a single hand-picked candidate tile, never a call to
-        # _step_toward with the real or a crafted one-axis target -- that helper's
-        # chebyshev search ties a DIAGONAL DIRS8 neighbour against the straight
-        # in-lane/in-axis one exactly when an axis offset is already 0 (this
-        # fight's whole standoff geometry, in both branches), and DIRS8's
-        # iteration order resolves that tie toward the diagonal FIRST. Left to the
-        # helper, "close down the lane" would drift diagonally off it, and
-        # "sidestep" would silently close the gap it exists to hold open -- the
-        # bug that bit the first pass at this fight. One manual tile, walked
-        # through the same walkable/monster/vendor/player guard every other manual
-        # step in this method already uses (see RETREAT above), sidesteps the
-        # ambiguity instead of fighting the helper's tie-break.
+        # Neither branch calls _step_toward with the real or a crafted one-axis
+        # target -- that helper's chebyshev search ties a DIAGONAL DIRS8
+        # neighbour against the straight in-lane/in-axis one exactly when an axis
+        # offset is already 0 (this fight's whole standoff geometry, in both
+        # branches), and DIRS8's iteration order resolves that tie toward the
+        # diagonal FIRST. Left to the helper, "close down the lane" would drift
+        # diagonally off it, and "sidestep" would silently close the gap it
+        # exists to hold open -- the bug that bit the first pass at this fight.
+        # Manual tiles, walked through the same walkable/monster/vendor/player
+        # guard every other manual step in this method already uses (see RETREAT
+        # above), sidestep the ambiguity instead of fighting the helper's
+        # tie-break.
         if d <= config.SYRINX_STANDOFF:
             if aligned and world.line_clear(self.x, self.y, p.x, p.y, d):
+                # Closing the lane: unchanged, and not what broke. One
+                # candidate, walked if it is free, held if it is not -- a
+                # blocked closing step just means try again next turn; the
+                # pillar cannot move, and whatever transiently blocked this
+                # tile (a monster wandering through, the player's own body)
+                # usually will.
                 if self.y == p.y:
                     nx, ny = self.x + (1 if p.x > self.x else -1), self.y
                 else:
                     nx, ny = self.x, self.y + (1 if p.y > self.y else -1)
+                if (world.walkable(nx, ny) and not world.monster_at(nx, ny)
+                        and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
+                    self.x, self.y = nx, ny
+                    world.on_monster_moved(self)
+                # else: the candidate tile is blocked this turn -- she holds and
+                # tries again next turn, same as a boxed-in retreat does above.
+                return
+
+            # --- the sidestep: manoeuvre without closing ------------------
+            #
+            # This used to be ONE hand-picked candidate tile -- step along
+            # whichever axis has the smaller offset, toward the player -- with
+            # no fallback and no memory of what she just tried. That produced
+            # two permanent dead states, both leaving her emerged, visible and
+            # unhidden: a free kill via World._firestorm (the VORN scroll, and
+            # the Robe of Hades' automatic recharge -- SYRINX_FIRE_MULT hits her
+            # for double).
+            #
+            #   (a) TWO-CYCLE ON A BLOCKED LANE. Aligned-but-blocked falls in
+            #       here -- the "aligned and line_clear" test just above failed.
+            #       The aligned axis sits at offset 0, which is always the
+            #       "smaller" one, so the single candidate peeled her one tile
+            #       off the lane... and the very next turn, the OTHER axis was
+            #       now the smaller offset (it hadn't moved), so the single
+            #       candidate walked her straight back onto the lane she'd just
+            #       left. Two tiles, forever, intent never set.
+            #   (b) FROZEN ON A BLOCKED CANDIDATE. When the one candidate landed
+            #       on a pillar (or a monster, or the player), the old
+            #       "else: hold" fallback repeated identically every turn --
+            #       her position never changed, so the candidate it computed
+            #       never changed either. A single unlucky pick was a permanent
+            #       stall, not a one-turn stumble.
+            #
+            # The fix is not a cleverer single tile, it is giving the sidestep
+            # somewhere else to go when its first idea does not pan out:
+            #
+            #   1. Never step into a lane she cannot shoot down. A candidate
+            #      that would leave her aligned with the player AND still
+            #      blocked is rejected outright -- that is precisely what let
+            #      (a) cycle: she kept treating a shielded lane as somewhere
+            #      worth returning to.
+            #   2. Two ordered candidates, not one: the smaller-offset axis
+            #      toward the player (her old and still-preferred move), then
+            #      the other axis toward the player. Both also have to pass
+            #      the distance invariant below -- a sidestep may tie her
+            #      chebyshev distance, never reduce it -- and stepping TOWARD
+            #      the player on whichever axis is currently DOMINANT (already
+            #      equal to the chebyshev distance) is exactly a reduction, so
+            #      it is filtered out the same as a blocked tile would be. In
+            #      practice the smaller-offset axis almost always wins
+            #      outright; the other axis only ever wins when the two
+            #      offsets are tied, since then neither axis is uniquely
+            #      dominant and stepping either one still only ties.
+            #
+            #      An EARLIER version of this fix also tried the opposite
+            #      (away-from-player) direction on each axis, as two further
+            #      fallbacks, before giving up. A probe script caught why that
+            #      is actively wrong, not just unnecessary: once "away" is a
+            #      legal answer, the smaller axis's toward-tile and away-tile
+            #      are each other's fallback. Reproduction (a) below settles
+            #      into peeling one tile off the lane, discovering next turn
+            #      that stepping back onto it is the blocked lane rule 1 just
+            #      excluded, retreating one tile further out, discovering THAT
+            #      tile's own toward-step is free again next turn, and
+            #      returning -- a stable two-tile orbit between the two
+            #      states adjacent to the blocked lane, forever, because nothing
+            #      in a memoryless, position-only decision ever prefers
+            #      continuing outward over trying inward again. The dominant
+            #      axis (the one that would actually break the deadlock) can
+            #      never be touched without reducing distance, which the
+            #      invariant forbids -- so with "away" on the table, the
+            #      exhaustion this rule needs to reach point 3 never happens.
+            #      Dropping the away fallbacks removes that trap: now the only
+            #      way off the smaller axis is real closing, via point 3.
+            #   3. If both candidates are rejected, close instead of freezing.
+            #      A close always reduces distance, so unlike a hold it cannot
+            #      repeat forever -- it terminates at blow range or adjacency,
+            #      where rules 1 and 2 take back over. That is exactly what (b)
+            #      needed: a permanent hold IS the bug, so the fallback of last
+            #      resort must never be "do nothing". It is also what actually
+            #      resolves (a): a couple of turns spent closing down the
+            #      blocked axis is what finally opens a lane she CAN use.
+            adx, ady = abs(p.x - self.x), abs(p.y - self.y)
+            x_toward = (1 if p.x > self.x else -1)
+            y_toward = (1 if p.y > self.y else -1)
+            # smaller/other, not "primary/secondary" -- match the naming the
+            # rest of this docstring already uses for "whichever axis has the
+            # SMALLER offset". Ties go to x, same as the single-candidate code
+            # this replaces did.
+            if adx <= ady:
+                smaller, other = (x_toward, 0), (0, y_toward)
             else:
-                dx, dy = abs(p.x - self.x), abs(p.y - self.y)
-                if dx <= dy:
-                    nx, ny = self.x + (1 if p.x > self.x else -1), self.y
-                else:
-                    nx, ny = self.x, self.y + (1 if p.y > self.y else -1)
-            if (world.walkable(nx, ny) and not world.monster_at(nx, ny)
-                    and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
+                smaller, other = (0, y_toward), (x_toward, 0)
+            candidates = [smaller, other]
+
+            for cdx, cdy in candidates:
+                nx, ny = self.x + cdx, self.y + cdy
+                if not (world.walkable(nx, ny) and not world.monster_at(nx, ny)
+                        and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
+                    continue                      # occupied/solid this turn
+                new_d = max(abs(nx - p.x), abs(ny - p.y))
+                if new_d < d:
+                    continue                      # that would be a close, not a sidestep
+                new_aligned = (nx == p.x or ny == p.y)
+                if new_aligned and not world.line_clear(nx, ny, p.x, p.y, new_d):
+                    continue                      # would walk right back onto a dead lane
                 self.x, self.y = nx, ny
                 world.on_monster_moved(self)
-            # else: the candidate tile is blocked this turn -- she holds and tries
-            # again next turn, same as a boxed-in retreat does above.
+                return
+
+            # Nothing survived: every free tile would have either closed the
+            # gap or dropped her back onto a blocked lane. Close for real
+            # rather than freeze -- see point 3 above. Same call Rule 4 makes
+            # below; it is always safe here because it always terminates.
+            self._step_toward(world, p.x, p.y)
             return
 
         # Rule 4: out past the standoff band, she is not a statue -- she closes one
