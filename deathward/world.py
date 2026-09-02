@@ -2354,12 +2354,23 @@ class World:
         This is what keeps the armour a slide along a wall FACE rather than a
         tunnel through the mass behind it: every tile you can stand on has a
         floor tile one step away, so there is always somewhere to surface. It
-        also removes the crush death outright -- SHADE_SUBMERGE_MAX used to let
-        you walk deep enough into a wall that no adjacent tile was floor, at
-        which point _shade_tick's blink_tile_near() eject had nothing to land
-        on and SHADE_CRUSH_DMG hit every turn thereafter while you kept
-        walking. If you can never be more than one step from daylight, that
-        tile with nowhere to eject to simply does not exist any more."""
+        also removes the crush death BY WALKING DEEPER -- SHADE_SUBMERGE_MAX
+        used to let you walk deep enough into a wall that no adjacent tile was
+        floor, at which point _shade_tick's blink_tile_near() eject had
+        nothing to land on and SHADE_CRUSH_DMG hit every turn thereafter while
+        you kept walking. That specific route to the crush is gone: you can
+        never be more than one step from a floor tile, so the eject target
+        this rule guarantees always exists.
+
+        It does NOT remove the crush outright, though -- blink_tile_near also
+        vetoes a floor tile that is occupied (monster_at) or sealed off
+        (tile_is_sealed_off), and this rule has no say over either. Jam every
+        adjacent floor tile with monsters and the guaranteed eject tile is
+        still unusable (see TestShademail.test_boxed_in_crushes_instead_of_ejecting,
+        which still crushes on purpose). Floor 8 has a live version of the
+        same trap: once the antechamber's mouth seals, a player submerged in
+        its outer wall can have its one adjacent floor tile vetoed as sealed-
+        off, and the crush still bites."""
         for dx, dy in DIRS4:
             ax, ay = x + dx, y + dy
             if self.in_bounds(ax, ay) and self.level.grid[ay][ax] == FLOOR:

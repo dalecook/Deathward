@@ -5973,6 +5973,39 @@ class TestShademailWallAdjacencyRule(unittest.TestCase):
         w.level.monsters = []
         return w
 
+    def test_a_diagonal_only_floor_neighbour_does_not_count(self):
+        """The docstring's own argument for DIRS4 over DIRS8: 'diagonal neighbours
+        do not count, or a corner-cut would let the check pass one tile deeper
+        than it should.' Nothing above actually built that corner-cut -- every
+        _build_mass tile is either the doorway itself or buried too deep in the
+        block to have ANY floor within chebyshev 2, so swapping DIRS4 for DIRS8
+        in _shade_enterable still passes every test above. This builds the one
+        shape that tells them apart: a wall tile whose ONLY floor neighbour sits
+        on the diagonal -- the exact stairstep a corner-cut would tunnel through."""
+        from .dungeon import WALL, FLOOR
+        w = self._world_for_mass()
+        ox, oy = 10, 10
+        # a wall moat around the whole test area, so no stray generated-level
+        # floor tile sneaks in and legalizes the tile this test means to refuse
+        for y in range(oy - 5, oy + 6):
+            for x in range(ox - 5, ox + 6):
+                w.level.grid[y][x] = WALL
+        w.level.grid[oy][ox] = FLOOR              # the only floor tile in the area
+        tx, ty = ox + 1, oy + 1                    # diagonally adjacent to it only --
+        self.assertEqual(w.level.grid[ty][tx], WALL)  # every ORTHOGONAL neighbour of (tx,ty)
+        self.assertFalse(w._shade_enterable(tx, ty),  # is still WALL from the moat above
+                          "a diagonal-only floor neighbour must not make a wall tile "
+                          "enterable -- orthogonal (4-way) adjacency only")
+
+        # and the refusal is not just the raw helper -- a player really cannot
+        # corner-cut into it either
+        self._wear(w)
+        w.player.x, w.player.y = ox, oy
+        w.level.compute_fov(ox, oy)
+        moved = w.player_move(1, 1)                 # the diagonal step onto (tx, ty)
+        self.assertFalse(moved, "diagonal-only adjacency must not let the player step in")
+        self.assertEqual((w.player.x, w.player.y), (ox, oy), "the player must not have moved")
+
 
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
@@ -10056,6 +10089,14 @@ class TestSyrinxAlwaysRendersAsHerself(unittest.TestCase):
     This is a RENDER-layer call only: the Kodex itself is untouched, so her tier
     stays 0 (no entry) until she is actually killed the normal way."""
 
+    def setUp(self):
+        # sprites.unknown() (drawn by the control comparison below) needs the font
+        # module up to render its '?' glyph. In the full suite an earlier test
+        # always initialises it first, so this was never caught running alone --
+        # standalone it raises pygame.error: font not initialized. Same fix as
+        # TestFontCache.setUp elsewhere in this file, for the same problem.
+        pygame.font.init()
+
     def _world_with_visible_syrinx(self):
         from .monsters import Monster
         codex = FakeSave()
@@ -10579,6 +10620,31 @@ class TestSyrinxSpeedMatchesPlayer(unittest.TestCase):
         self.assertEqual(m.energy, w.player.speed() - config.ACT_COST,
                          "her energy must accrue at the player's CURRENT speed, "
                          "not her fixed template speed")
+
+    def test_freeze_tick_also_grants_her_energy_at_the_players_current_speed(self):
+        """advance() is not the only turn engine -- while the player is frozen
+        (a beholder's gaze; see World.freeze_tick), the world still moves one tick
+        at a time through freeze_tick() instead. That function has its own copy of
+        the 'm.energy += m.speed_now(self)' loop (see world.py, right next to
+        advance's), and nothing forces the two to agree: someone tidying the
+        duplication could revert just this one back to 'm.energy += m.speed'
+        without a single existing test noticing, because every other Syrinx-speed
+        test above drives advance(), never freeze_tick(). If that happened, a
+        frozen player would face her back at her stale flat template speed(100)
+        instead of their own -- silently, since a frozen player is exactly the
+        player who cannot tell by feel that she sped up or slowed down."""
+        from .monsters import Monster
+        from . import config
+        w = self._world()
+        w.player.boots = BOOTS["swift"]     # 125 speed -- clearly not her template's 100
+        w.player.energy = 0
+        w.player.frozen = 1                 # the ice has you; the world still turns
+        m = Monster("syrinx", 5, 5)         # spawns hidden -- stays off-grid, never moves
+        w.level.monsters = [m]
+        w.freeze_tick()                     # one frozen turn plays out
+        self.assertEqual(m.energy, w.player.speed() - config.ACT_COST,
+                         "even while you are frozen, her energy must accrue at "
+                         "YOUR current speed, not her fixed template speed")
 
 
 class TestSyrinxStunAndRetreat(unittest.TestCase):
