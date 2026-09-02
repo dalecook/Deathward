@@ -190,6 +190,7 @@ _MONSTER_STATE = (
     "poisoned", "fled", "disguised", "warden_last", "feed", "recharge",
     "ray_armed", "weak", "feared", "confused", "hammer_hits", "enraged",
     "hidden", "hidden_turns", "pillar_x", "pillar_y", "retreating",
+    "just_forced_close",
 )
 
 
@@ -235,6 +236,12 @@ class Monster:
         self.hidden_turns = 0
         self.pillar_x, self.pillar_y = (x, y) if key == "syrinx" else (-1, -1)
         self.retreating = False
+        # Syrinx only: set for exactly the one turn after her sidestep's own
+        # fallback-of-last-resort close (Rule 3b) lands her somewhere rule 1
+        # would otherwise immediately recoil her off of, undoing the close
+        # before it can accomplish anything. See _ai_syrinx's rule 1 comment
+        # for the full reasoning and the stall it fixes.
+        self.just_forced_close = False
 
     @property
     def name(self):
@@ -778,7 +785,10 @@ class Monster:
              distance herself. Five rules, checked in this order every turn she is
              emerged and not retreating:
                a. player adjacent and diagonal (not aligned) -- she cannot gust from
-                  there, so she steps away rather than stand and take it.
+                  there, so she steps away rather than stand and take it. Suppressed
+                  for exactly the one turn right after rule d's own fallback close
+                  (below) forces her onto such a tile -- otherwise the close and the
+                  recoil undo each other forever. See rule a's own inline comment.
                b. player aligned, within SYRINX_BLOW_RANGE, clear line -- telegraphs.
                c. player aligned, clear line, within SYRINX_STANDOFF (so beyond
                   SYRINX_BLOW_RANGE, or rule b would already have fired) -- she
@@ -796,7 +806,13 @@ class Monster:
                   she closes rather than freezing -- a close always reduces
                   distance, so it cannot repeat forever the way a hold could, and
                   in practice it is what finally opens a lane a pillar was
-                  shielding. (An away-from-player fallback on each axis was
+                  shielding. That close also arms the one-turn rule-a suppression
+                  above (`just_forced_close`): the tile a plain nearest-neighbour
+                  close lands on is sometimes diagonally adjacent to the player,
+                  and letting rule a recoil off it immediately would undo the
+                  close before it accomplished anything, reopening the exact
+                  stall this fallback exists to prevent. (An away-from-player
+                  fallback on each axis was
                   tried and rejected: with "away" available, the smaller axis's
                   toward-tile and away-tile become a stable two-tile orbit around
                   a permanently blocked lane, so the two candidates that could
@@ -885,7 +901,52 @@ class Monster:
         # free damage. She recoils instead. This is the one case where she moves
         # AWAY regardless of range band; everything below only ever moves her
         # sideways or closer.
-        if d == 1 and not aligned:
+        #
+        # One deliberate, one-turn exception: `just_forced_close`. Rule 3b's own
+        # fallback-of-last-resort close (below, "nothing survived: close instead
+        # of holding") picks whichever legal neighbour is nearest the player and
+        # nothing else -- it has no opinion on which tile AT that minimum
+        # distance she lands on, because everything that needs an opinion (the
+        # blocked-lane test, the never-reduce invariant) already ran, and failed,
+        # for both sidestep candidates. On a pillar-adjacent tile the single
+        # closest legal neighbour sometimes turns out to be diagonally adjacent
+        # to the player -- distance 1, unaligned -- which is precisely rule 1's
+        # own trigger. Recoiling off it on the very next turn hands her straight
+        # back to (or past) the tile she just forced her way off of, and the
+        # close and the recoil become each other's fallback: a second, smaller
+        # stall sitting directly on top of the one the sidestep fix above
+        # already closed. Confirmed on the report's own worked example --
+        # (15,11) player, Syrinx from (13,9) -- which orbits
+        # (13,9) -> (14,9) -> (14,10) -> (13,9) forever without this exception,
+        # and a full-arena sweep in which every surviving stall was this exact
+        # 3-cycle shape, always pinned to a pillar's own column.
+        #
+        # A memoryless fix was tried first and rejected: making the fallback
+        # close itself refuse a diagonal-adjacent landing (preferring the
+        # nearest legal tile that ISN'T one) sounds like the same idea without
+        # new state, but it silently changes what the close's own contract
+        # depends on. The close's fallback-close guarantee ("a close always
+        # reduces distance, so unlike a hold it cannot repeat forever") assumes
+        # it takes the true nearest legal tile; filtering that choice can leave
+        # only a same-distance tile behind, which is no longer a close at all --
+        # on this exact worked example the diagonal-adjacent tile is the UNIQUE
+        # distance-reducing neighbour, so avoiding it only trades the 3-cycle
+        # for a fresh 2-cycle between two tiles that never reduce distance
+        # either (verified by simulation, not assumed). The one-turn suppression
+        # below is what actually lets the close finish what it started: she is
+        # trusted to have had a real reason for landing where she is (a lane a
+        # sidestep could not use), and rules 2-4 get one clear turn to act on
+        # that landing before rule 1 is allowed an opinion again.
+        #
+        # Costs a field (`just_forced_close`, in `_MONSTER_STATE`, round-tripped
+        # through to_dict/from_dict like every other scalar here) rather than
+        # zero new state -- the one tradeoff this fix makes deliberately, because
+        # the zero-state alternative does not actually work. Read-and-cleared
+        # unconditionally, right here, every turn, so it can never suppress more
+        # than the single turn immediately following the close that set it --
+        # it is a missed heartbeat, not a mode.
+        suppress_recoil, self.just_forced_close = self.just_forced_close, False
+        if d == 1 and not aligned and not suppress_recoil:
             self._step_away(world, p.x, p.y)
             return
 
@@ -1054,8 +1115,12 @@ class Monster:
             # Nothing survived: every free tile would have either closed the
             # gap or dropped her back onto a blocked lane. Close for real
             # rather than freeze -- see point 3 above. Same call Rule 4 makes
-            # below; it is always safe here because it always terminates.
+            # below; it is always safe here because it always terminates --
+            # PROVIDED rule 1 does not immediately undo it. See the
+            # just_forced_close flag set below, and its own comment at the top
+            # of this method, for why that provision needed enforcing.
             self._step_toward(world, p.x, p.y)
+            self.just_forced_close = True
             return
 
         # Rule 4: out past the standoff band, she is not a statue -- she closes one

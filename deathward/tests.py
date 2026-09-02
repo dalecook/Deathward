@@ -10415,6 +10415,26 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         w.level.monsters.append(s)
         return s
 
+    def _fail_if_stall_revisit(self, seen, k=6):
+        """Generic revisit-without-progress stall detector, replacing the old
+        exact-pair match (`seen[-1] == seen[-3] and seen[-2] == seen[-4]`, with
+        a comment explicitly disclaiming three-plus-cycles as "not the bug this
+        guards"). The 3-cycle-fix report's own sweep found the opposite is true:
+        every surviving stall, 1,214 of them across 99 player tiles, was a
+        3-cycle -- the exact shape that check is structurally blind to, since a
+        period-3 orbit never lines up two turns back, only three. Rather than
+        widen the old check to hard-code "also check period 3" (which would
+        just be as blind to period 4, 5, ... as the original was to 3), this
+        checks the underlying property directly: has she returned to ANY tile
+        she already stood on within the last `k` turns, without engaging in
+        between? That catches a stall of any short period up to k in one test,
+        with no need to know its period in advance.
+        """
+        if len(seen) > k and seen[-1] in seen[-(k + 1):-1]:
+            self.fail(f"revisited a position within the last {k} turns without "
+                      f"engaging -- a stall, regardless of its period: {seen[-1]} "
+                      f"already appeared in {seen[-(k + 1):-1]}")
+
     def test_diagonal_adjacent_she_steps_away_not_toward(self):
         # Rule 1: aligned means same row or column, and a diagonal neighbour is
         # neither -- she cannot gust from there. Standing pat would make her free
@@ -10572,9 +10592,12 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         # to pass right up to the edge of the bug, one turn before the cycle
         # became visible. The loop after it is the real regression coverage:
         # run ~20 turns (far past where the old code would have locked into its
-        # two-tile orbit) and check she never settles into a repeating pair of
-        # positions, and that she actually gets somewhere -- either an observed
-        # blow intent, or close enough, aligned, with a clear shot to take one.
+        # two-tile orbit) and check she never settles into ANY short-period
+        # repeat of positions (see _fail_if_stall_revisit -- this configuration
+        # is also, separately, where the later 3-cycle bug showed up once the
+        # 2-cycle above was fixed), and that she actually gets somewhere --
+        # either an observed blow intent, or close enough, aligned, with a
+        # clear shot to take one.
         w = self._world()
         w.player.x, w.player.y = 20, 16
         s = self._syrinx(w, 6, 0)            # (26, 16): aligned, distance 6, pillar at (21,16) between
@@ -10603,11 +10626,7 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
                 engaged = True   # in range with a clear shot -- next turn telegraphs
                 break
             seen.append(pos)
-            # a repeating PAIR is the specific old failure mode: position N
-            # equal to position N-2, over and over. Three-plus-cycles or slow
-            # drift are not the bug this guards; an exact immediate pair is.
-            if len(seen) >= 4 and seen[-1] == seen[-3] and seen[-2] == seen[-4]:
-                self.fail(f"settled into a repeating position pair: {seen[-4:]}")
+            self._fail_if_stall_revisit(seen)
         self.assertTrue(engaged,
                          "a blocked-lane standoff must eventually resolve into blow range, "
                          "not stall forever behind the pillar")
@@ -10631,13 +10650,15 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
                 engaged = True
                 break
             seen.append((s.x, s.y))
-            # the old bug's exact orbit, confirmed against the unmodified code
-            # during this fix's own verification pass, was an unbroken
-            # (26,16) <-> (26,15) alternation: position N == position N-2,
-            # forever. Catch that directly rather than just trusting "she
-            # engaged eventually" to rule it out.
-            if len(seen) >= 4 and seen[-1] == seen[-3] and seen[-2] == seen[-4]:
-                self.fail(f"reproduced the old blocked-lane two-cycle: {seen[-4:]}")
+            # The old bug's exact orbit, confirmed against the unmodified code
+            # during the sidestep-stall fix's own verification pass, was an
+            # unbroken (26,16) <-> (26,15) alternation -- a 2-cycle. Checked here
+            # via the generic revisit detector (any short-period repeat, not
+            # just an exact 2-cycle) rather than trusting "she engaged
+            # eventually" to rule it out -- this exact configuration is also
+            # where the later 3-cycle stall showed up once the 2-cycle was
+            # fixed, so the generic check earns its keep on this test twice.
+            self._fail_if_stall_revisit(seen)
         self.assertTrue(engaged, "reproduction (a) must eventually engage, not stall")
 
     def test_regression_repro_b_frozen_on_a_blocked_candidate(self):
@@ -10678,6 +10699,98 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
                 break
         self.assertTrue(engaged, "reproduction (b2) must eventually engage, not freeze")
 
+    def test_regression_blocked_smaller_axis_falls_to_other_not_a_real_close(self):
+        """Mutation-kill: dropping the sidestep's other-axis fallback candidate
+        (mutating `candidates = [smaller, other]` down to `[smaller]`) removes
+        her only way off a blocked smaller-offset axis that isn't the real
+        close -- and nothing in the suite noticed. The only geometry where the
+        other axis is ever legally chosen at all is a TIE (adx == ady -- see
+        the sidestep's own inline comment: "the other axis only ever wins when
+        the two offsets are tied"), so this test ties them, and blocks the
+        smaller (x, by the documented tie-break convention) axis's one-tile
+        candidate with a pillar. Correct behaviour is a plain sidestep onto the
+        other (y) axis's candidate: distance holds steady, and -- the real
+        discriminator -- `just_forced_close` (armed only by the fallback close
+        a few lines below the candidate loop, see _ai_syrinx's rule 1 comment
+        for what it is for) stays False, because a genuine sidestep never
+        reaches that branch. Drop the other-axis candidate and the single
+        remaining (blocked) one exhausts immediately: she falls through to the
+        real close on this very first turn, `just_forced_close` included.
+        """
+        w = self._world()
+        w.player.x, w.player.y = 24, 20
+        s = self._syrinx(w, -4, -4)          # (20, 16): adx == ady == 4, a tie
+        self.assertEqual((s.x, s.y), (20, 16))
+        self.assertFalse(w.level.walkable(21, 16),
+                          "sanity: the smaller (x) axis candidate is a pillar")
+        self.assertTrue(w.level.walkable(20, 17),
+                         "sanity: the other (y) axis candidate is open floor")
+        d0 = s.dist(w.player.x, w.player.y)
+        s.take_turn(w)
+        self.assertEqual(s.dist(w.player.x, w.player.y), d0,
+                          "a blocked smaller-axis candidate must fall to the OTHER axis "
+                          "as a plain sidestep, not to a real close")
+        self.assertFalse(s.just_forced_close,
+                          "a genuine sidestep must never arm the forced-close recoil guard")
+
+    def test_regression_dominant_axis_without_invariant_would_silently_close(self):
+        """Mutation-kill: deleting the sidestep's distance invariant
+        (`if new_d < d: continue`) is the spec's own named central regression --
+        "she does not close while inside the standoff band" -- and the existing
+        sidestep-without-closing test cannot catch it: it starts from a TIED
+        offset (5,5), where both candidates hold distance regardless of whether
+        the invariant exists (see that test's own comment), so the check is
+        never actually exercised. This uses UNEQUAL offsets instead, and blocks
+        the smaller (non-dominant, tying) axis with a pillar so evaluation
+        reaches the other (dominant) axis -- which, whenever the offsets are
+        NOT tied, always REDUCES chebyshev distance if taken, by definition of
+        "dominant." With the invariant intact that candidate is correctly
+        rejected (a reduction masquerading as a sidestep is exactly what it
+        exists to catch), so both candidates fail and she falls to the real
+        close instead -- arming `just_forced_close`, the same discriminator the
+        previous test uses, for the same reason: a genuine sidestep never
+        touches that flag. Delete the invariant and the dominant-axis step is
+        accepted directly as though it were harmless -- closing the gap while
+        `just_forced_close` stays false, i.e. behaving exactly like a hold even
+        though she is quietly closing it, undetectable by distance alone since
+        the real fallback close also reduces distance by the same one tile.
+        """
+        w = self._world()
+        w.player.x, w.player.y = 21, 21
+        s = self._syrinx(w, -1, -5)          # (20, 16): adx=1, ady=5 -- not tied
+        self.assertEqual((s.x, s.y), (20, 16))
+        self.assertFalse(w.level.walkable(21, 16),
+                          "sanity: the smaller (x) axis candidate is a pillar")
+        self.assertTrue(w.level.walkable(20, 17),
+                         "sanity: the other (y, dominant) axis candidate is open floor")
+        s.take_turn(w)
+        self.assertTrue(s.just_forced_close,
+                         "with the distance invariant intact, the dominant-axis candidate "
+                         "must be rejected and both candidates must fail, forcing the real "
+                         "close (which arms the recoil guard) -- False here means the "
+                         "dominant axis was wrongly accepted as a sidestep")
+
+    def test_regression_tied_axes_prefer_the_smaller_x_axis_first(self):
+        """Mutation-kill: swapping the sidestep's candidate order to
+        `[other, smaller]` is only observable when BOTH candidates are legal
+        AND the offsets are tied -- otherwise whichever candidate actually
+        survives the blocked-lane/distance filters wins regardless of try
+        order, same result either way. Open floor on both axes, no pillar or
+        occupancy eliminating either one, so whichever candidate is tried
+        FIRST is the one she takes. "Ties go to x" is this method's own
+        documented, deliberate convention (matching the single-candidate code
+        this replaced), so the correct order lands her on the x-axis tile.
+        """
+        w = self._world()
+        w.player.x, w.player.y = 27, 15
+        s = self._syrinx(w, -2, -2)          # (25, 13): tied offsets, both candidates open
+        self.assertEqual((s.x, s.y), (25, 13))
+        self.assertTrue(w.level.walkable(26, 13) and w.level.walkable(25, 14),
+                         "sanity: both sidestep candidates are open floor here")
+        s.take_turn(w)
+        self.assertEqual((s.x, s.y), (26, 13),
+                          "on a tie, the smaller-offset (x) axis must be tried first")
+
     def test_sweep_from_many_start_positions_she_reliably_engages(self):
         """The test that would have caught the stall bug directly, per the
         stall-fix report: not a few hand-picked cases, but an exhaustive sweep.
@@ -10688,12 +10801,30 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         drive her through take_turn for up to SWEEP_MAX_TURNS, counting how
         many reach engagement.
 
-        Measured as part of this fix's own verification, against this exact
-        sweep: the unmodified (buggy) code engaged 388/1765 = 22.0% of start
-        positions; this fix engages 1765/1765 = 100%. The threshold below is
-        set at 90% -- comfortably clear of the old 22% (so an old-style
-        regression fails loudly) with real margin under the observed 100% for
-        engine noise across FOV/placement details this test does not control.
+        CRITICAL FINDING (3-cycle fix pass): the three positions above all
+        scored 100% even on the UNFIXED code, so this sweep had zero power to
+        catch the 3-cycle bug that same code shipped with -- it never touched a
+        weak tile. A follow-up, independent 693-player-tile x 60-start sweep
+        found every surviving stall was the SAME shape: a 3-cycle, and every
+        affected player tile sat one or two tiles south of a pillar, on that
+        pillar's own column. (27,13)/(20,16)/(33,4) all happen to avoid that
+        exact geometry. `(15, 24)` below is added because it does not: it sits
+        two tiles south of the pillar at (15,22), on that column, and was
+        measured (pre-3-cycle-fix) at 32/589 = 5.4% -- the sweep's whole point.
+
+        Measured as part of THIS fix's own verification, against this exact
+        four-position sweep: the pre-fix code (with the sidestep-stall fix
+        already applied, but not this pass) engaged 1797/2354 = 76.3% --
+        (27,13)/(20,16)/(33,4) still at 100% each, (15,24) dragging the
+        combined rate down to where a regression is visible; this fix engages
+        2310/2354 = 98.1% ((15,24) alone lands at 545/589 = 92.5%, capped
+        below 100% by the separately-confirmed, explicitly out-of-scope
+        antechamber-wander sweep artifact -- see the miniboss-arena-floors
+        report -- not by any in-arena stall: an independent generic-cycle sweep
+        over this same fix found zero in-arena stalls of any period). The
+        threshold below stays at 90%: comfortably above the pre-fix 76.3% (so
+        a regression back toward either stall shape fails loudly) and with
+        real margin under the observed 98.1%.
         """
         SWEEP_MAX_TURNS = 40
         from .monsters import Monster
@@ -10703,6 +10834,8 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             (27, 13),   # arena centre: on pillar column x=27; row 13 has no pillar
             (20, 16),   # on pillar row y=16 (a pillar sits at (21,16))
             (33, 4),    # a pillar of the lattice itself as a neighbour, tight corner
+            (15, 24),   # two tiles south of pillar (15,22), on its own column --
+                        # the 3-cycle bug's exact signature; see the docstring above
         ]
         total = 0
         engaged = 0
@@ -10726,7 +10859,7 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         self.assertGreaterEqual(
             rate, 0.90,
             f"only {engaged}/{total} ({rate:.1%}) engaged within {SWEEP_MAX_TURNS} turns "
-            "-- the pre-fix figure on this exact sweep was 22.0%")
+            "-- the pre-3-cycle-fix figure on this exact four-position sweep was 76.3%")
 
     def test_regression_aligned_dead_zone_is_no_longer_a_free_kill(self):
         # The exploit this whole change closes. Rule 3 used to read "if already

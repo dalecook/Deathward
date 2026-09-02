@@ -59,7 +59,11 @@ LAYOUT_VERSION = 4
 # whose run block carries a different version is discarded -- Continue falls back
 # to a fresh run -- exactly as LAYOUT_VERSION discards a stale map. Bumped for
 # Syrinx's new Monster fields (hidden/hidden_turns/pillar_x/pillar_y/retreating).
-RUN_SAVE_VERSION = 4     # 4: floor 8's gate state (mouth_sealed/stairs_locked/boss_spawned)
+RUN_SAVE_VERSION = 5     # 4: floor 8's gate state (mouth_sealed/stairs_locked/boss_spawned)
+                         # 5: Syrinx's new just_forced_close field (3-cycle fix) -- Monster.
+                         # from_dict indexes _MONSTER_STATE with data[k], not data.get(k), so
+                         # an old save missing this key would KeyError on load, not just
+                         # misbehave -- has to be a hard version bump, not a soft default.
 
 # --- palette -------------------------------------------------------------
 BG          = (10, 11, 16)
