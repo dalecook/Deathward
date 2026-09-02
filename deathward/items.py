@@ -748,19 +748,25 @@ def roll_monster_loot(rng, depth, key):
         # potions and scrolls spent surviving her, so the game is entitled to just
         # hand it back rather than gamble it again on the way out.
         #
-        # The two scrolls are "2 x scroll of upgrade" read literally: she drops one
-        # weapon (Windfang) and one suit of armour (Shademail), so one Enchant
-        # Weapon and one Enchant Armour scroll -- a scroll to push each of the two
-        # gear drops she just handed you, rather than two of the same scroll. If a
-        # future revisit decides that reading was wrong, it lives entirely in this
-        # one list.
+        # SECOND PASS on the hoard, same playtest: the first version also carried
+        # three Potions of Healing and both enchant scrolls (one Weapon, one
+        # Armour, on the reading that she drops one weapon and one suit of armour).
+        # All five were cut. What is left is deliberately NARROW -- healing you
+        # will actually feel, and nothing that permanently scales you. The plain
+        # Healing potions were the weakest thing here and the least worth walking
+        # back across a trapped floor for; the enchant scrolls were the strongest,
+        # and a boss you can only meet once a game handing out permanent +n on both
+        # of the gear pieces she just gave you compounds a reward that was already
+        # the best on the floor.
+        #
+        # It also drops her body to SEVEN entries, which quietly fixes a real thing:
+        # the loot menu selects by number key 1-9, so at eleven entries the last
+        # two -- which were the enchant scrolls, the most valuable items on her --
+        # could not be picked directly at all until earlier entries were cleared.
         return [("gear", "windfang", 0), ("gear", "shade", 0),
                 ("gold", config.SYRINX_GOLD_DROP),
-                ("item", "ochre"), ("item", "ochre"), ("item", "ochre"),
                 ("item", "rose"), ("item", "rose"),
-                ("item", "crimson"),
-                ("item", "krav"),
-                ("item", "dwen")]
+                ("item", "crimson"), ("item", "crimson")]
     chance, n = MONSTER_LOOT.get(key, (0.25, 1))
     if rng.random() >= chance:
         return []

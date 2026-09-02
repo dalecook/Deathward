@@ -11445,11 +11445,8 @@ class TestSyrinxResistances(unittest.TestCase):
 
 SYRINX_HOARD = [("gear", "windfang", 0), ("gear", "shade", 0),
                 ("gold", config.SYRINX_GOLD_DROP),
-                ("item", "ochre"), ("item", "ochre"), ("item", "ochre"),
                 ("item", "rose"), ("item", "rose"),
-                ("item", "crimson"),
-                ("item", "krav"),
-                ("item", "dwen")]
+                ("item", "crimson"), ("item", "crimson")]
 
 
 class TestSyrinxRewards(unittest.TestCase):
@@ -11490,9 +11487,15 @@ class TestSyrinxRewards(unittest.TestCase):
         self.assertEqual(slain.key, "syrinx")
         self.assertEqual(slain.loot, SYRINX_HOARD)
 
-    def test_all_eleven_entries_are_offered_and_takeable(self):
-        """The loot menu does not truncate or choke on an eleven-item body -- every
-        entry shows up in loot_options, and 'take all' clears the lot in one go."""
+    def test_every_entry_is_offered_and_takeable(self):
+        """The loot menu does not truncate or choke on her body -- every entry shows
+        up in loot_options, and 'take all' clears the lot in one go.
+
+        Her hoard was eleven entries for one revision, which mattered: the menu
+        selects by number key 1-9, so the last two were unreachable by a single
+        keypress. The second pass cut it to seven and the problem went with it --
+        this test is written against len(SYRINX_HOARD) rather than a literal so it
+        keeps meaning the same thing if the hoard is retuned again."""
         from .monsters import Monster
         codex = FakeSave()
         w = World(codex, seed=3)
@@ -11506,7 +11509,10 @@ class TestSyrinxRewards(unittest.TestCase):
 
         opts = w.loot_options()
         self.assertEqual(len(opts), len(SYRINX_HOARD),
-                          "the loot menu must offer every entry on an 11-item body")
+                          "the loot menu must offer every entry on her body")
+        self.assertLessEqual(len(SYRINX_HOARD), 9,
+                             "keep her hoard within the loot menu's 1-9 number keys, "
+                             "or the tail of it cannot be picked directly")
 
         gold_before = w.player.gold
         self.assertTrue(w.take_all())
@@ -11524,12 +11530,11 @@ class TestSyrinxRewards(unittest.TestCase):
         w = World(codex, seed=3)
         # fill every pack slot with something that is not part of her hoard, so
         # none of it can stack onto what is already carried
-        filler = [k for k in CONSUMABLES if k not in ("ochre", "rose", "crimson",
-                                                        "krav", "dwen")]
+        filler = [k for k in CONSUMABLES if k not in ("rose", "crimson")]
         for k in filler:
             while w.player.can_take(k):
                 w.player.pack_add(k)
-        self.assertFalse(w.player.can_take("ochre"), "pack must be full for this test")
+        self.assertFalse(w.player.can_take("rose"), "pack must be full for this test")
 
         s = Monster("syrinx", w.player.x + 1, w.player.y)
         s.hidden = False
