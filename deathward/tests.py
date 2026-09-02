@@ -11011,6 +11011,75 @@ class TestSyrinxShoveSpringsTraps(unittest.TestCase):
                          "a pit IN THE PATH must still catch you, stale flag or not")
 
 
+class TestSyrinxNeverSpringsHerOwnTraps(unittest.TestCase):
+    """on_monster_moved() already exempted wraiths (ethereal, nothing to spring).
+    Syrinx needs the same exemption for a different reason: the hall's ~150
+    hazards are dealt for the PLAYER to cross, one-shot dart/gas/glyph included,
+    and she wanders that same floor for the whole fight. Every trap she springs
+    herself is a trap that will never threaten the player again, and fire glyphs
+    hit her at SYRINX_FIRE_MULT -- so a 30 HP boss wandering her own room can
+    quietly bleed herself out on the minefield she is supposed to be guarding.
+    She owns the room; its hazards are the player's problem, not hers."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)          # an ordinary floor -- see TestSyrinxShoveSpringsTraps
+        return w
+
+    def test_she_does_not_spring_a_dart_trap_she_walks_onto(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1                      # FLOOR
+        w.level.traps = [Trap("dart", 21, 20)]
+        m = Monster("syrinx", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20                              # she has just stepped onto it
+        w.on_monster_moved(m)
+        self.assertFalse(w.level.traps[0].sprung, "her own hall's dart must stay armed")
+
+    def test_she_takes_no_fire_glyph_damage_from_her_own_hall(self):
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1
+        w.level.traps = [Trap("glyph", 21, 20)]
+        m = Monster("syrinx", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20
+        before = m.hp
+        w.on_monster_moved(m)
+        self.assertEqual(m.hp, before, "the double-damage fire glyph must never fire on her")
+
+    def test_a_wraith_is_still_exempt_too(self):
+        """The pre-existing exemption must survive alongside the new one."""
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1
+        w.level.traps = [Trap("dart", 21, 20)]
+        m = Monster("wraith", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20
+        w.on_monster_moved(m)
+        self.assertFalse(w.level.traps[0].sprung)
+
+    def test_an_ordinary_monster_still_springs_traps_as_before(self):
+        """The exemption is by key, not a blanket skip -- a kobold dragged or
+        stepped onto a trap must still spring it."""
+        from .traps import Trap
+        from .monsters import Monster
+        w = self._world()
+        w.level.grid[20][21] = 1
+        w.level.traps = [Trap("dart", 21, 20)]
+        m = Monster("kobold", 20, 20)
+        w.level.monsters = [m]
+        m.x, m.y = 21, 20
+        w.on_monster_moved(m)
+        self.assertTrue(w.level.traps[0].sprung, "a mundane monster still springs traps")
+
+
 class TestArenaFloorGeometry(unittest.TestCase):
     """Floor 8 is not a dungeon floor any more. It is her hall: an antechamber, a
     one-tile mouth, and a 31x23 room with twenty columns in it. The geometry is

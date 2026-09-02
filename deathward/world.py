@@ -2535,7 +2535,13 @@ class World:
 
     def on_monster_moved(self, m):
         t = self.level.trap_at(m.x, m.y)
-        if t and not t.sprung and m.key != "wraith":
+        # wraith: ethereal, there is nothing here for a pressure plate to catch.
+        # syrinx: her hall's ~150 hazards are dealt for the PLAYER to cross, one-shot
+        # dart/gas/glyph included -- if she springs them wandering her own room she
+        # consumes the minefield meant for you, and fire glyphs hit her at
+        # SYRINX_FIRE_MULT, so a 30 HP boss can quietly bleed out on her own floor.
+        # She owns the room; its hazards are not hers to trigger.
+        if t and not t.sprung and m.key not in ("wraith", "syrinx"):
             t.trigger(self, m)
 
     # --- death ----------------------------------------------------------
