@@ -24,12 +24,23 @@ starts over. The codes in use:
     8 7       open the arsenal: pick a top-tier weapon/armour/boots to drop beside you
     6 7       pick any uncommon/rare SCROLL, straight into the pack
     7 6       pick any uncommon/rare POTION, straight into the pack
-    1 2       open the weapon bench: swap on any weapon, ordinary or magical (SHIFT for +2)
+    1 2       open the weapon bench: swap on any weapon, ordinary or magical
+    2 1       open the magic bench: the magical weapons only, no ordinary page
+    5 6       open the boots bench: swap on any boot, ordinary or magical
+    3 4       open the armour bench: swap on any armour, ordinary or magical
+
+The four benches share one picker: TAB cycles the Ordinary / Tier 4 / Tier 5 pages,
+a digit equips that row, and SHIFT+digit takes its +2 masterwork instead (weapons
+only). A bench SWAPS -- what you were wearing drops at your feet. 0987 does not: it
+overwrites, because littering the floor with your old rags would just be noise.
 
 These exist so the deep floors can be reached in a few minutes instead of a few
 hours. They are deliberately not reachable by accident: nothing in the game binds
-CTRL, and neither sequence is one a hand produces by mistake. CheatCode is generic --
-each code is one instance with its own sequence (see game.py).
+CTRL, and no sequence here is one a hand produces by mistake. CheatCode is generic --
+each code is one instance with its own sequence (see game.py, which is where the
+codes are actually wired, and the thing to trust if this list ever drifts again).
+
+The fuller reference, including what each code does NOT do, is docs/cheats.md.
 """
 
 import pygame
