@@ -268,9 +268,18 @@ class Monster:
         plays as "she is delayed" even though nothing about her is actually slow.
         She matches the player's CURRENT speed instead, buffs included -- you
         cannot outrun the wind by drinking a potion. That is deliberate.
+
+        She has a floor under that, though: config.SYRINX_SPEED_FLOOR. Playtest
+        found that a deliberately slow build (heaviest armour, heaviest boots,
+        a Hammer) can push the player all the way down to 45 speed -- and at
+        that speed she could no longer reach a pillar before the hammer stun
+        wore off, which made the hardest-hitting build in the game also make
+        her trivial. She is never slower than the floor, only ever faster, so
+        a normal-or-better build (100+) sees no change at all; only the
+        bottom of the speed range gets clawed back.
         """
         if self.key == "syrinx":
-            return world.player.speed()
+            return max(config.SYRINX_SPEED_FLOOR, world.player.speed())
         return self.speed
 
     # --- serialization --------------------------------------------------

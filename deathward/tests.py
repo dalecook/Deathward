@@ -11048,6 +11048,70 @@ class TestSyrinxSpeedMatchesPlayer(unittest.TestCase):
                          "YOUR current speed, not her fixed template speed")
 
 
+class TestSyrinxSpeedFloor(unittest.TestCase):
+    """Matching the player's speed exactly means the heaviest-armour, slowest
+    build in the game (Full Plate + Plate Boots + any Hammer, all speed-negative)
+    drags her down with it -- playtested at player speed 45, where she could not
+    reach a pillar before the hammer's stun wore off. config.SYRINX_SPEED_FLOOR
+    claws back the bottom of that range without touching anything at or above a
+    normal build's speed. Assert the floor is HONOURED, never its numeric value --
+    that value is a balance tunable, deliberately untested."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)          # an ordinary floor -- geometry does not matter here
+        return w
+
+    def _slowest_build(self, w):
+        """Full Plate + Plate Boots + any Hammer: the slowest a player can be."""
+        from .items import ARMOURS, BOOTS, WEAPONS
+        w.player.armour = ARMOURS["plate"]
+        w.player.boots = BOOTS["boots_plate"]
+        w.player.weapon = WEAPONS["bone_hammer"]
+
+    def test_below_the_floor_she_reports_the_floor(self):
+        from .monsters import Monster
+        w = self._world()
+        self._slowest_build(w)
+        self.assertLess(w.player.speed(), config.SYRINX_SPEED_FLOOR,
+                         "test setup must actually put the player under the floor")
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), config.SYRINX_SPEED_FLOOR)
+        self.assertNotEqual(m.speed_now(w), w.player.speed(),
+                            "below the floor she must NOT still match the player")
+
+    def test_at_the_floor_she_reports_the_players_speed(self):
+        """A player sitting exactly on the floor gets no special-cased boost --
+        max(floor, speed) is honest about ties."""
+        from .monsters import Monster
+        from .items import ARMOURS
+        w = self._world()
+        # a COPY of bare armour, tuned so player.speed() lands exactly on the floor
+        # -- copy() so this never mutates the shared ARMOURS['rags'] instance other
+        # tests read from
+        tuned = ARMOURS["rags"].copy()
+        tuned.speed_mod = config.SYRINX_SPEED_FLOOR - config.BASE_SPEED
+        w.player.armour = tuned
+        self.assertEqual(w.player.speed(), config.SYRINX_SPEED_FLOOR)
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+    def test_at_and_above_the_floor_nothing_changes(self):
+        """Normal speed (100) and faster (Swift boots) must be completely
+        unaffected -- the floor only ever raises the slow end, never the rest."""
+        from .monsters import Monster
+        from .items import BOOTS
+        w = self._world()
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertGreaterEqual(w.player.speed(), config.SYRINX_SPEED_FLOOR)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+        w.player.boots = BOOTS["swift"]     # faster still (125)
+        self.assertGreater(w.player.speed(), config.SYRINX_SPEED_FLOOR)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+
 class TestSyrinxStunAndRetreat(unittest.TestCase):
     def _world(self):
         codex = FakeSave(); codex.world_seed = 5

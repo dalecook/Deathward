@@ -194,6 +194,19 @@ SYRINX_STANDOFF   = 6      # beyond this she closes the gap; within it she manoe
                            # arena leash means nothing (the arena IS the floor). she
                            # will line herself up on your row or column, but she will
                            # not walk into your reach to do it.
+SYRINX_SPEED_FLOOR = 70    # she matches the player's speed (see Monster.speed_now),
+                           # but never falls below this no matter how slow the build.
+                           # Playtest: Full Plate (-20) + Plate Boots (-10) + any Hammer
+                           # (-25) puts the player at 45, the slowest possible speed, and
+                           # at that speed she could not reach a pillar before the hammer
+                           # stun wore off -- the heaviest armour in the game made her
+                           # trivial instead of dangerous. The floor claws back some of
+                           # that: at 45 she now acts ~1.56x per player tick. At 100 and
+                           # above (bare speed or faster) this changes nothing at all. It
+                           # is deliberate that this makes a heavy-armour, slow-speed
+                           # build nearly impossible to win her fight in -- that is not a
+                           # bug to smooth over, it is the game telling you the build has
+                           # a cost, and floor 8 is where you find out.
 
 # --- floor 8: her hall ----------------------------------------------------
 # The geometry is FIXED -- cut identically in every game -- and only the hazards are
