@@ -12908,6 +12908,80 @@ class TestArenaIsAlwaysCompletable(unittest.TestCase):
                         "and she arrived")
 
 
+class TestHerDeathReleasesTheWholeHall(unittest.TestCase):
+    """Killing her opens every gate, not only the way down.
+
+    Playtest: "when she dies the gate back to the stairs up does not also reopen."
+    Opening the stairs alone left the player walled into her hall with exactly one
+    legal exit -- no way back to the antechamber they prepared in, and no way up at
+    all, on a floor whose only threat was already dead. The three gates were hers;
+    her death is what releases them."""
+
+    def _committed(self):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=1)
+        w.new_level(8)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy
+        w._end_player_turn()
+        return w
+
+    def _kill_her(self, w):
+        s = [m for m in w.level.monsters if m.key == "syrinx"][0]
+        w.kill_monster(s, source="player")
+
+    def test_while_she_lives_the_hall_holds_you(self):
+        w = self._committed()
+        mx, my = w.level.mouth
+        self.assertTrue(w.level.mouth_sealed)
+        self.assertFalse(w.walkable(mx, my))
+        w.player.x, w.player.y = w.level.entrance
+        self.assertFalse(w.ascend(), "no way up while she is standing")
+
+    def test_her_death_reopens_the_mouth(self):
+        w = self._committed()
+        mx, my = w.level.mouth
+        self._kill_her(w)
+        self.assertFalse(w.level.mouth_sealed)
+        self.assertTrue(w.walkable(mx, my),
+                        "the mouth must be floor again, or the antechamber and the "
+                        "way up are both unreachable")
+
+    def test_her_death_lets_you_climb_back_out(self):
+        w = self._committed()
+        self._kill_her(w)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend())
+        self.assertEqual(w.depth, 7)
+
+    def test_walking_back_in_does_not_re_seal_the_mouth(self):
+        """The mouth reopens so the player can leave. Slamming it again the moment
+        they step back into the hall would trap them in an empty room for nothing."""
+        w = self._committed()
+        self._kill_her(w)
+        a = w.level.arena_room
+        w.player.x, w.player.y = a.x, a.cy       # back inside the hall
+        w._end_player_turn()
+        self.assertFalse(w.level.mouth_sealed, "a dead hall does not shut again")
+        mx, my = w.level.mouth
+        self.assertTrue(w.walkable(mx, my))
+
+    def test_the_way_down_still_opens_too(self):
+        w = self._committed()
+        self._kill_her(w)
+        self.assertFalse(w.level.stairs_locked)
+        w.player.x, w.player.y = w.level.stairs
+        self.assertTrue(w.descend())
+        self.assertEqual(w.depth, 9)
+
+    def test_ordinary_floors_are_untouched(self):
+        codex = FakeSave(); codex.world_seed = 5
+        w = World(codex, seed=1)
+        w.new_level(7)
+        w.player.x, w.player.y = w.level.entrance
+        self.assertTrue(w.ascend(), "the arena rule must not leak onto other floors")
+
+
 class TestSyrinxSurfacesFromAnotherPillar(unittest.TestCase):
     """She goes into pillar A and comes up out of pillar B, never A.
 

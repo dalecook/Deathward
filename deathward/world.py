@@ -301,9 +301,12 @@ class World:
         if (self.player.x, self.player.y) != self.level.entrance:
             self.log("You are not standing on the way up.", config.DIM)
             return False
-        if self.level.is_arena_floor():
+        if self.level.is_arena_floor() and self.level.stairs_locked:
             # the same rule as floor 1's front gate, one floor deeper: you came down
-            # into her hall, and the hall does not give anything back.
+            # into her hall, and while she is standing the hall gives nothing back.
+            # `stairs_locked` is the "she is still alive" flag -- kill_monster clears
+            # it and reopens the mouth in the same breath, and from that moment this
+            # floor is an ordinary room you may walk out of either end.
             self.log("The portcullis behind you is down, and there is no winch on "
                      "this side.", config.BLOOD)
             return False
@@ -890,11 +893,28 @@ class World:
 
         # the gate answers to her death, not to who dealt it -- a fire glyph counts.
         if m.key == "syrinx" and self.level.stairs_locked:
+            # HER DEATH RELEASES THE WHOLE HALL, not just the way down. The three
+            # gates were hers: the portcullis behind you on arrival, the mouth that
+            # shut when you committed, and the grate over the stairs. Opening only
+            # the last one left the player walled into her hall with exactly one
+            # legal exit -- no way back to the antechamber they prepared in, and no
+            # way up at all, on a floor whose only threat was already dead. So the
+            # mouth comes back up too, and ascend() stops refusing (it now keys off
+            # stairs_locked, i.e. "is she still standing", rather than "is this her
+            # floor"). What is left is an ordinary, quiet room you may leave by
+            # either end.
             self.level.stairs_locked = False
             sx, sy = self.level.stairs
             self.log("Iron grinds somewhere in the dark. The way down is open.",
                      config.STAIRS)
             self.add_fx("pulse", sx, sy, color=config.STAIRS, life=1.2)
+            if self.level.mouth_sealed and self.level.mouth:
+                mx, my = self.level.mouth
+                self.level.grid[my][mx] = FLOOR
+                self.level.mouth_sealed = False
+                self.log("Behind you, the mouth of the hall grinds open as well.",
+                         config.STAIRS)
+                self.add_fx("pulse", mx, my, color=config.STAIRS, life=1.2)
 
         # a body's Slain entry has to land somewhere the player can actually stand,
         # or its loot (loot_options only offers a body's contents on its exact tile)
@@ -2281,6 +2301,12 @@ class World:
         """
         lvl = self.level
         if not lvl.is_arena_floor() or lvl.mouth_sealed:
+            return
+        if not lvl.stairs_locked:
+            # she is dead and the hall has already let go (see kill_monster). The
+            # mouth is open again precisely so the player can walk back out to the
+            # antechamber and the way up -- re-sealing it behind them the moment
+            # they step back in would trap them in an empty room for nothing.
             return
         if lvl.arena_room is None or not lvl.arena_room.contains(self.player.x,
                                                                  self.player.y):
