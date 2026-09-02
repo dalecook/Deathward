@@ -33,10 +33,10 @@ import random
 
 from . import config
 from .codex import CAUSE_NAME, fact_title
-from .dungeon import WALL, Chest, Corpse, Drop, Level, Slain
+from .dungeon import FLOOR, WALL, Chest, Corpse, Drop, Level, Slain
 from .items import (ALL_GEAR, CONSUMABLES, is_magical, is_magical_armour, is_magical_boot,
                      roll_loot, roll_monster_loot)
-from .monsters import DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
+from .monsters import DIRS4, DIRS8, Monster, TEMPLATES, damage_multiplier, is_incorporeal
 
 MONSTER_NAME = {k: t.name for k, t in TEMPLATES.items()}
 
@@ -1169,11 +1169,15 @@ class World:
             self.player_attack(m)
             return self._end_player_turn()
         if not self.walkable(nx, ny):
-            # Shademail: step INTO in-bounds stone (never off-map), if not on cooldown.
-            # No _enter_tile() here -- traps, drops, chests and the stairs live only
-            # on floor, so a stone tile has nothing to trigger by design.
+            # Shademail: step INTO in-bounds stone (never off-map), if not on cooldown,
+            # and only onto a wall tile that is itself beside floor (_shade_enterable) --
+            # a slide along a wall FACE, never a tunnel deeper into the mass; see
+            # _shade_enterable for why. No _enter_tile() here -- traps, drops, chests
+            # and the stairs live only on floor, so a stone tile has nothing to trigger
+            # by design.
             if (p.armour.trait == "shade" and p.shade_cd == 0
-                    and self.in_bounds(nx, ny) and self.level.grid[ny][nx] == WALL):
+                    and self.in_bounds(nx, ny) and self.level.grid[ny][nx] == WALL
+                    and self._shade_enterable(nx, ny)):
                 p.x, p.y = nx, ny
                 self.codex.stats["steps"] += 1
                 return self._end_player_turn()
@@ -2342,6 +2346,26 @@ class World:
             t.trigger(self, p)
 
     # --- Shademail --------------------------------------------------------
+    def _shade_enterable(self, x, y):
+        """A wall tile is enterable by Shademail only if it is orthogonally (4-way)
+        beside a FLOOR tile -- diagonal neighbours do not count, or a corner-cut
+        would let the check pass one tile deeper than it should.
+
+        This is what keeps the armour a slide along a wall FACE rather than a
+        tunnel through the mass behind it: every tile you can stand on has a
+        floor tile one step away, so there is always somewhere to surface. It
+        also removes the crush death outright -- SHADE_SUBMERGE_MAX used to let
+        you walk deep enough into a wall that no adjacent tile was floor, at
+        which point _shade_tick's blink_tile_near() eject had nothing to land
+        on and SHADE_CRUSH_DMG hit every turn thereafter while you kept
+        walking. If you can never be more than one step from daylight, that
+        tile with nowhere to eject to simply does not exist any more."""
+        for dx, dy in DIRS4:
+            ax, ay = x + dx, y + dy
+            if self.in_bounds(ax, ay) and self.level.grid[ay][ax] == FLOOR:
+                return True
+        return False
+
     def player_submerged(self):
         """Standing inside STONE, wearing the one armour that lets you. This is the
         single check every stone-related guard (attacks, FOV) is built on."""

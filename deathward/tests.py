@@ -5864,6 +5864,116 @@ class TestShademail(unittest.TestCase):
             "wallhack out through the doorway (~49 tiles unfixed)")
 
 
+class TestShademailWallAdjacencyRule(unittest.TestCase):
+    """SHADE_SUBMERGE_MAX (10 turns) let the player STAY in stone, but nothing
+    ever stopped a stone-to-stone STEP -- so a Shademail wearer could burrow
+    deep into a wall mass with no floor anywhere nearby. Measured on floor 4:
+    nine consecutive tiles through solid rock before being spat out, and deep
+    inside a mass there is no adjacent floor tile to eject to, so
+    _shade_tick's crush branch (SHADE_CRUSH_DMG) fired every turn while the
+    player kept right on walking.
+
+    The new rule, in the user's words: a wall tile is only enterable if it is
+    next to a floor tile, using orthogonal (4-way) adjacency. This lets you
+    slide ALONG a wall face (every such tile touches a corridor) but never
+    move deeper into a mass -- which also removes the crush death outright,
+    since a tile with no adjacent floor to eject to can no longer be entered
+    at all."""
+
+    def _wear(self, w):
+        from .items import ALL_GEAR
+        w.player.armour = ALL_GEAR["shade"].copy()
+
+    def _build_mass(self, w, ox=10, oy=10, thickness=21):
+        """A big isolated block of solid WALL with exactly one FLOOR entry tile
+        on its west face, far from any generated room/corridor so nothing else
+        in the level interferes. (ox, oy) is the entry floor tile; the wall
+        mass runs from (ox+1, oy) for `thickness` tiles east -- deep enough
+        that its middle has no adjacent floor at all."""
+        from .dungeon import WALL, FLOOR
+        lvl = w.level
+        # a generous WALL moat around the whole test area first, so no stray
+        # floor tile from the generated level sneaks in and legalizes a tile
+        # this test means to prove is illegal
+        for y in range(oy - 5, oy + 6):
+            for x in range(ox - 5, ox + thickness + 5):
+                lvl.grid[y][x] = WALL
+        lvl.grid[oy][ox] = FLOOR                 # the one doorway in
+        return (ox, oy)
+
+    def test_entering_a_wall_beside_floor_works(self):
+        w = self._world_for_mass()
+        px, py = self._build_mass(w)
+        self._wear(w)
+        w.player.x, w.player.y = px, py
+        w.level.compute_fov(px, py)
+        self.assertTrue(w.player_move(1, 0), "the doorway wall tile touches floor")
+        self.assertEqual((w.player.x, w.player.y), (px + 1, py))
+        self.assertTrue(w.player_submerged())
+
+    def test_stepping_deeper_into_the_mass_is_refused(self):
+        w = self._world_for_mass()
+        px, py = self._build_mass(w)
+        self._wear(w)
+        w.player.x, w.player.y = px, py
+        w.level.compute_fov(px, py)
+        w.player_move(1, 0)                       # into the doorway tile -- legal
+        self.assertEqual((w.player.x, w.player.y), (px + 1, py))
+        moved = w.player_move(1, 0)                # one tile deeper -- no floor anywhere near it
+        self.assertFalse(moved, "a wall tile with no adjacent floor must refuse entry")
+        self.assertEqual((w.player.x, w.player.y), (px + 1, py),
+                         "the player must not have moved")
+
+    def test_sliding_along_a_wall_face_works(self):
+        """A wall row directly north of an open floor corridor: every tile in
+        that row touches floor to its north, so walking ALONG the row (not
+        deeper into anything) must stay legal the whole way."""
+        from .dungeon import WALL, FLOOR
+        w = self._world_for_mass()
+        ox, oy = 10, 10
+        for y in range(oy - 3, oy + 3):
+            for x in range(ox - 3, ox + 14):
+                w.level.grid[y][x] = WALL
+        for x in range(ox, ox + 12):
+            w.level.grid[oy + 1][x] = FLOOR       # the corridor
+            w.level.grid[oy][x] = WALL            # the wall face directly above it
+        self._wear(w)
+        w.player.x, w.player.y = ox, oy + 1
+        w.level.compute_fov(w.player.x, w.player.y)
+        self.assertTrue(w.player_move(0, -1), "step up into the wall face")
+        self.assertEqual((w.player.x, w.player.y), (ox, oy))
+        # keep the whole slide under SHADE_SUBMERGE_MAX (10) turns submerged --
+        # that limit is a separate mechanic (see TestShademail) and not what
+        # this test is about; going past it would eject the player mid-slide.
+        for i in range(1, 9):
+            moved = w.player_move(1, 0)
+            self.assertTrue(moved, "tile %d of the wall face still touches the corridor" % i)
+            self.assertEqual((w.player.x, w.player.y), (ox + i, oy))
+            self.assertTrue(w.player_submerged())
+
+    def test_the_nine_tile_tunnel_from_the_probe_is_now_impossible(self):
+        w = self._world_for_mass()
+        px, py = self._build_mass(w, thickness=21)
+        self._wear(w)
+        w.player.x, w.player.y = px, py
+        w.level.compute_fov(px, py)
+        steps_in = 0
+        for _ in range(9):
+            if not w.player_move(1, 0):
+                break
+            steps_in += 1
+        self.assertLess(steps_in, 9,
+                        "nine consecutive tiles through solid rock must no longer be possible")
+        self.assertLessEqual(steps_in, 1,
+                        "with a floor tile only on the entry face, at most one step in is legal")
+
+    def _world_for_mass(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=6)
+        w.level.monsters = []
+        return w
+
+
 class TestTheKodexTabs(unittest.TestCase):
     """The Kodex is split into six tabs; gear entries are earned by finding the gear."""
 
