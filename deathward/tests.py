@@ -11443,15 +11443,41 @@ class TestSyrinxResistances(unittest.TestCase):
                           "invisible player")
 
 
+SYRINX_HOARD = [("gear", "windfang", 0), ("gear", "shade", 0),
+                ("gold", config.SYRINX_GOLD_DROP),
+                ("item", "ochre"), ("item", "ochre"), ("item", "ochre"),
+                ("item", "rose"), ("item", "rose"),
+                ("item", "crimson"),
+                ("item", "krav"),
+                ("item", "dwen")]
+
+
 class TestSyrinxRewards(unittest.TestCase):
-    def test_she_always_drops_windfang_and_shademail(self):
+    def test_she_always_drops_the_full_hoard(self):
+        """Gear, gold, and consumables alike are all guaranteed -- this is a fixed
+        hoard, not a roll (see roll_monster_loot's comment). Both gear pieces must
+        never go missing; that guarantee predates this change and must survive it."""
         import random
         from .items import roll_monster_loot
         for s in range(50):
             loot = roll_monster_loot(random.Random(s), 8, "syrinx")
-            self.assertEqual(loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
+            self.assertEqual(loot, SYRINX_HOARD)
 
-    def test_her_death_leaves_both_on_the_body(self):
+    def test_the_drop_draws_no_rng(self):
+        """A fixed hoard must not touch the rng at all -- otherwise her drop would
+        quietly consume random-stream state that the blind-vs-omniscient
+        determinism invariant depends on staying identical between runs."""
+        from .items import roll_monster_loot
+
+        class ExplodingRng:
+            def __getattr__(self, name):
+                raise AssertionError("roll_monster_loot('syrinx', ...) touched the "
+                                      "rng -- her drop must be pure data, not a roll")
+
+        loot = roll_monster_loot(ExplodingRng(), 8, "syrinx")
+        self.assertEqual(loot, SYRINX_HOARD)
+
+    def test_her_death_leaves_the_full_hoard_on_the_body(self):
         from .monsters import Monster
         codex = FakeSave()
         w = World(codex, seed=3)
@@ -11462,7 +11488,68 @@ class TestSyrinxRewards(unittest.TestCase):
         w.kill_monster(s, source="player")
         slain = w.level.slain[-1]
         self.assertEqual(slain.key, "syrinx")
-        self.assertEqual(slain.loot, [("gear", "windfang", 0), ("gear", "shade", 0)])
+        self.assertEqual(slain.loot, SYRINX_HOARD)
+
+    def test_all_eleven_entries_are_offered_and_takeable(self):
+        """The loot menu does not truncate or choke on an eleven-item body -- every
+        entry shows up in loot_options, and 'take all' clears the lot in one go."""
+        from .monsters import Monster
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        s.hp = 1
+        w.level.monsters = [s]
+        w.kill_monster(s, source="player")
+        slain = w.level.slain[-1]
+        w.player.x, w.player.y = slain.x, slain.y
+
+        opts = w.loot_options()
+        self.assertEqual(len(opts), len(SYRINX_HOARD),
+                          "the loot menu must offer every entry on an 11-item body")
+
+        gold_before = w.player.gold
+        self.assertTrue(w.take_all())
+        self.assertEqual(w.player.gold, gold_before + config.SYRINX_GOLD_DROP)
+        self.assertEqual(w.loot_options(), [], "take-all must clear the whole hoard")
+
+    def test_a_full_pack_refuses_a_potion_but_still_takes_the_rest(self):
+        """can_take(payload) gates each 'item' pickup individually (see
+        world.py's _consume_option) -- a full pack must not crash or drop the whole
+        hoard, it must just refuse the potions/scrolls that will not fit and leave
+        them on the body, while gold and gear (never pack-limited) still come off."""
+        from .monsters import Monster
+        from .items import CONSUMABLES
+        codex = FakeSave()
+        w = World(codex, seed=3)
+        # fill every pack slot with something that is not part of her hoard, so
+        # none of it can stack onto what is already carried
+        filler = [k for k in CONSUMABLES if k not in ("ochre", "rose", "crimson",
+                                                        "krav", "dwen")]
+        for k in filler:
+            while w.player.can_take(k):
+                w.player.pack_add(k)
+        self.assertFalse(w.player.can_take("ochre"), "pack must be full for this test")
+
+        s = Monster("syrinx", w.player.x + 1, w.player.y)
+        s.hidden = False
+        s.hp = 1
+        w.level.monsters = [s]
+        w.kill_monster(s, source="player")
+        slain = w.level.slain[-1]
+        w.player.x, w.player.y = slain.x, slain.y
+
+        gold_before = w.player.gold
+        w.take_all()
+        # gold and both gear pieces are never pack-limited -- they must always come off
+        self.assertEqual(w.player.gold, gold_before + config.SYRINX_GOLD_DROP)
+        remaining = [o["kind"] for o in w.loot_options()]
+        self.assertNotIn("gold", remaining)
+        self.assertNotIn("gear", remaining)
+        # every potion/scroll that could not fit is refused, not lost
+        self.assertTrue(remaining, "a full pack must leave the un-takeable "
+                                    "consumables on the body rather than eating them")
+        self.assertTrue(all(k == "item" for k in remaining))
 
     def test_her_corpse_never_gets_buried_in_a_pillar_wall(self):
         from .dungeon import WALL

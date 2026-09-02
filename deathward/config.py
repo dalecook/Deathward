@@ -208,6 +208,12 @@ SYRINX_SPEED_FLOOR = 70    # she matches the player's speed (see Monster.speed_n
                            # bug to smooth over, it is the game telling you the build has
                            # a cost, and floor 8 is where you find out.
 
+# what she leaves on her body when she dies, on top of the two guaranteed gear
+# pieces below (see roll_monster_loot). Named here, not left as a literal in the
+# drop list, because it is the one number in her hoard that is a "how much gold"
+# balance call rather than a fixed identity of the hoard itself.
+SYRINX_GOLD_DROP  = 250
+
 # --- floor 8: her hall ----------------------------------------------------
 # The geometry is FIXED -- cut identically in every game -- and only the hazards are
 # re-dealt per game. 31x23 is ~2.7x the largest room the generator can make (a 20x13
