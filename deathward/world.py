@@ -271,8 +271,8 @@ class World:
             self.log("You are not standing on the stairs.", config.DIM)
             return False
         if self.level.stairs_locked:
-            self.log("The way down is barred. Something in this hall is holding it "
-                     "shut.", config.BLOOD)
+            self.log("The way down is grated over. Something in this hall keeps "
+                     "the key.", config.BLOOD)
             return False
         self.remember_map()
         self.new_level(self.depth + 1, arrive="entrance")
@@ -304,8 +304,8 @@ class World:
         if self.level.is_arena_floor():
             # the same rule as floor 1's front gate, one floor deeper: you came down
             # into her hall, and the hall does not give anything back.
-            self.log("The gate you came down through is stone. There is no way back.",
-                     config.BLOOD)
+            self.log("The portcullis behind you is down, and there is no winch on "
+                     "this side.", config.BLOOD)
             return False
         if self.depth <= 1:
             return "sealed"          # the gate you came in by. it is not a door now.
@@ -892,7 +892,8 @@ class World:
         if m.key == "syrinx" and self.level.stairs_locked:
             self.level.stairs_locked = False
             sx, sy = self.level.stairs
-            self.log("Somewhere behind you, the way down grinds open.", config.STAIRS)
+            self.log("Iron grinds somewhere in the dark. The way down is open.",
+                     config.STAIRS)
             self.add_fx("pulse", sx, sy, color=config.STAIRS, life=1.2)
 
         # a body's Slain entry has to land somewhere the player can actually stand,
@@ -2287,7 +2288,8 @@ class World:
         mx, my = lvl.mouth
         lvl.grid[my][mx] = WALL
         lvl.mouth_sealed = True
-        self.log("The gate falls behind you. Stone, and no seam.", config.BLOOD)
+        self.log("Iron comes down behind you, hard enough to feel through your "
+                 "boots.", config.BLOOD)
         self.shake(8)
 
         a = lvl.arena_room
