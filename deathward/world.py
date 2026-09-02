@@ -271,8 +271,8 @@ class World:
             self.log("You are not standing on the stairs.", config.DIM)
             return False
         if self.level.stairs_locked:
-            self.log("The way down is grated over. Something in this hall keeps "
-                     "the key.", config.BLOOD)
+            self.log("The way down is grated over. How can this be moved?",
+                     config.BLOOD)
             return False
         self.remember_map()
         self.new_level(self.depth + 1, arrive="entrance")
