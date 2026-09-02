@@ -55,10 +55,11 @@ AUTOSAVE_INTERVAL_TURNS = 5
 # place.
 LAYOUT_VERSION = 4
 
-# Bumped when the run-save (suspend/resume) serialization shape changes. A save
+# Bumped when the run-save (suspend/resume) serialization shape changes -- a new
+# field on Monster, World, or Level that an old save simply will not have. A save
 # whose run block carries a different version is discarded -- Continue falls back
-# to a fresh run -- exactly as LAYOUT_VERSION discards a stale map. Bumped for
-# Syrinx's new Monster fields (hidden/hidden_turns/pillar_x/pillar_y/retreating).
+# to a fresh run -- exactly as LAYOUT_VERSION discards a stale map. See the
+# inline legend below for what each bump actually added.
 RUN_SAVE_VERSION = 5     # 4: floor 8's gate state (mouth_sealed/stairs_locked/boss_spawned)
                          # 5: Syrinx's new just_forced_close field (3-cycle fix) -- Monster.
                          # from_dict indexes _MONSTER_STATE with data[k], not data.get(k), so

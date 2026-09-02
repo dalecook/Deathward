@@ -942,9 +942,16 @@ class Monster:
         # through to_dict/from_dict like every other scalar here) rather than
         # zero new state -- the one tradeoff this fix makes deliberately, because
         # the zero-state alternative does not actually work. Read-and-cleared
-        # unconditionally, right here, every turn, so it can never suppress more
-        # than the single turn immediately following the close that set it --
-        # it is a missed heartbeat, not a mode.
+        # unconditionally, right here, every turn she actually reaches this
+        # method -- so it can never suppress more than the single turn
+        # immediately following the close that set it. That is one ACTING
+        # turn, not one game turn: take_turn's stunned early-return skips this
+        # method entirely, so a stun landed right after the close (a
+        # hammer-stagger, a freeze) leaves the flag armed and waiting until she
+        # next moves -- worth at most one extra free swing on that turn, never
+        # more, since the first acting turn clears it unconditionally no matter
+        # how many stunned turns came first. It is a missed heartbeat, not a
+        # mode.
         suppress_recoil, self.just_forced_close = self.just_forced_close, False
         if d == 1 and not aligned and not suppress_recoil:
             self._step_away(world, p.x, p.y)

@@ -10448,6 +10448,38 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         self.assertGreater(s.dist(w.player.x, w.player.y), d0,
                             "diagonal adjacency must make her recoil, not close or hold")
 
+    def test_forced_close_suppression_is_one_shot_not_sticky(self):
+        """Mutation-kill: rule 1 reads and clears `just_forced_close` in a single
+        line -- `suppress_recoil, self.just_forced_close = self.just_forced_close,
+        False` -- so a forced close only ever buys ONE turn of immunity from the
+        diagonal-adjacency recoil. A sticky variant that reads the flag without
+        also clearing it (`suppress_recoil = self.just_forced_close`) would leave
+        rule 1 permanently disabled once anything ever forces a close -- she would
+        then stand and take free hits from a diagonally-adjacent player forever,
+        which is the exact blind spot rule 1 exists to close. Nothing else in the
+        suite drives the flag two turns deep, so nothing else catches this.
+        """
+        w = self._world()
+        s = self._syrinx(w, 1, 1)            # diagonal adjacent -- rule 1's own trigger
+        s.just_forced_close = True
+        start = (s.x, s.y)
+
+        s.take_turn(w)                       # the suppressed turn: rule 1 must not fire
+        self.assertFalse(s.just_forced_close,
+                          "the flag must clear itself the instant it is consumed, "
+                          "not persist across turns")
+
+        # Whatever she did on the suppressed turn is not this test's concern --
+        # put her straight back on rule 1's own trigger tile and give her a
+        # second turn. The flag is False now, so a non-sticky implementation
+        # must let rule 1 fire again; a sticky one would still suppress it.
+        s.x, s.y = start
+        d0 = s.dist(w.player.x, w.player.y)
+        s.take_turn(w)
+        self.assertGreater(s.dist(w.player.x, w.player.y), d0,
+                            "with the flag cleared, diagonal adjacency must recoil "
+                            "again -- the suppression must not outlive its one turn")
+
     def test_aligned_and_clear_commits_to_a_telegraphed_blow(self):
         w = self._world()
         s = self._syrinx(w, config.SYRINX_BLOW_RANGE, 0)
@@ -11459,6 +11491,25 @@ class TestSyrinxSerialization(unittest.TestCase):
 
     def test_run_save_version_was_bumped_for_her_new_state(self):
         self.assertGreaterEqual(config.RUN_SAVE_VERSION, 3)
+
+    def test_just_forced_close_round_trips_through_to_dict_from_dict(self):
+        """Mutation-kill: deleting "just_forced_close" from _MONSTER_STATE is
+        the entire justification for the RUN_SAVE_VERSION 4->5 bump (see
+        config.py's own comment on the constant), and nothing else in this
+        class -- or TestMonsterSerialization, TestWorldSerialization,
+        TestLevelSerialization, TestSuspendResumeLifecycle -- sets this flag
+        before round-tripping a monster, so nothing else would notice it
+        silently stopped surviving a save/load. A save spanning the one turn
+        the flag is meant to suppress rule 1 for must come back with the
+        flag still armed, or that suppression silently vanishes across a
+        suspend/resume boundary.
+        """
+        from .monsters import Monster
+        m = Monster("syrinx", 5, 6)
+        m.just_forced_close = True
+        n = Monster.from_dict(m.to_dict())
+        self.assertTrue(n.just_forced_close,
+                         "just_forced_close must round-trip through to_dict/from_dict")
 
 
 class TestSyrinxKnowledgeIsNotPower(unittest.TestCase):
