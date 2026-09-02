@@ -10409,6 +10409,68 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             "on the decaying real-time FX pulse")
 
 
+class TestSyrinxSpeedMatchesPlayer(unittest.TestCase):
+    """Her own AI docstring (_ai_syrinx) says she 'moves at the player's own
+    speed', but TEMPLATES['syrinx'] hard-codes speed=100 == config.BASE_SPEED --
+    a fixed number that never moves even though the player's actual speed does,
+    turn to turn, with boots/armour/weapon and haste/berserk/heroism. Measured:
+    with Swift boots the player acted 1.25x per her tick, Blink 1.15x -- "she
+    seems delayed". Monster.speed_now(world) is the seam: self.speed for every
+    ordinary monster, world.player.speed() for her alone."""
+
+    def _world(self):
+        codex = FakeSave(); codex.world_seed = 3
+        w = World(codex, seed=1)
+        w.new_level(5)          # an ordinary floor -- geometry does not matter here
+        return w
+
+    def test_an_ordinary_monster_still_uses_its_own_fixed_speed(self):
+        from .monsters import Monster
+        w = self._world()
+        m = Monster("kobold", w.player.x, w.player.y)
+        w.player.boots = BOOTS["swift"]   # a fast player must not affect her
+        self.assertEqual(m.speed_now(w), m.speed)
+
+    def test_syrinx_matches_a_swift_booted_player(self):
+        from .monsters import Monster
+        w = self._world()
+        w.player.boots = BOOTS["swift"]
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+        self.assertNotEqual(m.speed_now(w), m.speed,
+                            "her template speed alone must no longer be the truth")
+
+    def test_syrinx_matches_a_hasted_player_too(self):
+        """'Matches CURRENT speed, including haste/berserk/heroism' is deliberate --
+        you cannot outrun the wind."""
+        from .monsters import Monster
+        w = self._world()
+        w.player.haste = 5
+        m = Monster("syrinx", w.player.x, w.player.y)
+        self.assertEqual(m.speed_now(w), w.player.speed())
+
+    def test_advance_grants_her_energy_at_the_players_current_speed(self):
+        """The seam is wired into the real turn engine, not just callable in
+        isolation. advance() runs exactly one tick here (player speed 125 clears
+        ACT_COST(100) in one go), spending 100 of whatever she banked on a turn
+        (a hidden, off-grid Syrinx acts but never moves or attacks) and leaving
+        the remainder. With the stale fixed speed=100 template she would bank
+        exactly ACT_COST and be left with 0; matched to a 125-speed player she
+        banks 125 and is left with 25 -- the only way to tell them apart from
+        outside is the leftover energy itself."""
+        from .monsters import Monster
+        from . import config
+        w = self._world()
+        w.player.boots = BOOTS["swift"]
+        w.player.energy = 0
+        m = Monster("syrinx", 5, 5)     # spawns hidden -- stays off-grid, never moves
+        w.level.monsters = [m]
+        w.advance()                     # runs until the player can act again
+        self.assertEqual(m.energy, w.player.speed() - config.ACT_COST,
+                         "her energy must accrue at the player's CURRENT speed, "
+                         "not her fixed template speed")
+
+
 class TestSyrinxStunAndRetreat(unittest.TestCase):
     def _world(self):
         codex = FakeSave(); codex.world_seed = 5

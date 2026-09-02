@@ -247,6 +247,25 @@ class Monster:
     def dist(self, x, y):
         return max(abs(self.x - x), abs(self.y - y))   # chebyshev: 8-way grid
 
+    def speed_now(self, world):
+        """Energy gained per tick (see World.advance / freeze_tick). Almost always
+        just self.speed -- a fixed number baked in from the Template at spawn.
+
+        Syrinx is the one exception. Her own design spec (_ai_syrinx's docstring)
+        says she "moves at the player's own speed", but self.speed alone cannot
+        express that: it is fixed at 100 (== config.BASE_SPEED) forever, while the
+        player's actual speed swings turn to turn with boots, armour, weapon, and
+        the haste/berserk/heroism buffs. Hard-coding her at 100 quietly broke the
+        stated design the moment a player wore anything but bare feet -- measured:
+        Swift boots (125 speed) act 1.25x per her tick, Blink (115) 1.15x, which
+        plays as "she is delayed" even though nothing about her is actually slow.
+        She matches the player's CURRENT speed instead, buffs included -- you
+        cannot outrun the wind by drinking a potion. That is deliberate.
+        """
+        if self.key == "syrinx":
+            return world.player.speed()
+        return self.speed
+
     # --- serialization --------------------------------------------------
     def to_dict(self):
         d = {k: getattr(self, k) for k in _MONSTER_STATE}

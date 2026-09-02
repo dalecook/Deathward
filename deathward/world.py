@@ -2437,8 +2437,14 @@ class World:
             self.tick += 1
             self.codex.stats["turns"] += 1
             self.player.energy += self.player.speed()
+            # speed_now(), not the raw .speed field -- Syrinx's one exception:
+            # she is built to move at the PLAYER'S current speed (see
+            # Monster.speed_now), which shifts every turn with boots/armour/
+            # weapon and haste/berserk/heroism. Every other monster's
+            # speed_now() is just its own fixed .speed, so this is a no-op
+            # for the rest of the roster.
             for m in list(self.level.monsters):
-                m.energy += m.speed
+                m.energy += m.speed_now(self)
             self._update_stealth_alert()
             for m in list(self.level.monsters):
                 inner = 0
@@ -2496,7 +2502,7 @@ class World:
         self.tick += 1
         self.codex.stats["turns"] += 1
         for m in list(self.level.monsters):
-            m.energy += m.speed
+            m.energy += m.speed_now(self)   # see advance(): syrinx matches the player even while frozen
         for m in list(self.level.monsters):
             inner = 0
             while (m.energy >= config.ACT_COST and m.alive and not self.dead
