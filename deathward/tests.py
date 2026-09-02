@@ -10415,25 +10415,29 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         w.level.monsters.append(s)
         return s
 
-    def test_she_moves_toward_the_player_when_not_aligned(self):
+    def test_diagonal_adjacent_she_steps_away_not_toward(self):
+        # Rule 1: aligned means same row or column, and a diagonal neighbour is
+        # neither -- she cannot gust from there. Standing pat would make her free
+        # damage (nothing stops the player hitting her every turn), so she recoils.
+        # This replaces the old assumption that hunting would walk her onto an
+        # aligned tile from here; now she moves AWAY first.
         w = self._world()
-        s = self._syrinx(w, 4, 3)
-        sx, sy = s.x, s.y
+        s = self._syrinx(w, 1, 1)            # adjacent, diagonal -- never aligned
+        d0 = s.dist(w.player.x, w.player.y)
         s.take_turn(w)
-        self.assertLess(max(abs(s.x - w.player.x), abs(s.y - w.player.y)),
-                        max(abs(sx - w.player.x), abs(sy - w.player.y)),
-                        "hunting closes the distance rather than waiting")
+        self.assertGreater(s.dist(w.player.x, w.player.y), d0,
+                            "diagonal adjacency must make her recoil, not close or hold")
 
     def test_aligned_and_clear_commits_to_a_telegraphed_blow(self):
         w = self._world()
-        s = self._syrinx(w, 4, 0)
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE, 0)
         s.take_turn(w)
         self.assertEqual(s.intent, ("blow", 0, 0))
         self.assertEqual(w.player.hp, w.player.max_hp, "the telegraph turn does no damage")
 
     def test_the_blow_resolves_next_turn_for_real_chip_damage(self):
         w = self._world()
-        s = self._syrinx(w, 4, 0)
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE, 0)
         s.take_turn(w)                       # telegraph
         hp = w.player.hp
         s.take_turn(w)                       # resolve
@@ -10442,7 +10446,7 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
 
     def test_a_pillar_between_them_fizzles_the_blow(self):
         w = self._world()
-        s = self._syrinx(w, 4, 0)
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE, 0)
         s.take_turn(w)                       # telegraph while the line is clear
         wx = (s.x + w.player.x) // 2
         w.level.grid[w.player.y][wx] = 0     # a pillar drops into the eyeline (0 == WALL)
@@ -10451,14 +10455,24 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
         self.assertEqual(w.player.hp, hp, "a blocked blow does no damage")
         self.assertIsNone(s.intent)
 
+    def test_out_of_range_but_aligned_does_not_telegraph(self):
+        # The blow used to reach out to the old RANGE=9; now it is a close-range
+        # rebuff (SYRINX_BLOW_RANGE=3). Aligned alone is no longer enough --
+        # she must actually be close, or she just manoeuvres (rule 3/4) instead.
+        w = self._world()
+        s = self._syrinx(w, config.SYRINX_BLOW_RANGE + 2, 0)
+        s.take_turn(w)
+        self.assertIsNone(s.intent, "too far to blow from, even aligned")
+
     def test_she_never_melee_attacks_even_when_adjacent_but_unaligned(self):
         # She has no melee code path: every point of damage, always, comes from
         # the telegraphed blow (self.intent == ("blow", 0, 0) set on a prior
         # turn) -- never an instant, untelegraphed hit. Starting diagonally
-        # adjacent, hunting can walk her onto an aligned tile at distance 1 and
-        # she may telegraph-then-land a point-blank blow -- that's fine; a
-        # melee attack would instead deal damage on the SAME turn it triggers,
-        # with no telegraph turn before it.
+        # adjacent, she recoils first (rule 1) and then manoeuvres/sidesteps
+        # toward alignment (rule 3) over the following turns, and may eventually
+        # telegraph-then-land a blow from wherever that leaves her -- that's
+        # fine; a melee attack would instead deal damage on the SAME turn it
+        # triggers, with no telegraph turn before it.
         w = self._world()
         s = self._syrinx(w, 1, 1)            # adjacent, diagonal -- never aligned
         prev_intent = s.intent
@@ -10472,62 +10486,35 @@ class TestSyrinxHuntAndBlow(unittest.TestCase):
             prev_intent = s.intent
             prev_hp = hp
 
-    def test_she_does_not_chase_the_player_out_of_her_arena(self):
-        # Her whole design -- pillars to hide behind, a telegraphed blow to duck --
-        # is a boss-ROOM fight. If her hunt fallback chased the player anywhere on
-        # the floor, she would wander into corridors with no cover, bypassing the
-        # entire pillar/telegraph design. The hunt movement must stay leashed to
-        # her own arena: with the player outside it, she is a no-op, not a hunter.
-        from .monsters import Monster
-        codex = FakeSave(); codex.world_seed = 5
-        w = World(codex, seed=1)
-        w.new_level(8)
-        lvl = w.level
-        # she is not placed at generation any more (Task 6) -- put her on one of
-        # her own pillars directly, same spot _populate_syrinx used to use.
-        s = Monster("syrinx", *lvl.syrinx_pillars()[0])
-        lvl.monsters.append(s)
-        s.hidden = False
-        arena = lvl._syrinx_arena()
-        w.player.x, w.player.y = lvl.entrance
-        self.assertFalse(arena.contains(w.player.x, w.player.y),
-                          "sanity: the entrance sits outside her arena")
-        sx, sy = s.x, s.y
-        for _ in range(5):
+    def test_within_standoff_she_sidesteps_without_ever_closing(self):
+        # Rule 3, the real leash now that the old arena check means nothing (the
+        # arena IS the floor -- see the design spec). She is allowed to walk
+        # herself onto the player's row or column, but never at the cost of
+        # distance: each sidestep must hold her chebyshev distance to the player
+        # exactly steady until she reaches alignment, at which point (still out
+        # of blow range here) she holds rather than close in further.
+        w = self._world()
+        s = self._syrinx(w, 5, 5)            # distance 5, inside SYRINX_STANDOFF (6)
+        d0 = s.dist(w.player.x, w.player.y)
+        self.assertLessEqual(d0, config.SYRINX_STANDOFF, "sanity: starts inside the band")
+        for _ in range(6):
             s.take_turn(w)
-        self.assertEqual((s.x, s.y), (sx, sy),
-                          "she must not leave her arena chasing a player outside it")
+            self.assertEqual(s.dist(w.player.x, w.player.y), d0,
+                              "sidestepping toward alignment must never close the gap")
+        self.assertTrue(s.x == w.player.x or s.y == w.player.y,
+                         "a few turns of sidestepping should reach alignment")
 
-    def test_she_still_hunts_a_player_inside_her_arena(self):
-        # Companion to the leash test above: the fix must not turn her into a
-        # statue INSIDE her own room -- she still actively hunts an unaligned
-        # player as long as they are both inside the arena.
-        from .monsters import Monster
-        codex = FakeSave(); codex.world_seed = 5
-        w = World(codex, seed=1)
-        w.new_level(8)
-        lvl = w.level
-        # she is not placed at generation any more (Task 6) -- put her on one of
-        # her own pillars directly, same spot _populate_syrinx used to use.
-        s = Monster("syrinx", *lvl.syrinx_pillars()[0])
-        lvl.monsters.append(s)
-        s.hidden = False
-        arena = lvl._syrinx_arena()
-        w.player.x, w.player.y = arena.cx, arena.cy
-        self.assertTrue(arena.contains(w.player.x, w.player.y),
-                         "sanity: the arena centre is inside the arena")
-        self.assertTrue(arena.contains(s.x, s.y),
-                         "sanity: she starts inside her own arena")
-        sx, sy = s.x, s.y
-        for _ in range(5):
-            s.take_turn(w)
-            if (s.x, s.y) != (sx, sy) or s.intent is not None:
-                break
-        moved = (s.x, s.y) != (sx, sy)
-        telegraphed = s.intent == ("blow", 0, 0)
-        self.assertTrue(moved or telegraphed,
-                         "inside her arena she must still hunt (move) or, if "
-                         "already aligned and clear, telegraph a blow")
+    def test_beyond_standoff_she_still_closes_the_gap(self):
+        # Rule 4: she is not a statue. Past SYRINX_STANDOFF she is not yet in the
+        # band she actually fights in, so she takes a step toward the player --
+        # just enough to drag them back into range, never all the way to melee.
+        w = self._world()
+        s = self._syrinx(w, config.SYRINX_STANDOFF + 2, 2)
+        d0 = s.dist(w.player.x, w.player.y)
+        self.assertGreater(d0, config.SYRINX_STANDOFF, "sanity: starts outside the band")
+        s.take_turn(w)
+        self.assertLess(s.dist(w.player.x, w.player.y), d0,
+                         "beyond the standoff band she still closes -- not a statue")
 
     def test_drawing_her_blow_telegraph_actually_draws_something(self):
         """The 'blow' intent used to be signalled only by an ephemeral, real-time FX
@@ -10666,7 +10653,9 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
     def test_a_landed_blow_stuns_her_and_knocks_the_player_back(self):
         w = self._world()
         w.player.x, w.player.y = 10, 10
-        s = self._syrinx(w, 6, 10)
+        # within SYRINX_BLOW_RANGE (3) of the player -- the resolve check now
+        # re-verifies range as well as line, same as the telegraph did.
+        s = self._syrinx(w, 10 - config.SYRINX_BLOW_RANGE, 10)
         for x in range(6, 13):                 # force the line clear and knockback room (1 == FLOOR)
             w.level.grid[10][x] = 1
         s.intent = ("blow", 0, 0)
@@ -10679,9 +10668,10 @@ class TestSyrinxStunAndRetreat(unittest.TestCase):
     def test_a_fizzled_blow_does_not_stun_or_start_a_retreat(self):
         w = self._world()
         w.player.x, w.player.y = 10, 10
-        s = self._syrinx(w, 6, 10)
+        s = self._syrinx(w, 10 - config.SYRINX_BLOW_RANGE, 10)   # within blow range
         s.intent = ("blow", 0, 0)
-        w.level.grid[10][8] = 0                # a wall drops into the line (0 == WALL)
+        wx = 10 - (config.SYRINX_BLOW_RANGE // 2 or 1)
+        w.level.grid[10][wx] = 0               # a wall drops into the line (0 == WALL)
         s.take_turn(w)
         self.assertEqual(s.stunned, 0)
         self.assertFalse(s.retreating)
@@ -10912,7 +10902,7 @@ class TestSyrinxResistances(unittest.TestCase):
 
     def test_invisibility_does_nothing_against_her(self):
         """Ratified design call (2026-08-31): wind and stone do not hunt by sight, so
-        vanishing from mundane eyes buys the player nothing against her -- she hunts,
+        vanishing from mundane eyes buys the player nothing against her -- she still
         telegraphs and lands her blow on an invisible player exactly as she would on
         a visible one. This pins the generic player-hidden wander block in
         Monster.take_turn (see the "and self.key != 'syrinx'" clause and its comment,
@@ -10920,17 +10910,29 @@ class TestSyrinxResistances(unittest.TestCase):
         against everyone else, and her key-based exemption from it is what makes it
         NOT work against her. Goes through take_turn, not _ai_syrinx directly --
         calling the AI method skips the very guard under test, which is exactly how
-        the arrival version of this bug went unnoticed the first two times."""
+        the arrival version of this bug went unnoticed the first two times.
+
+        The 2026-09-02 hunting-behaviour redesign changed what this test can prove:
+        she used to hunt anything aligned within RANGE=9, so starting her 6 tiles off
+        and idle was enough to show her closing and striking through the cloak. She
+        no longer closes on an already-aligned, stationary target at all -- rules 3/4
+        leash HER, not a wander block, and that leash is not invisibility-aware by
+        design (spec: "the locked gate hunts for her", not she for the player). So a
+        player standing still at the old distance would now go unstruck whether or
+        not they were visible, which would prove nothing about invisibility either
+        way. Starting her already inside SYRINX_BLOW_RANGE isolates the actual claim:
+        the blow telegraph/resolve pair itself is untouched by invisibility, which is
+        the one part of her still capable of reaching a motionless player."""
         from .monsters import Monster
         w = self._arena_world()
-        s = Monster("syrinx", 26, 13)
+        s = Monster("syrinx", 20 + config.SYRINX_BLOW_RANGE, 13)
         s.hidden = False
         s.awake = True
         w.level.monsters.append(s)
         for _ in range(6):
             s.take_turn(w)
         self.assertLess(w.player.hp, config.BASE_HP,
-                         "she must hunt, telegraph and land a blow through invisibility")
+                         "she must telegraph and land a blow through invisibility")
 
     def test_the_same_setup_leaves_an_ordinary_hunter_harmless(self):
         """Contrast case for the test above, same arena and same invisible player:

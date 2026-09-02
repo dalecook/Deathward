@@ -773,7 +773,18 @@ class Monster:
           1. HIDDEN: off the grid, ticking toward a forced emergence.
           2. TELEGRAPH: one turn's warning on the pillar she is already standing in.
           3. EMERGE: targetable, moves at the player's own speed, never melees.
-          4. HUNT: actively seeks an aligned, clear line -- never waits passively.
+          4. HUNT: not a chase -- the gate down does not open until she is dead, so
+             the player has to come to her, and she does not need to close the
+             distance herself. Four rules, checked in this order every turn she is
+             emerged and not retreating:
+               a. player adjacent and diagonal (not aligned) -- she cannot gust from
+                  there, so she steps away rather than stand and take it.
+               b. player aligned, within SYRINX_BLOW_RANGE, clear line -- telegraphs.
+               c. player within SYRINX_STANDOFF -- sidesteps onto the player's row or
+                  column WITHOUT reducing her distance to them. This is the real
+                  leash: not a chase radius, a refusal to close.
+               d. player beyond SYRINX_STANDOFF -- steps toward, one tile, just
+                  enough to drag them back into the band she actually fights in.
           5. BLOW: a telegraph-then-resolve pair (self.intent), same shape as the
              Warden's spit; a pillar in the eyeline fizzles it.
           6. STUNNED: fully vulnerable for one turn (config.SYRINX_STUN_TURNS) --
@@ -782,8 +793,6 @@ class Monster:
              re-routing per turn if the player's body blocks the straight walk to it.
           8. RE-HIDE: reaching it, she goes off-grid again and the budget resets.
         """
-        RANGE = 9
-
         if self.intent and self.intent[0] == "arrive":
             # the held beat: she has just come out of nothing at the far end of the
             # hall. One turn standing, then she turns for a column. If the player is
@@ -808,7 +817,7 @@ class Monster:
 
         if self.intent and self.intent[0] == "blow":
             self.intent = None
-            if world.line_clear(self.x, self.y, p.x, p.y, RANGE):
+            if world.line_clear(self.x, self.y, p.x, p.y, config.SYRINX_BLOW_RANGE):
                 world.add_fx("beam", p.x, p.y, color=self.t.color, life=0.4,
                              tiles=[(self.x, self.y)])
                 self._hit(world, verb="buffets")
@@ -848,19 +857,67 @@ class Monster:
             return
 
         aligned = (self.x == p.x or self.y == p.y)
-        if (aligned and self.dist(p.x, p.y) <= RANGE
-                and world.line_clear(self.x, self.y, p.x, p.y, RANGE)):
+        d = self.dist(p.x, p.y)
+
+        # Rule 1: diagonal adjacency is the blind spot. Aligned means same row or
+        # column, and a diagonal neighbour is neither -- she cannot gust them from
+        # there, and standing still while adjacent-but-unable-to-hit would make her
+        # free damage. She recoils instead. This is the one case where she moves
+        # AWAY regardless of range band; everything below only ever moves her
+        # sideways or closer.
+        if d == 1 and not aligned:
+            self._step_away(world, p.x, p.y)
+            return
+
+        # Rule 2: aligned, close enough, and nothing in the eyeline -- the blow
+        # telegraphs. SYRINX_BLOW_RANGE is short and deliberate: the shove is what
+        # actually hurts (SYRINX_PUSH_DIST tiles across a trapped floor), so the
+        # gust itself only needs to reach point-blank-ish, not across the hall.
+        if (aligned and d <= config.SYRINX_BLOW_RANGE
+                and world.line_clear(self.x, self.y, p.x, p.y, config.SYRINX_BLOW_RANGE)):
             self.intent = ("blow", 0, 0)
             return
-        # She is a boss-ROOM fight, not a floor-wide hunter: her pillars and
-        # telegraphed blow only make sense inside her own arena, where the player
-        # has cover to duck behind. Chasing outside it would strand her in bare
-        # corridors with no pillars, bypassing that whole design -- so if the
-        # player has left her arena, she simply does not move. Her hidden_turns
-        # countdown (above) keeps ticking regardless; only this hunt movement
-        # is leashed.
-        if not world.level._syrinx_arena().contains(p.x, p.y):
+
+        # Rule 3: inside the standoff band but not yet a shot -- she manoeuvres
+        # instead of closing. This is the real leash now that the old arena check
+        # is meaningless (the arena IS the floor): not a radius she refuses to
+        # leave, but a gap she refuses to close. If she is already aligned (a
+        # pillar is fizzling the line, or she is just past blow range), there is
+        # nothing left to align -- she holds, patient, rather than break her own
+        # lineup or step into reach for no reason. If she is not aligned, she
+        # takes exactly one step along whichever axis currently has the SMALLER
+        # offset: stepping the smaller-offset axis toward the player can only
+        # ever tie the larger axis's offset, never beat it below her current
+        # chebyshev distance, so alignment progresses without her ever getting
+        # closer. This has to be a single deliberate tile, not a call to
+        # _step_toward with some crafted one-axis target -- that helper breaks
+        # ties toward whichever of its 8 neighbours comes first in DIRS8, and a
+        # DIAGONAL neighbour ties the pure single-axis one exactly when the
+        # locked axis starts at offset 0 (this fight's whole standoff geometry),
+        # so it would silently nudge the locked axis too and quietly close the
+        # gap it exists to hold open. One candidate tile, walked through the
+        # same walkable/monster/vendor/player guard every other manual step in
+        # this method already uses (see RETREAT above), sidesteps the ambiguity
+        # instead of fighting the helper's tie-break.
+        if d <= config.SYRINX_STANDOFF:
+            if not aligned:
+                dx, dy = abs(p.x - self.x), abs(p.y - self.y)
+                if dx <= dy:
+                    nx, ny = self.x + (1 if p.x > self.x else -1), self.y
+                else:
+                    nx, ny = self.x, self.y + (1 if p.y > self.y else -1)
+                if (world.walkable(nx, ny) and not world.monster_at(nx, ny)
+                        and not world.vendor_at(nx, ny) and (nx, ny) != (p.x, p.y)):
+                    self.x, self.y = nx, ny
+                    world.on_monster_moved(self)
+                # else: the sidestep tile is blocked this turn -- she holds and
+                # tries again next turn, same as a boxed-in retreat does above.
             return
+
+        # Rule 4: out past the standoff band, she is not a statue -- she closes one
+        # tile, just enough to drag the player back toward the range where she
+        # actually fights. She still is not chasing to melee: closing only ever
+        # feeds rules 1-3 above, never a strike of her own.
         self._step_toward(world, p.x, p.y)
 
 

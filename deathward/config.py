@@ -179,6 +179,16 @@ SYRINX_PUSH_DIST  = 5      # tiles the gust shoves the player back. long enough 
                            # the slide crosses real floor -- and her arena's floor is
                            # trapped, which is where her damage actually comes from.
 SYRINX_FIRE_MULT  = 2.0    # matches the stone golem's existing fire weakness
+SYRINX_BLOW_RANGE = 3      # tiles the gust can be thrown from. she used to hunt out to
+                           # RANGE=9 and poke from range; now the poke IS the close
+                           # fight -- she is not a predator that runs you down, she is
+                           # stone punishing anyone who reaches her. this replaced the
+                           # old hard-coded RANGE=9 everywhere it appeared in her AI.
+SYRINX_STANDOFF   = 6      # beyond this she closes the gap; within it she manoeuvres
+                           # instead -- the real leash on her now that the sealed-floor
+                           # arena leash means nothing (the arena IS the floor). she
+                           # will line herself up on your row or column, but she will
+                           # not walk into your reach to do it.
 
 # --- floor 8: her hall ----------------------------------------------------
 # The geometry is FIXED -- cut identically in every game -- and only the hazards are
