@@ -36,13 +36,11 @@ and nothing else outside the standard library.
   time. You simply do not know yet, and the day you learn it is the day one of
   them kills you.
 
-**Every death performs an autopsy and writes one true thing into your Kodex**, and
-it is never a thing you already knew. The reveal ladder runs: what death itself
-does → the *rule* of what killed you → its *tell* → its *counter* → the nearest
-unlearned thing on that floor → the true name of an item you died holding → a
-secret about yourself or the dungeon → intel on something you have not met → and
-finally *telemetry computed from your own history at the moment of death*, which
-cannot run dry.
+**A death teaches you about the thing that killed you, or it teaches you nothing**,
+and any lesson is never a thing you already knew. The reveal ladder runs: what death
+itself does → the *rule* of what killed you → its *tell* → its *counter* → the
+nearest unlearned thing on that floor → the true name of an item you died holding →
+a secret about yourself or the dungeon → intel on something you have not met.
 
 The instant a fact lands, the dungeon renders more of itself: the brute's wind-up
 appears as a red square on the tile it is about to crush, the spitter's firing line
@@ -209,8 +207,8 @@ bought.** The dungeon puts its gold where its teeth are.
 python -m deathward.tests
 ```
 
-842 tests, including the two load-bearing proofs: hundreds of consecutive deaths
-never repeat a lesson (and the telemetry tier is inexhaustible), and
+851 tests, including the two load-bearing proofs: a death teaches you about the
+thing that killed you or it teaches you nothing, and never repeats a lesson; and
 blind-vs-omniscient runs of the same seed produce identical dungeons. Plus: the
 stairs are reachable on every floor across many seeds, the Warden is never walled
 into a pillar, nothing spawns in your face, an undiscovered trap still fires, finding
