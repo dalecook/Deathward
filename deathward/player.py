@@ -288,9 +288,6 @@ class Player:
         self.hp = min(self.max_hp, self.hp + n)
         return self.hp - before
 
-    def carried_flavors(self):
-        return list(self.pack)
-
     # --- the pack: six slots, three of one thing per slot -----------------
     @property
     def pack(self):

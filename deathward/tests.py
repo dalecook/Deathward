@@ -576,68 +576,91 @@ class TestAutopsyWithNothingToTeach(unittest.TestCase):
         ui.draw_autopsy(surf, w, w.codex, fact, "rat", 99.0)   # must not raise
 
 
-class TestEveryDeathTeaches(unittest.TestCase):
-    def test_500_deaths_never_repeat_a_lesson(self):
-        rng = random.Random(20260713)
-        codex = FakeSave()
-        seen = set()
-        for i in range(500):
-            cause = rng.choice(CAUSES)
-            floor = rng.sample(SUBJECTS, rng.randint(1, 5))
-            carried = rng.sample(FLAVORS, rng.randint(0, 3))
-            codex.record_death(cause)
-            codex.runs = i // 3 + 1
-            codex.best_depth = min(8, 1 + i // 40)
-            fact = codex.reveal_on_death(cause, floor, carried)
+class TestDeathTeachesItsKiller(unittest.TestCase):
+    """A death teaches about the thing that killed you, or it teaches nothing.
 
-            self.assertIsNotNone(fact, "death %d taught nothing" % i)
-            ident = fact.title + fact.text
-            self.assertNotIn(ident, seen,
-                             "death %d repeated a lesson: %r" % (i, fact.title))
-            seen.add(ident)
-        self.assertEqual(len(seen), 500)
+    It used to cascade: if the killer had nothing left to give, the Kodex handed
+    over the "nearest" unlearned thing on the floor instead -- which was never
+    actually nearest, just first in the level's spawn list, anywhere on the map,
+    seen or not. That is why a gas-vent death could hand you a fact about a
+    kobold you had never met."""
 
     def test_first_death_explains_death(self):
         codex = FakeSave()
         codex.record_death("rat")
-        f = codex.reveal_on_death("rat", ["rat"], [])
-        self.assertEqual(f.key, "self.corpse")
+        self.assertEqual(codex.reveal_on_death("rat").key, "self.corpse")
 
-    def test_the_killer_is_explained_before_anything_else(self):
+    def test_the_killer_is_what_you_learn(self):
         codex = FakeSave()
         codex.known.append("self.corpse")
         codex.record_death("brute")
-        f = codex.reveal_on_death("brute", ["rat", "brute", "gas"], ["ochre"])
-        self.assertEqual(f.key, "brute.rule")
+        self.assertEqual(codex.reveal_on_death("brute").key, "brute.rule")
 
-    def test_dying_with_an_unknown_potion_can_name_it(self):
+    def test_the_tiers_arrive_in_order(self):
         codex = FakeSave()
-        # know everything about the world, but nothing about what is in the pack
-        for k in FACTS:
-            if not k.startswith("id."):
-                codex.known.append(k)
-        codex.record_death("rat")
-        f = codex.reveal_on_death("rat", ["rat"], ["ochre"])
-        self.assertEqual(f.key, "id.ochre")
+        codex.known.append("self.corpse")
+        got = []
+        for _ in range(3):
+            codex.record_death("brute")
+            got.append(codex.reveal_on_death("brute").key)
+        self.assertEqual(got, ["brute.rule", "brute.tell", "brute.counter"])
 
-    def test_the_whole_codex_is_reachable_by_dying(self):
+    def test_an_exhausted_killer_teaches_nothing(self):
+        """The regression guard for the deleted cascade. This codex knows
+        everything about brutes and almost nothing about anything else, so any
+        surviving fallback would have plenty to reach for."""
         codex = FakeSave()
-        for _ in range(TOTAL_FACTS):
-            codex.record_death("rat")
-            codex.reveal_on_death("rat", SUBJECTS, FLAVORS)
-        self.assertEqual(len(codex.known), TOTAL_FACTS)
-        self.assertEqual(set(codex.known), set(FACTS))
+        codex.known.append("self.corpse")
+        for tier in ("rule", "tell", "counter"):
+            codex.known.append("brute.%s" % tier)
+        codex.record_death("brute")
+        self.assertIsNone(codex.reveal_on_death("brute"))
+        self.assertLess(len(codex.known), TOTAL_FACTS,
+                        "the guard is void unless facts remain unlearned")
 
-    def test_telemetry_is_inexhaustible(self):
+    def test_a_cause_the_kodex_has_never_heard_of_teaches_nothing(self):
+        """Self-inflicted venom reports the bare status "poison", which is not a
+        Kodex subject. It teaches nothing, with no special case -- that is the
+        new rule doing the work an exception used to."""
         codex = FakeSave()
-        codex.known = list(FACTS)          # nothing fixed left to learn
+        codex.known.append("self.corpse")
+        codex.record_death("poison")
+        self.assertIsNone(codex.reveal_on_death("poison"))
+
+    def test_a_gas_vent_death_teaches_the_gas_vent(self):
+        codex = FakeSave()
+        codex.known.append("self.corpse")
+        codex.record_death("gas")
+        self.assertEqual(codex.reveal_on_death("gas").key, "gas.rule")
+
+    def test_deaths_never_repeat_a_lesson(self):
+        """The surviving half of the old load-bearing proof. A lesson is never
+        handed out twice; the difference now is that a death may hand out none."""
+        rng = random.Random(20260713)
+        codex = FakeSave()
         seen = set()
-        for i in range(120):
-            codex.record_death("rat")
-            f = codex.reveal_on_death("rat", ["rat"], [])
-            ident = f.title + f.text
-            self.assertNotIn(ident, seen, "telemetry repeated after %d deaths" % i)
+        taught = 0
+        for i in range(500):
+            cause = rng.choice(CAUSES)
+            codex.record_death(cause)
+            codex.runs = i // 3 + 1
+            codex.best_depth = min(8, 1 + i // 40)
+            fact = codex.reveal_on_death(cause)
+            if fact is None:
+                continue
+            taught += 1
+            ident = fact.title + fact.text
+            self.assertNotIn(ident, seen,
+                             "death %d repeated a lesson: %r" % (i, fact.title))
             seen.add(ident)
+            self.assertTrue(fact.key == "self.corpse"
+                            or fact.key.startswith(cause + "."),
+                            "death %d taught %r, which is not about %r"
+                            % (i, fact.key, cause))
+        self.assertGreater(taught, 0, "500 deaths must teach something")
+        self.assertLess(taught, 500,
+                        "with 13 causes and 3 tiers each, most of 500 deaths "
+                        "must run out of things to teach")
 
 
 class TestLearningByKilling(unittest.TestCase):
@@ -746,7 +769,7 @@ class TestLearningByKilling(unittest.TestCase):
         dier.known.append("self.corpse")
         for _ in range(2):
             dier.record_death("brute")
-            dier.reveal_on_death("brute", ["brute"], [])
+            dier.reveal_on_death("brute")
         self.assertTrue(dier.knows("brute.rule"))
         self.assertTrue(dier.knows("brute.tell"),
                         "two deaths should have bought the tell")
@@ -805,8 +828,9 @@ class TestLearningByKilling(unittest.TestCase):
                     seen.add(f.title + f.text)
             cause = rng.choice(CAUSES)
             codex.record_death(cause)
-            fact = codex.reveal_on_death(cause, rng.sample(SUBJECTS, 4),
-                                         rng.sample(FLAVORS, 2))
+            fact = codex.reveal_on_death(cause)
+            if fact is None:
+                continue
             ident = fact.title + fact.text
             self.assertNotIn(ident, seen,
                              "death %d taught something already known from a kill" % i)

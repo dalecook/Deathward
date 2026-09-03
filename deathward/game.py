@@ -191,8 +191,7 @@ class Game:
         cause = w.death_cause
         self.codex.record_death(cause)
         w.leave_corpse()
-        self.fact = self.codex.reveal_on_death(
-            cause, w.floor_subjects(), w.player.carried_flavors())
+        self.fact = self.codex.reveal_on_death(cause)
         self.codex.run = None            # permadeath: the next Continue is a fresh run
         self.codex.save()
         self.reveal_t = 0.0

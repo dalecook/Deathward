@@ -2615,17 +2615,6 @@ class World:
             t.trigger(self, m)
 
     # --- death ----------------------------------------------------------
-    def floor_subjects(self):
-        """Everything on this floor worth learning about, monsters first."""
-        subs = []
-        for m in self.level.monsters:
-            if m.key not in subs:
-                subs.append(m.key)
-        for t in self.level.traps:
-            if t.key not in subs:
-                subs.append(t.key)
-        return subs
-
     def leave_corpse(self):
         p = self.player
         self.codex.leave_corpse(self.depth, p.x, p.y, p.gold, p.weapon.key,

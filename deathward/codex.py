@@ -634,6 +634,11 @@ KILL_THRESHOLD = {"rule": 1, "tell": 3, "counter": 8}
 # floor, in this run and every run after it, forever. The counter takes three.
 TRAP_THRESHOLD = {"rule": 1, "counter": 3}
 
+# Granted by nothing, for now. reveal_on_death used to hand these out when a death
+# had nothing else to teach -- but they are system tutorials, not lore about your
+# killer, so they left with the cascade. They are waiting on experience triggers of
+# their own (take the stairs down, watch armour absorb a blow), which is its own
+# piece of work. Until then these five are unobtainable and sit sealed in the Kodex.
 SELF_SECRETS = ["self.energy", "self.armour", "self.stairs"]
 DUNGEON_SECRETS = ["dungeon.hoard", "dungeon.deep"]
 
@@ -1107,48 +1112,28 @@ class Codex:
         return self.corpses.pop(str(depth), None)
 
     # --- THE GUARANTEE --------------------------------------------------
-    def reveal_on_death(self, cause, floor_subjects, carried_flavors):
-        """Return a Fact the player has never seen. Never returns None.
+    def reveal_on_death(self, cause):
+        """The Fact this death teaches, or None if it teaches nothing.
 
-        cause           -- what killed them (monster/trap key)
-        floor_subjects  -- subjects present on the floor they died on, nearest first
-        carried_flavors -- unidentified item flavors in their pack when they died
+        A death explains the thing that killed you. When that thing has nothing
+        left to give -- every tier already known, or a cause the Kodex has no
+        subject for -- the death teaches NOTHING. It does not substitute a lesson
+        about something else; a lesson you did not earn from the thing that killed
+        you is not a lesson, it is noise.
+
+        cause -- what killed them (monster/trap key)
         """
-        # 1. the first death explains death
+        # the first death explains death itself
         if "self.corpse" not in self.known:
             return self._grant("self.corpse")
 
-        # 2/3/4. the thing that killed you, in order
+        # then the thing that killed you, in tier order -- and nothing else
         for tier in TIER_ORDER:
             key = "%s.%s" % (cause, tier)
             if key in FACTS and key not in self.known:
                 return self._grant(key)
 
-        # 5. the nearest unlearned thing on the floor you died on
-        for subject in floor_subjects:
-            for tier in TIER_ORDER:
-                key = "%s.%s" % (subject, tier)
-                if key in FACTS and key not in self.known:
-                    return self._grant(key)
-
-        # 6. the true name of something you died holding
-        for flavor in carried_flavors:
-            key = "id.%s" % flavor
-            if key in FACTS and key not in self.known:
-                return self._grant(key)
-
-        # 7. secrets about yourself, then the dungeon
-        for key in SELF_SECRETS + DUNGEON_SECRETS:
-            if key not in self.known:
-                return self._grant(key)
-
-        # 8. anything at all you have not met yet
-        for f in FACT_LIST:
-            if f.key not in self.known:
-                return self._grant(f.key)
-
-        # 9. inexhaustible
-        return self._telemetry_fact()
+        return None
 
     def _grant(self, key):
         self.known.append(key)
@@ -1186,55 +1171,6 @@ class Codex:
         if not unknown:
             return None
         return self._grant(rng.choice(unknown))
-
-    def _telemetry_fact(self):
-        s = self.stats
-        by = s["deaths_by"]
-        worst = max(by.items(), key=lambda kv: kv[1])[0] if by else "nothing"
-        kills = s["kills"]
-        candidates = [
-            ("TELEMETRY -- YOUR NEMESIS",
-             "Across %d deaths, the thing that has killed you most is %s -- %d times. "
-             "You know exactly what it does. Knowing and respecting are different "
-             "skills." % (self.deaths, CAUSE_NAME.get(worst, worst), by.get(worst, 0))),
-            ("TELEMETRY -- THE LEDGER",
-             "You have dealt %d damage and absorbed %d. You have killed %d things and "
-             "died %d times. The dungeon is not beating you by a wide margin -- it is "
-             "beating you by a consistent one."
-             % (s["damage_dealt"], s["damage_taken"], kills, self.deaths)),
-            ("TELEMETRY -- WHAT YOU LEAVE BEHIND",
-             "You have lost %d gold to your own corpses and recovered %d of it. Every "
-             "coin you did not go back for is still down there, in your hand."
-             % (s["gold_lost"], s["gold_banked"])),
-            ("TELEMETRY -- THE DEEP",
-             "Your deepest descent is floor %d of %d. You have walked %d steps and "
-             "spent %d turns to get there, and every one of those turns is in the "
-             "Codex now." % (self.best_depth, config.DEPTH_MAX, s["steps"], s["turns"])),
-            ("TELEMETRY -- THE FLOOR",
-             "You have triggered %d traps and drunk %d unknown potions. Curiosity has a "
-             "price down here, and you have been paying it in instalments."
-             % (s["traps_triggered"], s["potions_drunk"])),
-            ("TELEMETRY -- THE RATE",
-             "%d runs. %d deaths. %.1f kills per run. That is not a failure rate -- it "
-             "is a learning rate, and it is the only stat in this dungeon that only "
-             "ever goes up."
-             % (self.runs, self.deaths, kills / max(1, self.runs))),
-        ]
-        seen = {t["title"] + t["text"] for t in self.telemetry}
-        for title, text in candidates:
-            if title + text not in seen:
-                self.telemetry.append({"title": title, "text": text})
-                return Fact("telemetry.%d" % len(self.telemetry), "self", "telemetry",
-                            title, text)
-
-        # live numbers change with every death: this branch cannot run dry
-        title = "TELEMETRY -- DEATH %d" % self.deaths
-        text = ("Death %d, on floor %d. %d turns lived, %d things killed, %d damage "
-                "taken, %d/%d of the Kodex written. The record grows because you keep "
-                "coming back." % (self.deaths, self.best_depth, s["turns"], kills,
-                                  s["damage_taken"], len(self.known), TOTAL_FACTS))
-        self.telemetry.append({"title": title, "text": text})
-        return Fact("telemetry.%d" % len(self.telemetry), "self", "telemetry", title, text)
 
     def record_death(self, cause):
         self.deaths += 1
