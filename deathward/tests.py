@@ -385,7 +385,9 @@ class TestFontCache(unittest.TestCase):
         self.assertEqual(len(sysfont), 1, "native must go through SysFont")
         args, kwargs = sysfont[0]
         self.assertEqual(args[0], "consolas,dejavusansmono,couriernew,monospace")
-        self.assertEqual(args[1], 21)
+        self.assertEqual(args[1], 21,
+                         "native must ask for the size the caller requested, "
+                         "unscaled -- the web scale factor is web-only")
         self.assertFalse(kwargs["bold"])
 
     def test_native_passes_bold_to_the_os_lookup(self):
@@ -412,11 +414,14 @@ class TestFontCache(unittest.TestCase):
 
     # --- web branch --------------------------------------------------------
     def test_web_loads_the_bundled_ttf_directly(self):
+        """20 goes in, 17 comes out: round(20 * 0.85). The caller's number is a
+        Consolas number and DejaVu is taller per nominal point, so the web
+        branch scales the request before loading."""
         from . import fontcache
         self._become_web()
         loaded = self._spy("Font")
         fontcache.get_font(20)
-        self.assertEqual(loaded[0][0], (fontcache._FONT_PATH, 20))
+        self.assertEqual(loaded[0][0], (fontcache._FONT_PATH, 17))
 
     def test_web_never_calls_sysfont(self):
         """SysFont does not raise in the WASM sandbox -- it silently returns
@@ -442,6 +447,46 @@ class TestFontCache(unittest.TestCase):
         default = pygame.font.Font(None, 20)
         self.assertNotEqual(bundled.size("Deathward"), default.size("Deathward"),
                             "must not be silently using pygame's default fallback font")
+
+    def test_web_renders_at_the_height_the_caller_asked_for(self):
+        """The whole point, stated as behaviour rather than as a factor.
+
+        Consolas' get_height() equals its nominal size exactly -- size 20 is
+        20px tall -- so "web text is the size native text would be" reduces to
+        "rendered height == the size requested". That holds without Consolas
+        being installed, which is why this test works on any machine. These are
+        every distinct size the game actually requests, 11 through 76."""
+        from . import fontcache
+        self._become_web()
+        for n in (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23,
+                  24, 30, 32, 34, 36, 38, 40, 46, 54, 76):
+            got = fontcache.get_font(n).get_height()
+            self.assertLessEqual(
+                abs(got - n), 1,
+                "size %d rendered %dpx tall; native would render %dpx" % (n, got, n))
+
+    def test_web_scale_factor_is_pinned(self):
+        """Asserted against literal expected sizes, never against _WEB_SCALE --
+        a test that reads the constant it is checking passes when someone
+        changes the constant, which is the exact hole review caught last time.
+
+        30 -> 26 is the one call site that lands on a .5 boundary. Python's
+        round() is banker's rounding, so 25.5 goes to 26, not 25. That costs a
+        pixel (26 renders 31px where Consolas at 30 renders 30) and is kept
+        deliberately; this pins it so it does not drift silently.
+
+        The seven sizes are chosen to catch a factor that drifts by 0.01 in
+        either direction, which most sizes cannot see: 17 and 24 are the ones
+        that separate 0.85 from 0.86, and 30 and 76 separate it from 0.84."""
+        from . import fontcache
+        self._become_web()
+        for requested, expected in ((11, 9), (15, 13), (17, 14), (20, 17),
+                                    (24, 20), (30, 26), (76, 65)):
+            loaded = self._spy("Font")
+            fontcache._cache.clear()
+            fontcache.get_font(requested)
+            self.assertEqual(loaded[0][0], (fontcache._FONT_PATH, expected),
+                             "size %d must load at %d" % (requested, expected))
 
 
 class TestEveryDeathTeaches(unittest.TestCase):
