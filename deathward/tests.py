@@ -384,7 +384,7 @@ class TestFontCache(unittest.TestCase):
         fontcache.get_font(21)
         self.assertEqual(len(sysfont), 1, "native must go through SysFont")
         args, kwargs = sysfont[0]
-        self.assertEqual(args[0], fontcache._SYS_FONTS)
+        self.assertEqual(args[0], "consolas,dejavusansmono,couriernew,monospace")
         self.assertEqual(args[1], 21)
         self.assertFalse(kwargs["bold"])
 
@@ -397,9 +397,12 @@ class TestFontCache(unittest.TestCase):
 
     def test_native_never_touches_the_bundled_ttf(self):
         """The regression this whole change reverts: a93868f handed native the
-        web's font. SysFont loads its resolved face through pygame.font.Font
-        internally, so this filters for OUR bundled path rather than asserting
-        Font went uncalled."""
+        web's font. Under pygame 2.6.1, SysFont never calls pygame.font.Font
+        at all -- pygame.sysfont holds its own imported reference, so patching
+        pygame.font.Font records no internal calls. The filter is defensive:
+        it keeps this test correct on any build where SysFont does route
+        through pygame.font.Font, by checking for our specific bundled path
+        rather than asserting Font went uncalled."""
         from . import fontcache
         loaded = self._spy("Font")
         fontcache.get_font(19, bold=True)
