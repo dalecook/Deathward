@@ -137,7 +137,6 @@ CAUSES = ["rat", "kobold", "spitter", "brute", "wraith", "mimic", "warden",
           "dart", "spike", "gas", "alarm", "glyph", "poison"]
 SUBJECTS = ["rat", "kobold", "spitter", "brute", "wraith", "mimic", "dart",
             "spike", "gas", "alarm", "glyph"]
-FLAVORS = list(CONSUMABLES)
 
 
 class TestAutosave(unittest.TestCase):

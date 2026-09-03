@@ -19,19 +19,20 @@ DEATHWARD is a permadeath roguelike. When you die you lose the floor, the gold,
 the gear and the corpse-warm certainty that this run was the one. You keep
 exactly one thing: what you learned.
 
-The guarantee (enforced by `postmortem`-style tests in tests.py):
+The guarantee (enforced by the death-reveal tests in tests.py):
 
-    every death reveals a fact the player has never seen. every time.
+    a death teaches you about the thing that killed you, or it teaches you
+    nothing -- and a lesson is never one you already had.
 
-The ladder:
+The ladder is short:
     1. the first death explains what death itself does in this dungeon
     2/3/4. the rule, tell and counter of the thing that killed you
-    5. the nearest unlearned fact about anything else on that floor
-    6. the true name of an item you are carrying but have not identified
-    7. a secret about yourself or the dungeon
-    8. intel on something you have not met yet
-    9. telemetry synthesised from your own corpse-strewn history -- computed at
-       the moment of death, and therefore inexhaustible
+
+There is no fifth rung. When the thing that killed you has nothing left to give
+-- every tier already known, or a cause the Kodex has no subject for, such as
+self-inflicted venom -- the death teaches nothing. It does not reach for a
+substitute: a lesson you did not earn from the thing that killed you is not a
+lesson, it is noise.
 
 And the design rule the whole thing rests on:
 
