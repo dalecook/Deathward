@@ -149,6 +149,7 @@ class Trap:
         if is_player:
             world.log("A vent hisses. The air turns green.", config.TRAP)
             world.player.poison = max(world.player.poison, 8)
+            world.player.poison_source = "gas"
         else:
             victim.hp -= 2
 

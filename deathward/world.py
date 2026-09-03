@@ -1980,6 +1980,7 @@ class World:
             self.add_fx("pulse", p.x, p.y, color=config.GOLD, life=0.55)
         elif effect == "poison":
             p.poison = max(p.poison, 10)
+            p.poison_source = None      # you did this to yourself; nothing to teach
             self.log("It burns going down. You have been poisoned.", config.TRAP)
             self.add_fx("pulse", p.x, p.y, color=(140, 220, 120), life=0.7)
             self.hurt_player(3, "poison")

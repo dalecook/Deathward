@@ -489,6 +489,71 @@ class TestFontCache(unittest.TestCase):
                              "size %d must load at %d" % (requested, expected))
 
 
+class TestPoisonRemembersItsSource(unittest.TestCase):
+    """A gas vent does no damage where you stand -- it sets a counter, and the
+    per-turn tick does the killing several turns later. The tick used to report
+    the generic status "poison", so the vent's identity was lost: the death was
+    filed under a word that is not a Kodex subject, and the autopsy could not
+    name what killed you."""
+
+    def _world(self):
+        return World(FakeSave(), seed=11)
+
+    def test_the_gas_vent_signs_its_work(self):
+        from .traps import Trap
+        w = self._world()
+        Trap("gas", w.player.x, w.player.y).trigger(w, w.player)
+        self.assertEqual(w.player.poison_source, "gas")
+        self.assertGreater(w.player.poison, 0, "the vent must actually poison")
+
+    def test_a_fatal_tick_names_the_vent_not_the_status(self):
+        w = self._world()
+        w.player.hp = 1
+        w.player.poison = 3
+        w.player.poison_source = "gas"
+        w.player.tick_effects(w)
+        self.assertEqual(w.death_cause, "gas",
+                         "the killing tick must name the vent, not 'poison'")
+
+    def test_self_inflicted_venom_has_no_source(self):
+        """The Potion of Venom is something you did to yourself. There is no Kodex
+        subject for it, so it deliberately leaves the source unset -- and under the
+        new rule that means such a death teaches nothing, with no special case.
+        The residue from an earlier vent must not be allowed to sign for it."""
+        w = self._world()
+        w.player.poison_source = "gas"
+        w._apply_effect("poison")
+        self.assertGreater(w.player.poison, 0)
+        self.assertIsNone(w.player.poison_source)
+
+    def test_the_source_clears_when_the_poison_burns_out(self):
+        w = self._world()
+        w.player.poison = 1
+        w.player.poison_source = "gas"
+        w.player.tick_effects(w)
+        self.assertEqual(w.player.poison, 0)
+        self.assertIsNone(w.player.poison_source,
+                          "a spent poison must not sign the next one")
+
+    def test_the_source_survives_a_suspended_run(self):
+        from .player import Player
+        w = self._world()
+        w.player.poison = 4
+        w.player.poison_source = "gas"
+        restored = Player.from_dict(w.player.to_dict())
+        self.assertEqual(restored.poison_source, "gas")
+
+    def test_a_save_written_before_this_field_still_loads(self):
+        """Player.from_dict reads data.get(k, default), so no save version bump
+        was needed. This pins that -- a bump would discard every suspended run."""
+        from .player import Player
+        w = self._world()
+        old = w.player.to_dict()
+        del old["poison_source"]
+        restored = Player.from_dict(old)
+        self.assertIsNone(restored.poison_source)
+
+
 class TestEveryDeathTeaches(unittest.TestCase):
     def test_500_deaths_never_repeat_a_lesson(self):
         rng = random.Random(20260713)

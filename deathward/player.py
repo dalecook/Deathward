@@ -45,7 +45,7 @@ EFFECTS = [
 # through the save. Gear and the pack slots are handled specially.
 _PLAYER_STATE = (
     "x", "y", "max_hp", "hp", "gold", "energy", "depth", "kills",
-    "poison", "stuck", "haste", "might", "stoneskin", "regen", "vigor",
+    "poison", "poison_source", "stuck", "haste", "might", "stoneskin", "regen", "vigor",
     "vigor_t", "weak", "berserk", "resist", "levitate", "invisible",
     "confused", "heroism", "sanctuary", "phoenix", "frozen",
     "slipstep_hits", "blade_coat", "gift", "armour_cd", "lastbreath_used",
@@ -68,6 +68,7 @@ class Player:
         # six slots; each is None or [flavor, count] with count <= STACK_MAX
         self.slots = [None] * config.PACK_SLOTS
         self.poison = 0
+        self.poison_source = None   # the Kodex subject that poisoned you, if any
         self.stuck = 0            # turns spent climbing out of a pit
         self.haste = 0
         self.might = 0
@@ -201,9 +202,11 @@ class Player:
             self.armour_cd -= 1
         if self.poison > 0:
             self.poison -= 1
-            world.hurt_player(1, "poison", silent=True)
-            if self.poison == 0 and self.hp > 0:
-                world.log("The poison burns itself out.", config.DIM)
+            world.hurt_player(1, self.poison_source or "poison", silent=True)
+            if self.poison == 0:
+                if self.hp > 0:
+                    world.log("The poison burns itself out.", config.DIM)
+                self.poison_source = None
         if self.haste > 0:
             self.haste -= 1
             if self.haste == 0:
