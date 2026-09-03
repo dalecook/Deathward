@@ -651,7 +651,9 @@ def draw_autopsy(surf, world, codex, fact, cause, reveal_t):
     pygame.draw.rect(surf, (14, 16, 22), card, border_radius=6)
     pygame.draw.rect(surf, config.PLAYER, card, 2, border_radius=6)
 
-    tag = "TELEMETRY RECOVERED" if fact.tier == "telemetry" else "NEW KODEX ENTRY"
+    tag = ("NOTHING NEW" if fact is None
+           else "TELEMETRY RECOVERED" if fact.tier == "telemetry"
+           else "NEW KODEX ENTRY")
     head = pygame.Surface((card.w, 26), pygame.SRCALPHA)
     head.fill((*config.PLAYER, 26))
     surf.blit(head, card.topleft)
@@ -660,16 +662,26 @@ def draw_autopsy(surf, world, codex, fact, cause, reveal_t):
     text(surf, "%d/%d" % (known, total), (card.right - 16, card.top + 13), 13,
          config.DIM, right=True)
 
-    text(surf, fact_title(fact, codex), (card.left + 22, card.top + 46), 23,
-         config.INK, bold=True)
-    body = fact.text
-    n = int(min(len(body), reveal_t * 95))
-    y = card.top + 90
-    for ln in wrap(body[:n], 15, card.w - 44):
-        text(surf, ln, (card.left + 22, y), 15, config.INK)
-        y += 22
+    if fact is None:
+        # nothing to reveal, so nothing to type out -- the card is complete at once
+        y = card.top + 90
+        for ln in wrap("You have learned everything this one has to teach. "
+                       "It killed you anyway.", 15, card.w - 44):
+            text(surf, ln, (card.left + 22, y), 15, config.INK)
+            y += 22
+        done = True
+    else:
+        text(surf, fact_title(fact, codex), (card.left + 22, card.top + 46), 23,
+             config.INK, bold=True)
+        body = fact.text
+        n = int(min(len(body), reveal_t * 95))
+        y = card.top + 90
+        for ln in wrap(body[:n], 15, card.w - 44):
+            text(surf, ln, (card.left + 22, y), 15, config.INK)
+            y += 22
+        done = n >= len(body)
 
-    if n >= len(body):
+    if done:
         text(surf, "the dungeon is unchanged.  you are not.",
              (cx, card.bottom + 30), 15, config.CORPSE, center=True)
         text(surf, "ENTER  go back down        K  kodex",

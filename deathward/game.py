@@ -471,7 +471,7 @@ class Game:
 
         if self.state == AUTOPSY:
             if k in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
-                if self.reveal_t * 95 < len(self.fact.text):
+                if self.fact is not None and self.reveal_t * 95 < len(self.fact.text):
                     self.reveal_t = 99.0        # first press finishes the typewriter
                 else:
                     self.new_run()

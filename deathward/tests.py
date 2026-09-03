@@ -37,6 +37,7 @@ import pygame  # noqa: E402
 
 from . import config  # noqa: E402
 from . import render  # noqa: E402
+from . import ui  # noqa: E402
 from .codex import FACTS, TOTAL_FACTS, Codex  # noqa: E402
 from .items import ALL_GEAR, BOOTS, CONSUMABLES, roll_floor_armour_magical  # noqa: E402
 from .world import World  # noqa: E402
@@ -552,6 +553,27 @@ class TestPoisonRemembersItsSource(unittest.TestCase):
         del old["poison_source"]
         restored = Player.from_dict(old)
         self.assertIsNone(restored.poison_source)
+
+
+class TestAutopsyWithNothingToTeach(unittest.TestCase):
+    """When the killer has nothing left to teach, reveal_on_death returns None.
+    The autopsy card used to read fact.tier and fact.text unconditionally, so an
+    empty lesson would have crashed the death screen -- the one screen a player
+    cannot avoid."""
+
+    def test_the_card_renders_with_no_fact(self):
+        pygame.init()
+        surf = pygame.Surface((config.W, config.H))
+        w = World(FakeSave(), seed=12)
+        w.player.gold = 40
+        ui.draw_autopsy(surf, w, w.codex, None, "rat", 99.0)   # must not raise
+
+    def test_the_card_still_renders_with_a_fact(self):
+        pygame.init()
+        surf = pygame.Surface((config.W, config.H))
+        w = World(FakeSave(), seed=12)
+        fact = FACTS["rat.rule"]
+        ui.draw_autopsy(surf, w, w.codex, fact, "rat", 99.0)   # must not raise
 
 
 class TestEveryDeathTeaches(unittest.TestCase):
