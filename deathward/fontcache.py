@@ -13,35 +13,50 @@
 # You should have received a copy of the GNU General Public License along with
 # this program. If not, see <https://www.gnu.org/licenses/>.
 
-"""The one monospace font, loaded once, shared by render.py and sprites.py.
+"""The monospace font, resolved differently depending on where we are running.
 
-pygame.font.SysFont("consolas,dejavusansmono,couriernew,monospace", ...) depends
-on the OS having a font registry to search by name. Native desktops usually have
-one -- but pygbag's WASM/Pyodide sandbox does not, so SysFont silently falls back
-to pygame's own bundled freesansbold.ttf instead of raising. That is a real,
-different, proportional (non-monospace) font, not just worse-rendered Consolas.
+Native desktops have an OS font registry, so pygame.font.SysFont can find real
+Consolas by name. It is better hinted than anything we bundle, and every size
+constant at every call site was tuned against it.
 
-Loading a bundled .ttf directly with pygame.font.Font sidesteps OS font-discovery
-entirely, so it renders identically everywhere: native Windows/Mac/Linux and the
-browser build alike. DejaVu Sans Mono is bundled (see assets/fonts/LICENSE-DejaVu.txt
-for its license) -- it was already the second name in the old SysFont fallback list,
-so it is the closest match to what most players already saw.
+pygbag's WASM/Pyodide sandbox has no such registry -- and SysFont does not raise
+there, it silently falls back to pygame's own freesansbold.ttf. That is a real,
+different, PROPORTIONAL font, which is ruinous in a game drawn entirely from
+glyphs on a grid. So the web build loads a bundled DejaVu Sans Mono directly with
+pygame.font.Font, which needs no font-discovery step at all. (Its license is in
+assets/fonts/LICENSE-DejaVu.txt; it was already the second name in the SysFont
+list below, so it is the closest match to what native players see.)
+
+The known cost of branching on platform rather than probing discovery: a native
+macOS without fc-list fails lookup the same silent way (pygame #3156) and lands on
+freesansbold rather than on the bundle. Mac is deferred; revisit with
+pygame.font.match_font if it ever ships.
 """
 
 import os
+import sys
 
 import pygame
 
 _FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "assets", "fonts", "DejaVuSansMono.ttf")
+                          "assets", "fonts", "DejaVuSansMono.ttf")
+
+_SYS_FONTS = "consolas,dejavusansmono,couriernew,monospace"
 
 _cache = {}
+
+
+def _is_web():
+    return sys.platform == "emscripten"
 
 
 def get_font(size, bold=False):
     key = (size, bold)
     if key not in _cache:
-        f = pygame.font.Font(_FONT_PATH, size)
-        f.set_bold(bold)
+        if _is_web():
+            f = pygame.font.Font(_FONT_PATH, size)
+            f.set_bold(bold)
+        else:
+            f = pygame.font.SysFont(_SYS_FONTS, size, bold=bold)
         _cache[key] = f
     return _cache[key]

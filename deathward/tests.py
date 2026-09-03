@@ -320,16 +320,46 @@ class TestWebStore(unittest.TestCase):
 
 
 class TestFontCache(unittest.TestCase):
-    """pygame.font.SysFont("consolas,dejavusansmono,...") depends on an OS font
-    registry that pygbag's WASM sandbox does not have, so it silently substitutes
-    pygame's own bundled freesansbold.ttf instead of raising -- a real, different,
-    non-monospace font, not just worse-rendered Consolas. fontcache.get_font()
-    loads a bundled .ttf directly instead, which needs no OS font-discovery step on
-    any platform."""
+    """fontcache is the font seam, split by platform the way webstore splits the
+    save. Native desktops have an OS font registry, so SysFont resolves real
+    Consolas -- which is what every size constant in the game was tuned against.
+    pygbag's WASM sandbox has no registry, and SysFont does not raise there: it
+    silently substitutes pygame's own proportional freesansbold.ttf, so the web
+    build loads the bundled DejaVu Sans Mono directly instead.
+
+    sys.platform is never "emscripten" under a real CPython test run, so the web
+    branch is exercised by monkeypatching it, exactly as TestWebStore does. Both
+    branches assert which LOADER was called rather than comparing rendered
+    metrics: a machine without Consolas resolves the SysFont list to DejaVu
+    anyway, which would leave a metrics comparison passing and failing for
+    reasons the test cannot tell apart."""
 
     def setUp(self):
         pygame.font.init()
+        from . import fontcache
+        fontcache._cache.clear()
+        self.addCleanup(fontcache._cache.clear)
 
+    def _spy(self, name):
+        """Wrap pygame.font.<name> so calls are recorded, restoring it after."""
+        calls = []
+        real = getattr(pygame.font, name)
+
+        def spy(*args, **kwargs):
+            calls.append((args, kwargs))
+            return real(*args, **kwargs)
+
+        setattr(pygame.font, name, spy)
+        self.addCleanup(setattr, pygame.font, name, real)
+        return calls
+
+    def _become_web(self):
+        import sys as sys_module
+        old = sys_module.platform
+        sys_module.platform = "emscripten"
+        self.addCleanup(setattr, sys_module, "platform", old)
+
+    # --- shared ------------------------------------------------------------
     def test_font_path_points_at_the_bundled_asset(self):
         from . import fontcache
         self.assertTrue(os.path.exists(fontcache._FONT_PATH),
@@ -344,16 +374,67 @@ class TestFontCache(unittest.TestCase):
 
     def test_bold_and_plain_are_cached_separately(self):
         from . import fontcache
-        plain = fontcache.get_font(18, bold=False)
-        bold = fontcache.get_font(18, bold=True)
-        self.assertIsNot(plain, bold)
-        self.assertFalse(plain.bold)
-        self.assertTrue(bold.bold)
+        self.assertIsNot(fontcache.get_font(18, bold=False),
+                         fontcache.get_font(18, bold=True))
 
-    def test_loads_the_bundled_ttf_not_pygames_default_fallback_font(self):
-        """The regression this exists to prevent: silently rendering with
-        pygame.font.Font(None, ...) (freesansbold) instead of our bundled ttf."""
+    # --- native branch -----------------------------------------------------
+    def test_native_resolves_through_the_os_font_registry(self):
         from . import fontcache
+        sysfont = self._spy("SysFont")
+        fontcache.get_font(21)
+        self.assertEqual(len(sysfont), 1, "native must go through SysFont")
+        args, kwargs = sysfont[0]
+        self.assertEqual(args[0], fontcache._SYS_FONTS)
+        self.assertEqual(args[1], 21)
+        self.assertFalse(kwargs["bold"])
+
+    def test_native_passes_bold_to_the_os_lookup(self):
+        from . import fontcache
+        sysfont = self._spy("SysFont")
+        fontcache.get_font(21, bold=True)
+        self.assertTrue(sysfont[0][1]["bold"],
+                        "bold must be asked of the OS, not synthesised after")
+
+    def test_native_never_touches_the_bundled_ttf(self):
+        """The regression this whole change reverts: a93868f handed native the
+        web's font. SysFont loads its resolved face through pygame.font.Font
+        internally, so this filters for OUR bundled path rather than asserting
+        Font went uncalled."""
+        from . import fontcache
+        loaded = self._spy("Font")
+        fontcache.get_font(19, bold=True)
+        bundled_loads = [a for a, _ in loaded if a and a[0] == fontcache._FONT_PATH]
+        self.assertEqual(bundled_loads, [],
+                         "native must not load the bundled font")
+
+    # --- web branch --------------------------------------------------------
+    def test_web_loads_the_bundled_ttf_directly(self):
+        from . import fontcache
+        self._become_web()
+        loaded = self._spy("Font")
+        fontcache.get_font(20)
+        self.assertEqual(loaded[0][0], (fontcache._FONT_PATH, 20))
+
+    def test_web_never_calls_sysfont(self):
+        """SysFont does not raise in the WASM sandbox -- it silently returns
+        pygame's proportional freesansbold. Calling it at all is the bug."""
+        from . import fontcache
+        self._become_web()
+        sysfont = self._spy("SysFont")
+        fontcache.get_font(20)
+        self.assertEqual(sysfont, [])
+
+    def test_web_synthesises_bold_on_the_bundled_face(self):
+        from . import fontcache
+        self._become_web()
+        self.assertTrue(fontcache.get_font(18, bold=True).bold)
+        self.assertFalse(fontcache.get_font(18, bold=False).bold)
+
+    def test_web_is_not_pygames_default_fallback_font(self):
+        """Moved from the one-font-everywhere design, where it guarded every
+        platform. Only the web branch loads a .ttf by path now."""
+        from . import fontcache
+        self._become_web()
         bundled = fontcache.get_font(20)
         default = pygame.font.Font(None, 20)
         self.assertNotEqual(bundled.size("Deathward"), default.size("Deathward"),
