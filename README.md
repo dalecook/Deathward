@@ -209,7 +209,7 @@ bought.** The dungeon puts its gold where its teeth are.
 python -m deathward.tests
 ```
 
-641 tests, including the two load-bearing proofs: hundreds of consecutive deaths
+842 tests, including the two load-bearing proofs: hundreds of consecutive deaths
 never repeat a lesson (and the telemetry tier is inexhaustible), and
 blind-vs-omniscient runs of the same seed produce identical dungeons. Plus: the
 stairs are reachable on every floor across many seeds, the Warden is never walled
@@ -234,9 +234,11 @@ deathward/
   player.py            the hero, buffs, blade-coating, enchantments
   vendor.py            the deep-floor merchant
   codex.py             the Kodex: knowledge tree + every-death-teaches guarantee
+  webstore.py          where the save lives: a file on disk, localStorage in the browser
   sprites.py           procedural polygon art (no asset files)
   keyrepeat.py         hold-to-walk
   cheats.py            Ctrl-chord test shortcuts
+  fontcache.py         the monospace font: real Consolas native, bundled DejaVu on the web
   render.py            drawing; what is drawn is a function of what is known
   ui.py                HUD, title, autopsy, kodex browser, log, victory
   tests.py             the proofs
