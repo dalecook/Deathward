@@ -37,10 +37,10 @@ and nothing else outside the standard library.
   them kills you.
 
 **A death teaches you about the thing that killed you, or it teaches you nothing**,
-and any lesson is never a thing you already knew. The reveal ladder runs: what death
-itself does → the *rule* of what killed you → its *tell* → its *counter* → the
-nearest unlearned thing on that floor → the true name of an item you died holding →
-a secret about yourself or the dungeon → intel on something you have not met.
+and any lesson is never a thing you already knew. The ladder is short: what death
+itself does, the first time → the *rule* of what killed you → its *tell* → its
+*counter*. When that is exhausted, the death teaches nothing. A lesson you did not
+earn from the thing that killed you is not a lesson.
 
 The instant a fact lands, the dungeon renders more of itself: the brute's wind-up
 appears as a red square on the tile it is about to crush, the spitter's firing line
