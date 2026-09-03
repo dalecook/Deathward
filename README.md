@@ -7,7 +7,7 @@ Twenty floors, permadeath, no experience points, no levelling. You start with a
 Rusted Shiv, Padded Rags and Worn Sandals, and the only thing that survives your
 death is what you learned by dying.
 
-Python + Pygame, standard library only. **No asset files** — every creature, wall,
+Python + Pygame, standard library only. **No art assets** — every creature, wall,
 potion and trap is drawn procedurally at runtime with polygons (supersampled and
 downscaled for anti-aliasing, then cached). A rat looks like a rat; the *angry* rat
 and the *plague* rat look like different animals, because on floor 2 the difference
