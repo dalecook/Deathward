@@ -207,7 +207,7 @@ bought.** The dungeon puts its gold where its teeth are.
 python -m deathward.tests
 ```
 
-851 tests, including the two load-bearing proofs: a death teaches you about the
+862 tests, including the two load-bearing proofs: a death teaches you about the
 thing that killed you or it teaches you nothing, and never repeats a lesson; and
 blind-vs-omniscient runs of the same seed produce identical dungeons. Plus: the
 stairs are reachable on every floor across many seeds, the Warden is never walled

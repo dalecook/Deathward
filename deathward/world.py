@@ -1128,6 +1128,7 @@ class World:
             p.phoenix = False
             p.hp = max(1, p.max_hp // 2)
             p.poison = p.frozen = p.confused = p.weak = 0
+            p.poison_source = None
             self.log("The ember in your chest FLARES. Death lets go of you -- this "
                      "once.", config.GOLD)
             self.add_fx("flash", color=(255, 170, 70), life=0.7)
@@ -1138,6 +1139,7 @@ class World:
             p.lastbreath_used = True
             p.hp = 1
             p.poison = p.frozen = p.confused = p.weak = 0
+            p.poison_source = None
             p.sanctuary = max(p.sanctuary, config.LASTBREATH_SANCTUARY)
             self.log("Your armour draws one last breath for you. Not yet.", config.GOLD)
             self.add_fx("flash", color=(230, 234, 240), life=0.6)
@@ -2051,6 +2053,7 @@ class World:
             # then knits you closed a little each turn.
             ailed = p.poison > 0 or p.weak > 0 or p.confused > 0
             p.poison = 0
+            p.poison_source = None
             p.weak = 0
             p.confused = 0
             p.regen = 20

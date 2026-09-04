@@ -52,7 +52,7 @@ class Fact:
     def __init__(self, key, subject, tier, title, text):
         self.key = key
         self.subject = subject        # monster/trap/item family, or self/dungeon
-        self.tier = tier              # rule | tell | counter | identity | secret | telemetry
+        self.tier = tier              # rule | tell | counter | identity | secret
         self.title = title
         self.text = text
 

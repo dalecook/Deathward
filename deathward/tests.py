@@ -689,6 +689,64 @@ class TestBannerMarksCompletion(unittest.TestCase):
                             "finishing a subject must change what is drawn")
 
 
+class TestCompletionCopyIsPinned(unittest.TestCase):
+    """The surface-comparison tests prove that SOMETHING changed, not that the
+    sentence is drawn -- the banner also grows 19px when a subject completes, so
+    deleting the text and keeping the height still passed one. These spy on
+    ui.text and assert the exact approved sentence reaches it."""
+
+    def _spy_text(self):
+        drawn = []
+        real = ui.text
+
+        def spy(surf, s, *args, **kwargs):
+            drawn.append(s)
+            return real(surf, s, *args, **kwargs)
+
+        ui.text = spy
+        self.addCleanup(setattr, ui, "text", real)
+        return drawn
+
+    def _finished(self):
+        codex = FakeSave()
+        codex.known = ["kobold.rule", "kobold.tell", "kobold.counter"]
+        return codex
+
+    def _unfinished(self):
+        codex = FakeSave()
+        codex.known = ["kobold.rule", "kobold.counter"]      # the tell is missing
+        return codex
+
+    def test_the_sentence_is_exactly_as_approved(self):
+        self.assertEqual(ui.COMPLETION_LINE,
+                         "You have learned everything this one has to teach.")
+
+    def test_the_autopsy_draws_it_when_a_subject_is_finished(self):
+        pygame.init()
+        w = World(FakeSave(), seed=12)
+        drawn = self._spy_text()
+        ui.draw_autopsy(pygame.Surface((config.W, config.H)), w, self._finished(),
+                        FACTS["kobold.counter"], "kobold", 99.0)
+        self.assertIn(ui.COMPLETION_LINE, drawn)
+
+    def test_the_banner_draws_it_when_a_subject_is_finished(self):
+        pygame.init()
+        drawn = self._spy_text()
+        ui.draw_learned_banner(pygame.Surface((config.W, config.H)),
+                               FACTS["kobold.counter"], 9.0, self._finished())
+        self.assertIn(ui.COMPLETION_LINE, drawn)
+
+    def test_neither_draws_it_while_a_tier_is_still_missing(self):
+        pygame.init()
+        w = World(FakeSave(), seed=12)
+        drawn = self._spy_text()
+        ui.draw_autopsy(pygame.Surface((config.W, config.H)), w, self._unfinished(),
+                        FACTS["kobold.counter"], "kobold", 99.0)
+        ui.draw_learned_banner(pygame.Surface((config.W, config.H)),
+                               FACTS["kobold.counter"], 9.0, self._unfinished())
+        self.assertNotIn(ui.COMPLETION_LINE, drawn)
+
+
 class TestDeathTeachesItsKiller(unittest.TestCase):
     """A death teaches about the thing that killed you, or it teaches nothing.
 

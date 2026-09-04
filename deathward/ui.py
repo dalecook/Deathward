@@ -25,6 +25,8 @@ from .codex import (CAUSE_NAME, FACT_LIST, KODEX_TABS, TIER_ORDER, TOTAL_FACTS,
 from .items import CONSUMABLES, gear_catalog
 from .render import font, glyph
 
+COMPLETION_LINE = "You have learned everything this one has to teach."
+
 KODEX_TAB_LABELS = ["Monsters", "Traps", "Scrolls", "Potions", "Gear", "Lore"]
 
 
@@ -495,7 +497,7 @@ def draw_learned_banner(surf, fact, age, codex):
         text(card, ln, (16, yy), 14, config.DIM)
         yy += 19
     if finished:
-        text(card, "You have learned everything this one has to teach.",
+        text(card, COMPLETION_LINE,
              (16, yy + 2), 13, config.CORPSE)
     surf.blit(card, (x, y))
 
@@ -667,7 +669,7 @@ def draw_autopsy(surf, world, codex, fact, cause, reveal_t):
     pygame.draw.rect(surf, (14, 16, 22), card, border_radius=6)
     pygame.draw.rect(surf, config.PLAYER, card, 2, border_radius=6)
 
-    tag = "TELEMETRY RECOVERED" if fact.tier == "telemetry" else "NEW KODEX ENTRY"
+    tag = "NEW KODEX ENTRY"
     head = pygame.Surface((card.w, 26), pygame.SRCALPHA)
     head.fill((*config.PLAYER, 26))
     surf.blit(head, card.topleft)
@@ -689,7 +691,7 @@ def draw_autopsy(surf, world, codex, fact, cause, reveal_t):
         return                       # still typing: the closing beats wait their turn
 
     if fact.tier in TIER_ORDER and codex.subject_complete(fact.subject):
-        text(surf, "You have learned everything this one has to teach.",
+        text(surf, COMPLETION_LINE,
              (card.left + 22, y + 10), 15, config.CORPSE)
 
     text(surf, "the dungeon is unchanged.  you are not.",
