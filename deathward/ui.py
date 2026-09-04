@@ -470,7 +470,8 @@ def draw_learned_banner(surf, fact, age, codex):
 
     # never truncate a lesson mid-sentence -- the card grows to fit it
     lines = wrap(fact.text, 14, 560)
-    h = 96 + len(lines) * 19
+    finished = fact.tier in TIER_ORDER and codex.subject_complete(fact.subject)
+    h = 96 + len(lines) * 19 + (19 if finished else 0)
     w = 620
     x = (config.W - w) // 2
     y = int(-h + (18 + h) * slide)
@@ -493,6 +494,9 @@ def draw_learned_banner(surf, fact, age, codex):
     for ln in lines:
         text(card, ln, (16, yy), 14, config.DIM)
         yy += 19
+    if finished:
+        text(card, "You have learned everything this one has to teach.",
+             (16, yy + 2), 13, config.CORPSE)
     surf.blit(card, (x, y))
 
 

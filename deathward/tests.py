@@ -662,6 +662,33 @@ class TestAutopsyWithNothingToTeach(unittest.TestCase):
                             "finishing a subject must change what is drawn")
 
 
+class TestBannerMarksCompletion(unittest.TestCase):
+    """Kills, sprung traps, identified items and the Potion of Insight all reveal
+    through this one banner -- only deaths use the autopsy card. Marking
+    completion on the card alone would leave most completions silent: traps
+    finish on a THIRD springing, which is ordinary play."""
+
+    def test_the_entry_that_finishes_a_subject_says_so(self):
+        """Same fact and the same number of known facts, so the banner's own
+        progress counter reads identically. The only variable is completion."""
+        pygame.init()
+        fact = FACTS["kobold.counter"]
+
+        unfinished = FakeSave()
+        unfinished.known = ["kobold.rule", "kobold.counter", "rat.rule"]
+        a = pygame.Surface((config.W, config.H))
+        ui.draw_learned_banner(a, fact, 9.0, unfinished)
+
+        finished = FakeSave()
+        finished.known = ["kobold.rule", "kobold.tell", "kobold.counter"]
+        b = pygame.Surface((config.W, config.H))
+        ui.draw_learned_banner(b, fact, 9.0, finished)
+
+        self.assertNotEqual(pygame.image.tostring(a, "RGB"),
+                            pygame.image.tostring(b, "RGB"),
+                            "finishing a subject must change what is drawn")
+
+
 class TestDeathTeachesItsKiller(unittest.TestCase):
     """A death teaches about the thing that killed you, or it teaches nothing.
 
