@@ -20,7 +20,8 @@ import math
 import pygame
 
 from . import config
-from .codex import CAUSE_NAME, FACT_LIST, KODEX_TABS, TOTAL_FACTS, fact_title, facts_in
+from .codex import (CAUSE_NAME, FACT_LIST, KODEX_TABS, TIER_ORDER, TOTAL_FACTS,
+                    fact_title, facts_in)
 from .items import CONSUMABLES, gear_catalog
 from .render import font, glyph
 
@@ -647,13 +648,22 @@ def draw_autopsy(surf, world, codex, fact, cause, reveal_t):
     text(surf, "death no. %d   |   %d things killed this run   |   the gold stays with the body"
          % (codex.deaths, world.run_kills), (cx, 122), 13, config.DIM, center=True)
 
+    if fact is None:
+        # No lesson, no card. The absence IS the message: a bordered box
+        # announcing nothing takes the same space and ceremony as a real entry
+        # and delivers none. The closing lines move up into the space the card
+        # would have filled, so the screen reads as short rather than as broken.
+        text(surf, "the dungeon is unchanged.  you are not.",
+             (cx, 198), 15, config.CORPSE, center=True)
+        text(surf, "ENTER  go back down        K  kodex",
+             (cx, 234), 17, config.PLAYER, center=True, bold=True)
+        return
+
     card = pygame.Rect(150, 168, config.W - 300, 250)
     pygame.draw.rect(surf, (14, 16, 22), card, border_radius=6)
     pygame.draw.rect(surf, config.PLAYER, card, 2, border_radius=6)
 
-    tag = ("NOTHING NEW" if fact is None
-           else "TELEMETRY RECOVERED" if fact.tier == "telemetry"
-           else "NEW KODEX ENTRY")
+    tag = "TELEMETRY RECOVERED" if fact.tier == "telemetry" else "NEW KODEX ENTRY"
     head = pygame.Surface((card.w, 26), pygame.SRCALPHA)
     head.fill((*config.PLAYER, 26))
     surf.blit(head, card.topleft)
@@ -662,30 +672,26 @@ def draw_autopsy(surf, world, codex, fact, cause, reveal_t):
     text(surf, "%d/%d" % (known, total), (card.right - 16, card.top + 13), 13,
          config.DIM, right=True)
 
-    if fact is None:
-        # nothing to reveal, so nothing to type out -- the card is complete at once
-        y = card.top + 90
-        for ln in wrap("You have learned everything this one has to teach. "
-                       "It killed you anyway.", 15, card.w - 44):
-            text(surf, ln, (card.left + 22, y), 15, config.INK)
-            y += 22
-        done = True
-    else:
-        text(surf, fact_title(fact, codex), (card.left + 22, card.top + 46), 23,
-             config.INK, bold=True)
-        body = fact.text
-        n = int(min(len(body), reveal_t * 95))
-        y = card.top + 90
-        for ln in wrap(body[:n], 15, card.w - 44):
-            text(surf, ln, (card.left + 22, y), 15, config.INK)
-            y += 22
-        done = n >= len(body)
+    text(surf, fact_title(fact, codex), (card.left + 22, card.top + 46), 23,
+         config.INK, bold=True)
+    body = fact.text
+    n = int(min(len(body), reveal_t * 95))
+    y = card.top + 90
+    for ln in wrap(body[:n], 15, card.w - 44):
+        text(surf, ln, (card.left + 22, y), 15, config.INK)
+        y += 22
 
-    if done:
-        text(surf, "the dungeon is unchanged.  you are not.",
-             (cx, card.bottom + 30), 15, config.CORPSE, center=True)
-        text(surf, "ENTER  go back down        K  kodex",
-             (cx, card.bottom + 66), 17, config.PLAYER, center=True, bold=True)
+    if n < len(body):
+        return                       # still typing: the closing beats wait their turn
+
+    if fact.tier in TIER_ORDER and codex.subject_complete(fact.subject):
+        text(surf, "You have learned everything this one has to teach.",
+             (card.left + 22, y + 10), 15, config.CORPSE)
+
+    text(surf, "the dungeon is unchanged.  you are not.",
+         (cx, card.bottom + 30), 15, config.CORPSE, center=True)
+    text(surf, "ENTER  go back down        K  kodex",
+         (cx, card.bottom + 66), 17, config.PLAYER, center=True, bold=True)
 
 
 def _kodex_tab_count(codex, cat):

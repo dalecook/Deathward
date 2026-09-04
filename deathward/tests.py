@@ -621,6 +621,46 @@ class TestAutopsyWithNothingToTeach(unittest.TestCase):
         fact = FACTS["rat.rule"]
         ui.draw_autopsy(surf, w, w.codex, fact, "rat", 99.0)   # must not raise
 
+    def test_a_death_with_no_lesson_draws_no_card(self):
+        """The card's 2px border runs down x=150 through its whole height, so a
+        pixel there is border when a card is drawn and plain background when it
+        is not. Compared against x=20 on the same row, which is background in
+        both cases, so this asserts nothing about specific colour values."""
+        pygame.init()
+        w = World(FakeSave(), seed=12)
+
+        lesson = pygame.Surface((config.W, config.H))
+        ui.draw_autopsy(lesson, w, w.codex, FACTS["rat.rule"], "rat", 99.0)
+        self.assertNotEqual(lesson.get_at((150, 300)), lesson.get_at((20, 300)),
+                            "a lesson must draw the card border")
+
+        silence = pygame.Surface((config.W, config.H))
+        ui.draw_autopsy(silence, w, w.codex, None, "rat", 99.0)
+        self.assertEqual(silence.get_at((150, 300)), silence.get_at((20, 300)),
+                         "no lesson must draw no card at all")
+
+    def test_the_entry_that_finishes_a_subject_says_so(self):
+        """Same fact, same number of known facts -- so the progress counter reads
+        identically and cannot be what differs. The only variable is whether the
+        kobold is finished."""
+        pygame.init()
+        w = World(FakeSave(), seed=12)
+        fact = FACTS["kobold.counter"]
+
+        unfinished = FakeSave()
+        unfinished.known = ["kobold.rule", "kobold.counter", "rat.rule"]
+        a = pygame.Surface((config.W, config.H))
+        ui.draw_autopsy(a, w, unfinished, fact, "kobold", 99.0)
+
+        finished = FakeSave()
+        finished.known = ["kobold.rule", "kobold.tell", "kobold.counter"]
+        b = pygame.Surface((config.W, config.H))
+        ui.draw_autopsy(b, w, finished, fact, "kobold", 99.0)
+
+        self.assertNotEqual(pygame.image.tostring(a, "RGB"),
+                            pygame.image.tostring(b, "RGB"),
+                            "finishing a subject must change what is drawn")
+
 
 class TestDeathTeachesItsKiller(unittest.TestCase):
     """A death teaches about the thing that killed you, or it teaches nothing.
