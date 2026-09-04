@@ -969,6 +969,23 @@ class Codex:
     def progress(self):
         return len(self.known), TOTAL_FACTS
 
+    def subject_complete(self, subject):
+        """True when every tier this subject has is known.
+
+        Monsters have three (rule, tell, counter); traps have two, because there
+        is nothing to read on a pressure plate. Asked of a fact just revealed,
+        this answers "was that the last thing this one had to teach?"
+
+        Deliberately NOT the same as "that was the counter". reveal_random -- the
+        Potion of Insight -- grants any unlearned fact regardless of tier order,
+        so it can hand over a counter while the tell is still missing. A subject
+        with no tiers at all is never complete: all() over an empty sequence is
+        True, which would otherwise report every non-subject as finished.
+        """
+        keys = ["%s.%s" % (subject, tier) for tier in TIER_ORDER
+                if "%s.%s" % (subject, tier) in FACTS]
+        return bool(keys) and all(k in self.known for k in keys)
+
     # --- the magical-weapon ledger ---------------------------------------
     def record_magical_placed(self, key, depth, x, y, bonus):
         """A magical weapon has entered the world (rolled at generation). It never rolls

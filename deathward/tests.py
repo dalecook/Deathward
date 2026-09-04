@@ -554,6 +554,53 @@ class TestPoisonRemembersItsSource(unittest.TestCase):
         self.assertIsNone(restored.poison_source)
 
 
+class TestSubjectCompletion(unittest.TestCase):
+    """The line "You have learned everything this one has to teach" hangs on this
+    predicate. It asks whether every tier a subject HAS is known -- deliberately
+    not whether the counter was just granted, because a Potion of Insight grants
+    any unlearned fact regardless of tier order and can hand over a counter while
+    the tell is still missing."""
+
+    def test_a_monster_needs_all_three_tiers(self):
+        codex = FakeSave()
+        self.assertFalse(codex.subject_complete("kobold"))
+        codex.known.append("kobold.rule")
+        self.assertFalse(codex.subject_complete("kobold"))
+        codex.known.append("kobold.tell")
+        self.assertFalse(codex.subject_complete("kobold"))
+        codex.known.append("kobold.counter")
+        self.assertTrue(codex.subject_complete("kobold"))
+
+    def test_a_trap_completes_without_a_tell_it_never_had(self):
+        """Traps have rule and counter only -- there is nothing to read on a
+        pressure plate. Demanding a tell would leave every trap permanently
+        incomplete and the line would never fire for one."""
+        codex = FakeSave()
+        self.assertNotIn("gas.tell", FACTS, "this test's premise")
+        codex.known.append("gas.rule")
+        self.assertFalse(codex.subject_complete("gas"))
+        codex.known.append("gas.counter")
+        self.assertTrue(codex.subject_complete("gas"))
+
+    def test_a_counter_granted_out_of_order_is_not_completion(self):
+        """The Potion of Insight case, and the whole reason this is a predicate
+        rather than a test for the counter tier."""
+        codex = FakeSave()
+        codex.known.append("kobold.rule")
+        codex.known.append("kobold.counter")       # insight jumped the queue
+        self.assertFalse(codex.subject_complete("kobold"))
+        codex.known.append("kobold.tell")          # the real last thing
+        self.assertTrue(codex.subject_complete("kobold"))
+
+    def test_a_subject_with_no_tiers_is_never_complete(self):
+        """all() over an empty sequence is True, so without a guard every string
+        that is not a subject -- "poison", a typo, anything -- would report
+        complete and the line would fire on facts that have no tiers."""
+        codex = FakeSave()
+        self.assertFalse(codex.subject_complete("poison"))
+        self.assertFalse(codex.subject_complete("nonesuch"))
+
+
 class TestAutopsyWithNothingToTeach(unittest.TestCase):
     """When the killer has nothing left to teach, reveal_on_death returns None.
     The autopsy card used to read fact.tier and fact.text unconditionally, so an
