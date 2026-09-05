@@ -576,8 +576,9 @@ class TestTheCutTutorials(unittest.TestCase):
         path -- 36 item identities by using the item, 52 monster and trap tiers
         by dying, killing or springing, self.corpse on a first death,
         self.the_deep_is_patient on waking after one, and three collector awards
-        by completing a set. Before this change five entries had no path at all
-        and the Kodex could not be finished."""
+        by completing a set. Before this change five entries had no path a player
+        could aim at -- only a Potion of Insight, which grants any unlearned fact
+        at random, could ever have produced them."""
         self.assertEqual(TOTAL_FACTS, 93)
         self.assertEqual(len(FACT_LIST), 93)
 
@@ -621,6 +622,40 @@ class TestSealedEntriesSayHowToEarnThem(unittest.TestCase):
         for something only using the item can teach."""
         for cat in ("scrolls", "potions"):
             self.assertNotIn("dying", ui._kodex_sealed_how(FACTS["id.ochre"], cat))
+
+
+class TestTheKodexBrowserUsesTheHints(unittest.TestCase):
+    """The hint tests above prove _kodex_sealed_how returns the right line. This
+    proves draw_codex actually asks it. Reverting the call site to the old
+    hard-coded "written by dying" left the whole suite green, because nothing
+    rendered the browser -- the correct helper was simply never reached."""
+
+    def _spy_text(self):
+        drawn = []
+        real = ui.text
+
+        def spy(surf, s, *args, **kwargs):
+            drawn.append(s)
+            return real(surf, s, *args, **kwargs)
+
+        ui.text = spy
+        self.addCleanup(setattr, ui, "text", real)
+        return drawn
+
+    def _draw(self, tab):
+        from .codex import KODEX_TABS
+        pygame.init()
+        surf = pygame.Surface((config.W, config.H))
+        drawn = self._spy_text()
+        ui.draw_codex(surf, FakeSave(), 0, 0.0, tab=KODEX_TABS.index(tab))
+        return drawn
+
+    def test_the_scrolls_tab_tells_you_to_read(self):
+        drawn = self._draw("scrolls")
+        self.assertIn("this entry is written by reading it.", drawn)
+        self.assertNotIn("this entry is written by dying.", drawn,
+                         "the browser must ask _kodex_sealed_how, not print one "
+                         "hard-coded line for every tab")
 
 
 class TestSubjectCompletion(unittest.TestCase):

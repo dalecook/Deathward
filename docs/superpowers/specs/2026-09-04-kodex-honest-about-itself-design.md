@@ -12,9 +12,11 @@ Two faults, both about the Kodex misdescribing itself.
 **1. Five facts nobody can earn.** `self.energy`, `self.armour`, `self.stairs`, `dungeon.hoard`
 and `dungeon.deep` are system tutorials — turns are a currency, armour is subtraction, down is
 free, hoards are guarded, why you cannot see. They were granted only by the fallback cascade
-that `dd40f71` deleted, so nothing grants them now. The agreed plan was to give them experience
-triggers; the decision instead is to **cut them**. They explain genre conventions a roguelike
-player already brings with them, and the game is stronger for not stopping to teach what its
+that `dd40f71` deleted, so they had no path a player could aim at — only a Potion of Insight,
+which grants any unlearned fact at random, could ever have produced them. The agreed plan was
+to give them experience triggers; the decision instead is to **cut them**. They explain genre
+conventions a roguelike player already brings with them, and the game is stronger for not
+stopping to teach what its
 audience knows.
 
 **2. The sealed hint is wrong on 39 of 93 entries.** An unlearned entry renders as:

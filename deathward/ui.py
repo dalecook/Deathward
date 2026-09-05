@@ -735,6 +735,10 @@ def _kodex_sealed_how(f, cat):
     if cat == "potions":
         return "this entry is written by drinking it."
     if cat == "traps":
+        # Knowingly imprecise: the alarm rune does no damage, so you cannot die to
+        # one and this line's second clause cannot happen for its two entries. Shown
+        # to the user 2026-09-04 and accepted rather than special-cased -- do not
+        # "fix" it without asking. The other four traps all kill.
         return "this entry is written by springing it, or by dying to it."
     if cat == "lore":
         if f.key.startswith("self.magical"):
