@@ -68,19 +68,6 @@ FACT_LIST = [
        "keeps what it was carrying. Descend to that depth again and your own corpse "
        "will be waiting with your gold and the weapon still in its hand. Every run "
        "you lose is a cache you leave for the next one."),
-    _f("self.energy", "self", "secret", "TURNS ARE A CURRENCY",
-       "Nothing here moves in real time. Everything -- you, the rats, the thing in "
-       "the dark -- spends the same currency: turns. Boots are not a cosmetic. Fast "
-       "boots literally buy you extra actions between a monster's swings. Heavy "
-       "armour sells them back."),
-    _f("self.armour", "self", "secret", "ARMOUR IS SUBTRACTION",
-       "Armour does not reduce damage by a fraction. It subtracts a flat number from "
-       "EVERY hit. Against one big monster it barely matters. Against six small ones "
-       "it is the difference between a scratch and a grave. Plate is for swarms."),
-    _f("self.stairs", "self", "secret", "DOWN IS FREE",
-       "The stairs never ask for a toll. You may leave any floor at any moment, with "
-       "any fraction of it explored. Greed is the only thing that keeps you on a "
-       "floor -- and greed is a choice, not a rule."),
     _f("self.magical_collector", "self", "secret",
        "EVERY BLADE THE DEEP STILL HOLDS",
        "You have drawn every magical weapon this dungeon will yield -- the whole rare "
@@ -558,17 +545,6 @@ FACT_LIST = [
        "fist, not a ray, not the beholder's gaze. They can still come, you can still "
        "act, but you cannot be touched. Read it to walk out through a crowd, revive a "
        "plan, or stand on the stairs unhurried."),
-
-    # --- DUNGEON ---------------------------------------------------------
-    _f("dungeon.hoard", "dungeon", "secret", "THE HOARDS ARE GUARDED",
-       "Rooms that glitter are not gifts. The dungeon puts its gold where its teeth are "
-       "-- the denser the treasure, the worse the thing sleeping on it. If a room looks "
-       "generous, count the exits before you take a step into it."),
-    _f("dungeon.deep", "dungeon", "secret", "WHY YOU CANNOT SEE",
-       "The dark down here is not a lack of torches. It is a lack of understanding. The "
-       "dungeon draws exactly as much of itself as you have earned -- a thing you do not "
-       "know is drawn as a hole, a trap you have never triggered is drawn as clean "
-       "floor. You are not lighting this place up. You are learning it."),
 ]
 
 FACTS = {f.key: f for f in FACT_LIST}
@@ -587,8 +563,8 @@ def category_of(fact):
         flavor = fact.key.split(".", 1)[1]
         c = CONSUMABLES.get(flavor)
         return "scrolls" if (c and c.kind == "scroll") else "potions"
-    if fact.subject in ("self", "dungeon"):
-        return "lore"
+    if fact.subject == "self":
+        return "lore"       # the dungeon subject went with dungeon.hoard/.deep
     from .traps import TRAP_NAMES
     if fact.subject in TRAP_NAMES:
         return "traps"
@@ -634,14 +610,6 @@ KILL_THRESHOLD = {"rule": 1, "tell": 3, "counter": 8}
 # you learn what it is, and from that moment every trap of that kind is drawn on your
 # floor, in this run and every run after it, forever. The counter takes three.
 TRAP_THRESHOLD = {"rule": 1, "counter": 3}
-
-# Granted by nothing, for now. reveal_on_death used to hand these out when a death
-# had nothing else to teach -- but they are system tutorials, not lore about your
-# killer, so they left with the cascade. They are waiting on experience triggers of
-# their own (take the stairs down, watch armour absorb a blow), which is its own
-# piece of work. Until then these five are unobtainable and sit sealed in the Kodex.
-SELF_SECRETS = ["self.energy", "self.armour", "self.stairs"]
-DUNGEON_SECRETS = ["dungeon.hoard", "dungeon.deep"]
 
 CAUSE_NAME = {
     "angry_rat": "an angry rat",

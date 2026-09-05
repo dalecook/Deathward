@@ -38,7 +38,7 @@ import pygame  # noqa: E402
 from . import config  # noqa: E402
 from . import render  # noqa: E402
 from . import ui  # noqa: E402
-from .codex import FACTS, TOTAL_FACTS, Codex  # noqa: E402
+from .codex import FACT_LIST, FACTS, TOTAL_FACTS, Codex  # noqa: E402
 from .items import ALL_GEAR, BOOTS, CONSUMABLES, roll_floor_armour_magical  # noqa: E402
 from .world import World  # noqa: E402
 
@@ -552,6 +552,39 @@ class TestPoisonRemembersItsSource(unittest.TestCase):
         del old["poison_source"]
         restored = Player.from_dict(old)
         self.assertIsNone(restored.poison_source)
+
+
+class TestTheCutTutorials(unittest.TestCase):
+    """Five facts -- TURNS ARE A CURRENCY, ARMOUR IS SUBTRACTION, DOWN IS FREE,
+    THE HOARDS ARE GUARDED, WHY YOU CANNOT SEE -- were cut on 2026-09-04.
+
+    They were not lost by accident. They were system tutorials granted only by
+    the fallback cascade that a death used to run when it had nothing else to
+    teach; when that cascade was deleted they became unobtainable. The choice
+    was between giving them experience triggers and dropping them, and they
+    explain genre conventions a roguelike player already arrives with. Do not
+    restore them without asking."""
+
+    def test_the_five_tutorials_are_gone(self):
+        for key in ("self.energy", "self.armour", "self.stairs",
+                    "dungeon.hoard", "dungeon.deep"):
+            self.assertNotIn(key, FACTS, "%s was cut deliberately" % key)
+
+    def test_the_kodex_is_ninety_three_entries(self):
+        """Pinned so an accidental re-add is caught. What matters is not the
+        number but that it is REACHABLE: every remaining fact has a live grant
+        path -- 36 item identities by using the item, 52 monster and trap tiers
+        by dying, killing or springing, self.corpse on a first death,
+        self.the_deep_is_patient on waking after one, and three collector awards
+        by completing a set. Before this change five entries had no path at all
+        and the Kodex could not be finished."""
+        self.assertEqual(TOTAL_FACTS, 93)
+        self.assertEqual(len(FACT_LIST), 93)
+
+    def test_the_dungeon_subject_is_gone_entirely(self):
+        """dungeon.hoard and dungeon.deep were the only two facts about the
+        dungeon itself, so the whole subject left with them."""
+        self.assertEqual([f.key for f in FACT_LIST if f.subject == "dungeon"], [])
 
 
 class TestSubjectCompletion(unittest.TestCase):
@@ -6434,7 +6467,6 @@ class TestTheKodexTabs(unittest.TestCase):
         self.assertEqual(category_of(a_fact("rat")), "monsters")
         self.assertEqual(category_of(a_fact("dart")), "traps")
         self.assertEqual(category_of(a_fact("self")), "lore")
-        self.assertEqual(category_of(a_fact("dungeon")), "lore")
         self.assertEqual(category_of(FACTS["id.kesh"]), "scrolls")   # KESH is a scroll
         self.assertEqual(category_of(FACTS["id.ochre"]), "potions")  # ochre is a potion
 
