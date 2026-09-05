@@ -587,6 +587,42 @@ class TestTheCutTutorials(unittest.TestCase):
         self.assertEqual([f.key for f in FACT_LIST if f.subject == "dungeon"], [])
 
 
+class TestSealedEntriesSayHowToEarnThem(unittest.TestCase):
+    """Every sealed entry used to read "this entry is written by dying." That was
+    true when a death could hand you anything on the floor. Since a death teaches
+    only its killer, it is false for the 36 scroll and potion identities -- those
+    are earned solely by reading or drinking the thing -- and it was already false
+    for the three collector awards."""
+
+    def test_each_category_gets_its_own_hint(self):
+        cases = [
+            (FACTS["kobold.rule"], "monsters",
+             "this entry is written by dying to it, or by killing enough of them."),
+            (FACTS["gas.rule"], "traps",
+             "this entry is written by springing it, or by dying to it."),
+            (FACTS["id.kesh"], "scrolls", "this entry is written by reading it."),
+            (FACTS["id.ochre"], "potions", "this entry is written by drinking it."),
+            (FACTS["self.magical_collector"], "lore",
+             "this entry is written by collecting every one."),
+            (FACTS["self.corpse"], "lore", "this entry is written by dying."),
+        ]
+        for fact, cat, expected in cases:
+            self.assertEqual(ui._kodex_sealed_how(fact, cat), expected,
+                             "wrong hint for %s in the %s tab" % (fact.key, cat))
+
+    def test_all_three_collector_awards_ask_you_to_collect(self):
+        for key in ("self.magical_collector", "self.magical_boot_collector",
+                    "self.magical_armour_collector"):
+            self.assertEqual(ui._kodex_sealed_how(FACTS[key], "lore"),
+                             "this entry is written by collecting every one.")
+
+    def test_no_item_identity_tells_you_to_die_for_it(self):
+        """The specific regression: one shared hint sent 36 entries to their death
+        for something only using the item can teach."""
+        for cat in ("scrolls", "potions"):
+            self.assertNotIn("dying", ui._kodex_sealed_how(FACTS["id.ochre"], cat))
+
+
 class TestSubjectCompletion(unittest.TestCase):
     """The line "You have learned everything this one has to teach" hangs on this
     predicate. It asks whether every tier a subject HAS is known -- deliberately

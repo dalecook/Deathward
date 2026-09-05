@@ -717,8 +717,30 @@ def _kodex_sealed_label(f, cat):
     if cat == "traps":
         return "a trap you have not sprung"
     if cat == "lore":
-        return "yourself" if f.subject == "self" else "the dungeon"
+        return "yourself"       # the dungeon subject went with dungeon.hoard/.deep
     return "the " + f.subject.replace("_", " ")       # a monster
+
+
+def _kodex_sealed_how(f, cat):
+    """How to earn this entry -- printed under every sealed one.
+
+    This used to be one hard-coded "this entry is written by dying", which was
+    true when a death could hand you anything. Now that a death teaches only its
+    killer, an item's true name is earned solely by using the item, and the
+    collector awards by completing a set. A Kodex that tells you the wrong way to
+    fill it in is worse than one that says nothing.
+    """
+    if cat == "scrolls":
+        return "this entry is written by reading it."
+    if cat == "potions":
+        return "this entry is written by drinking it."
+    if cat == "traps":
+        return "this entry is written by springing it, or by dying to it."
+    if cat == "lore":
+        if f.key.startswith("self.magical"):
+            return "this entry is written by collecting every one."
+        return "this entry is written by dying."
+    return "this entry is written by dying to it, or by killing enough of them."
 
 
 def draw_codex(surf, codex, scroll, t, tab=0):
@@ -783,7 +805,7 @@ def draw_codex(surf, codex, scroll, t, tab=0):
             else:
                 line("[ SEALED ]  something about %s" % _kodex_sealed_label(f, cat),
                      14, config.FAINT, bold=True)
-                line("this entry is written by dying.", 13, (52, 56, 70), indent=18)
+                line(_kodex_sealed_how(f, cat), 13, (52, 56, 70), indent=18)
             y += 8
         if cat == "lore":
             for tm in codex.telemetry:
